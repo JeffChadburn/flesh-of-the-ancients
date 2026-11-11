@@ -268,13 +268,19 @@ export class Story {
     const a = this.env.wildlife()?.tryHit(feet, fx, fz, dmg);
     this.lastHit = a;
     if (!a) return false;
+    this.creditAnimal(a);
+    return true;
+  }
+
+  /** Story bookkeeping for a hit animal (spear or arrow). */
+  creditAnimal(a) {
+    if (!this.active) return;
     if (!a.alive) {
       if (a.kind === "deer") this.surv.stats.deer++; else this.surv.stats.small++;
       this.env.ui.toast(`You killed a ${a.kind}`, "good");
       if (!this.surv.skills.has("tracking")) { this.surv.skills.add("tracking"); this.env.ui.toast("Skill learned: Basic Tracking (animals on the map)", "skill"); }
     } else this.env.ui.toast(`The ${a.kind} is wounded and bolts!`);
     this._log({ e: "hitAnimal", kind: a.kind, dead: !a.alive });
-    return true;
   }
 
   // ---------------- crafting / inventory ----------------

@@ -278,6 +278,33 @@ export class CaveAudio {
     s.connect(f); f.connect(g); g.connect(this.master); s.start(t);
   }
 
+  /** Bow release: a short plucked twang plus a breathy whoosh. */
+  bowShot() {
+    if (!this.ctx || this.muted) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const o = ctx.createOscillator(); o.type = "triangle"; o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(90, t + 0.18);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.35, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    o.connect(g); g.connect(this.master); o.start(t); o.stop(t + 0.25);
+    const b = ctx.createBuffer(1, ctx.sampleRate * 0.3, ctx.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.07));
+    const s = ctx.createBufferSource(); s.buffer = b;
+    const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 2400; f.Q.value = 0.8;
+    const g2 = ctx.createGain(); g2.gain.value = 0.18;
+    s.connect(f); f.connect(g2); g2.connect(this.master); s.start(t);
+  }
+
+  /** Arrow impact: a meaty thud on a creature, a dry crack on rock / ground. */
+  arrowHit(flesh = false) {
+    if (!this.ctx || this.muted) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const b = ctx.createBuffer(1, ctx.sampleRate * 0.25, ctx.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * (flesh ? 0.05 : 0.018)));
+    const s = ctx.createBufferSource(); s.buffer = b;
+    const f = ctx.createBiquadFilter(); f.type = flesh ? "lowpass" : "bandpass"; f.frequency.value = flesh ? 500 : 1800; f.Q.value = 0.9;
+    const g = ctx.createGain(); g.gain.value = flesh ? 0.7 : 0.35;
+    s.connect(f); f.connect(g); g.connect(this.master); s.start(t);
+  }
+
   _owl() {
     const ctx = this.ctx, t = ctx.currentTime;
     for (const [d, f, len] of [[0, 420, 0.32], [0.55, 390, 0.6]]) {

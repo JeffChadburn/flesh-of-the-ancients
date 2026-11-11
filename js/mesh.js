@@ -194,7 +194,13 @@ function addTriplanar(mat, { scale = 0.42, bump = 0.45, mud = 0.55, wetness = 1 
 let backMat = null;
 function backfillMaterial() {
   if (!backMat) {
-    backMat = new THREE.MeshBasicMaterial({ color: 0x1c150f, side: THREE.BackSide, depthWrite: false, vertexColors: true });
+    // Lit like rock (round 9): where passages overlap and a tube is clipped, you look at the other
+    // tube's outer face; drawn dark-unlit it showed as black holes / shards under the brighter torch.
+    ensureMaps();
+    backMat = addTriplanar(new THREE.MeshStandardMaterial({
+      map: sharedTexture, color: 0xa89a86, roughness: 0.85, metalness: 0.02,
+      vertexColors: true, side: THREE.BackSide, depthWrite: false,
+    }));
   }
   return backMat;
 }
@@ -439,7 +445,7 @@ export function prepareCavePieces(cave) {
             // A leg from a hall's own station keeps its floor inside the hall: a rock ramp up to the mouth.
             const floorPart = Math.sin(ang) < -0.3;
             let io = halls.length ? insideHall(x, y, z, floorPart ? (a.kind === "cavern" ? a.id : b.kind === "cavern" ? b.id : null) : null) : false;
-            if (!io && others.length) for (const O of others) if (insideLeg(O, x, y, z, 0.99)) { io = true; break; }
+            if (!io && others.length) for (const O of others) if (insideLeg(O, x, y, z, 0.86)) { io = true; break; } // round 9: was 0.99 -> seam holes; now walls overlap a little
             inOther.push(io);
           }
           rings.push(ring);
@@ -534,7 +540,7 @@ export function prepareCavePieces(cave) {
           if (dy > 0) y *= k;
           const X = p.x + hx, Y = p.y + y, Z = p.z + hz;
           let inAny = false;
-          for (const L of near) if (insideLeg(L, X, Y, Z, 0.97)) { inAny = true; break; }
+          for (const L of near) if (insideLeg(L, X, Y, Z, 0.9)) { inAny = true; break; }
           if (!inAny && halls.length && insideHall(X, Y, Z, st.id)) inAny = true;
           if (cavern && dy < -0.25) inAny = false; // a hall's floor is always solid rock
           outside.push(!inAny);

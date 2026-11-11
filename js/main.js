@@ -9,6 +9,7 @@ import { hashSeed } from "./rng.js";
 import { addFormations } from "./formations.js";
 import { addWater } from "./water.js";
 import { CaveFauna } from "./cavefauna.js";
+import { Archery } from "./archery.js";
 import { CaveAudio } from "./audio.js";
 import { Caveman } from "./caveman.js";
 import { Monster } from "./monster.js";
@@ -72,7 +73,7 @@ scene.add(viewCam);
 const ambient = new THREE.AmbientLight(0x0d0b10, 0.5);
 scene.add(ambient);
 const caveman = new Caveman(scene);
-caveman.baseIntensity = 14;
+caveman.baseIntensity = 26;
 // Dark lookup: nothing baked into the rock (no string lights / floods).
 const DARK = { lights: [], at: () => 0, any: false };
 
@@ -102,6 +103,7 @@ let cave = null;
 let caveGroup = null;
 let waterHandle = null;
 let caveFauna = null;
+let archery = new Archery(scene);
 let formInfo = null;
 let player = null;
 let last = performance.now();
@@ -112,7 +114,12 @@ let lightLookup = null;
 let trailHandle = null;
 let labeled = [];
 let fogTarget = 0.085;
-const FOG_DENSITY = 0.058;
+const FOG_DENSITY = 0.032; // round 9: was 0.058 (torch reach was fog-limited)
+const TORCH_BASE = 26; // round 9: was 14 with decay 1.5; now decay 1.0 -> ~5x at 8 m, ~7x at 16 m, only ~1.9x at arm length
+const TORCH_REACH = 45; // m (was 24.5)
+// Cave background: only ever seen through a seam/hole in the rock mesh; dark rock-brown instead
+// of black so any remaining sliver reads as shadowed rock rather than a void.
+const CAVE_BG = 0x20160e;
 let placeShown = "";
 const lastPos = new THREE.Vector3();
 let speedSmooth = 0;
@@ -134,6 +141,7 @@ function unloadCaveContent() {
   world.caveLayer = null;
   waterHandle = null;
   if (caveFauna) { caveFauna.dispose(); caveFauna = null; }
+  archery?.clear();
   if (game.monster) { game.monster.dispose(); game.monster = null; }
 }
 
@@ -142,18 +150,19 @@ function setCaveLighting() {
   skyFill.intensity = 0;
   ambient.intensity = 0.5;
   ambient.color.set(0x0d0b10);
-  caveman.baseIntensity = 14;
+  caveman.baseIntensity = TORCH_BASE;
   if (world.camp) world.camp.fireLight.intensity = 0;
   if (world.wildlife) world.wildlife.setVisible(false);
   storyUI.setClock("Underground");
   scene.fog.color.set(0x000000);
-  scene.background.set(0x000000);
-  renderer.setClearColor(0x000000, 1);
+  scene.background.set(CAVE_BG);
+  renderer.setClearColor(CAVE_BG, 1);
   viewCam.near = 0.06; viewCam.far = 160; viewCam.updateProjectionMatrix();
   audio.setOutdoor?.(false);
 }
 
 function leaveOverworld() {
+  archery?.clear();
   if (world.over) {
     chunks.removeLayer("terrain", { dispose: false });
     world.over.resident.visible = false;
@@ -198,8 +207,8 @@ function loadCave(nextCave, { fromEntrance = null } = {}) {
   if (!show) caveFauna = new CaveFauna(scene, { lite: IS_TOUCH, seed: (cave.seed || 7) ^ 0xbad });
   // Torch-lit darkness everywhere: black, dense fog (useful light ~8-12 m).
   scene.fog.color.set(0x000000);
-  scene.background.set(0x000000);
-  renderer.setClearColor(0x000000, 1);
+  scene.background.set(CAVE_BG);
+  renderer.setClearColor(CAVE_BG, 1);
   camera.updateProjectionMatrix();
   labeled = cave.stations.filter((st) => st.label);
   scene.add(caveGroup);
@@ -609,6 +618,7 @@ function saveTally() {
   renderStatus();
 }
 const game = {
+  weapon: "spear",
   health: 3, maxHealth: 3, invuln: 0, dead: false, deadT: 0, attackCd: 0, attackPending: -1,
   noiseBurst: 0, lastDamage: 0, time: 0, monster: null, respawnAt: -1, shake: 0, vignette: 0,
   fp: false, noiseOverride: null, god: false, lastAttack: null, hitsTaken: 0, log: [],
@@ -635,7 +645,7 @@ const story = new Story({
   paused: () => storyUI.modal || game.dead,
   hurt: () => damagePlayer(),
   health: () => game.health,
-  setArmed: (v) => { game.armed = !!v; caveman.spear.visible = !!v; },
+  setArmed: (v) => { game.armed = !!v; caveman.setWeapon(game.weapon || "spear", !!v); },
   applyStats: () => applyStats(),
   addCaveObject: (o) => { if (caveGroup) caveGroup.add(o); else scene.add(o); },
   caveSpot: (frac) => {
@@ -799,6 +809,7 @@ function respawn() {
 function attack() {
   if (!player || !ready || game.dead || game.attackCd > 0 || storyUI.modal) return false;
   if (story.active && !game.armed) { storyUI.toast("You have nothing to fight with yet."); return false; }
+  if (game.weapon === "bow") return shootArrow();
   game.attackCd = 0.6;
   game.attackPending = 0.14;
   game.noiseBurst = 0.45;
@@ -816,7 +827,7 @@ function resolveAttack() {
     let hitA = null;
     if (story.active) { if (story.onAttack(f, -Math.sin(player.yaw), -Math.cos(player.yaw))) hitA = story.lastHit; }
     else if (world.wildlife && world.mode === "overworld") {
-      hitA = world.wildlife.tryHit(f, -Math.sin(player.yaw), -Math.cos(player.yaw), 1);
+      hitA = world.wildlife.tryHit(f, -Math.sin(player.yaw), -Math.cos(player.yaw), 2);
       if (hitA) storyUI.toast(hitA.alive ? `The ${hitA.kind} is wounded and bolts!` : `You killed a ${hitA.kind}`, hitA.alive ? undefined : "good");
     }
     if (!hitA && caveFauna && world.mode !== "overworld") {
@@ -975,6 +986,88 @@ function updateView(dt) {
     viewCam.rotateZ((Math.random() - 0.5) * a * 0.5);
   }
 }
+// ---------------- bow (round 9) ----------------
+const weaponBtn = document.getElementById("btn-weapon");
+const reticleEl = document.getElementById("reticle");
+function setWeapon(w) {
+  game.weapon = w;
+  caveman.setWeapon(w, !story.active || game.armed);
+  if (attackBtn) attackBtn.textContent = w === "bow" ? "Shoot" : "Stab";
+  if (weaponBtn) weaponBtn.firstChild.textContent = w === "bow" ? "Spear " : "Bow ";
+  reticleEl?.classList.toggle("hidden", w !== "bow");
+  storyUI.toast(w === "bow" ? "Bow ready: aim with the cross, tap Shoot / click" : "Spear ready");
+}
+function shootArrow() {
+  game.attackCd = 0.55;
+  game.noiseBurst = Math.max(game.noiseBurst, 0.2);
+  caveman.thrust();
+  attackBtn?.classList.add("hit");
+  setTimeout(() => attackBtn?.classList.remove("hit"), 150);
+  // Aim through the screen centre (the reticle): far point along the view, then fly from Kra's eye.
+  const dir = new THREE.Vector3(); viewCam.getWorldDirection(dir);
+  let far = 60;
+  if (world.mode === "overworld") {
+    // March the view ray to what's under the cross (an animal or the ground), so the gravity
+    // compensation below matches the real range.
+    const q = new THREE.Vector3();
+    for (let t = 1; t < 80; t += 0.4) {
+      q.copy(viewCam.position).addScaledVector(dir, t);
+      if (q.y < world.terrain.height(q.x, q.z) || world.wildlife?.bodyAt(q)) { far = t; break; }
+    }
+  } else {
+    const ray = new THREE.Raycaster(viewCam.position.clone(), dir.clone(), 0.3, 80);
+    const h = ray.intersectObjects(caveWallMeshes(), false)[0];
+    if (h) far = h.distance;
+  }
+  const target = viewCam.position.clone().addScaledVector(dir, far);
+  const right = new THREE.Vector3(-dir.z, 0, dir.x).normalize();
+  const origin = camera.position.clone().addScaledVector(right, 0.12).add(new THREE.Vector3(0, -0.12, 0));
+  origin.addScaledVector(dir, 0.35);
+  const d = target.sub(origin);
+  { const L = d.length(); d.y += 0.5 * 7.5 * (L / 40) ** 2; } // aim above by the gravity drop, so the arrow lands on the cross
+  archery.shoot(origin, d);
+  audio.bowShot?.();
+  glog({ e: "shoot" });
+  return true;
+}
+function arrowTargets(p) {
+  const from = feetPos();
+  if (world.mode === "overworld" && world.wildlife) {
+    const a = world.wildlife.bodyAt(p);
+    if (a) {
+      world.wildlife.damage(a, 2, from);
+      if (story.active) story.creditAnimal(a); else storyUI.toast(a.alive ? `The ${a.kind} is wounded and bolts!` : `You shot a ${a.kind}`, a.alive ? undefined : "good");
+      if (!a.alive) { tally.kills += 1; saveTally(); renderStatus(); }
+      audio.arrowHit?.(true);
+      return a.kind;
+    }
+  }
+  const m = game.monster;
+  if (m && m.alive && Math.hypot(m.pos.x - p.x, m.pos.y + 0.9 - p.y, m.pos.z - p.z) < 1.0) {
+    m.hit(from, 1 + (story.active ? story.surv.str : 0));
+    audio.arrowHit?.(true);
+    return "monster";
+  }
+  if (caveFauna && world.mode !== "overworld") {
+    const r = caveFauna.hitAt(p, 0.5);
+    if (r) {
+      if (story.active && r.food) story.surv.add("meat", 1);
+      storyUI.toast(`You shot a ${r.kind}`, "good");
+      tally.kills += 1; saveTally(); renderStatus();
+      audio.arrowHit?.(true);
+      return r.kind;
+    }
+  }
+  return null;
+}
+function updateArrows(dt) {
+  if (!archery) return;
+  const before = archery.log.length;
+  archery.update(dt, { terrain: world.mode === "overworld" ? world.terrain : null, meshes: world.mode === "overworld" ? null : caveWallMeshes(), targets: arrowTargets });
+  for (let i = before; i < archery.log.length; i++) if (archery.log[i].e !== "hit") audio.arrowHit?.(false);
+}
+weaponBtn?.addEventListener("click", (e) => { e.stopPropagation(); setWeapon(game.weapon === "bow" ? "spear" : "bow"); });
+
 function setView(fp) {
   game.fp = !!fp;
   if (viewBtn) viewBtn.firstChild.textContent = game.fp ? "3rd person " : "1st person ";
@@ -994,6 +1087,7 @@ canvas.addEventListener("mousedown", (e) => {
 window.addEventListener("keydown", (e) => {
   if (e.target instanceof HTMLInputElement || e.repeat) return;
   if (e.code === "KeyF") attack();
+  if (e.code === "KeyQ" || e.code === "KeyB") setWeapon(game.weapon === "bow" ? "spear" : "bow");
   if (e.code === "KeyV") toggleView();
   // Act 1: interact / inventory / skills / crafting; debug time + weather
   if (e.code === "KeyE" || (e.code === "Space" && !storyUI.dialog.classList.contains("hidden"))) { e.preventDefault(); story.interact(); }
@@ -1034,6 +1128,7 @@ function tick(now) {
     else info = player.readout();
     stepGame(dt);
     stepWorld(dt);
+    updateArrows(dt);
     story.update(dt);
     if (STREAM || world.mode === "overworld") chunks.update(streamCtx());
     if (world.mode === "overworld") tickOverworld(dt, info, now);
@@ -1078,13 +1173,14 @@ function tick(now) {
     // Halls: thinner haze and a longer torch throw so their scale reads (still torch-lit only).
     const hall = size > 18 ? 1 : size > 10 ? 0.45 : 0;
     const fogWant = FOG_DENSITY * (1 - 0.5 * hall);
-    caveman.light.distance += (24.5 + 14 * hall - caveman.light.distance) * Math.min(1, dt * 1.5);
+    caveman.light.distance += (TORCH_REACH + 20 * hall - caveman.light.distance) * Math.min(1, dt * 1.5);
     if (!game.fogLock) {
       // A faint cold fill in halls (drip-wet rock catching the torch far off) so the room's size reads.
       game.hallFill = (game.hallFill || 0) + (hall - (game.hallFill || 0)) * Math.min(1, dt * 0.7);
       const hf = game.hallFill;
-      ambient.color.setRGB(0.051 + 0.06 * hf, 0.043 + 0.055 * hf, 0.063 + 0.07 * hf);
-      ambient.intensity = 0.5 + 1.1 * hf;
+      // Warm low fill (torch bounce) so far walls read; still torch-dominated.
+      ambient.color.setRGB(0.11 + 0.05 * hf, 0.09 + 0.045 * hf, 0.08 + 0.05 * hf);
+      ambient.intensity = 1.5 + 1.0 * hf;
     }
     if (!game.fogLock) scene.fog.density += (fogWant - scene.fog.density) * Math.min(1, dt * 0.8);
     const m = game.monster;
@@ -1188,7 +1284,7 @@ function tickOverworld(dt, info, now) {
     : A.update(dt, { eye: viewCam.position, elevation: elev, lights: { sun: moonLight, hemi: skyFill, ambient }, fog: scene.fog, renderer });
   scene.background.copy(A.fogColor);
   world.over.tick(now / 1000, p, A);
-  caveman.baseIntensity = 14 * st.torch;
+  caveman.baseIntensity = TORCH_BASE * st.torch;
   const lab = A.label();
   storyUI.setClock(`${lab.part} ${lab.clock} · ${lab.weather}`);
   let campD = Infinity, waterD = Infinity;
@@ -1855,6 +1951,18 @@ window.__CAVE__ = {
   hallCenter: (id) => { const s = stationMap(cave).get(id); const p = stationWorld(s); return { x: p.x, y: p.y, z: p.z, floor: p.y - s.down, R: Math.max(s.left, s.right) }; },
   halls: () => { const nb = neighborsOf(cave); return cave.stations.filter((s) => s.kind === "cavern").map((s) => ({ id: s.id, w: +(s.left + s.right).toFixed(1), h: +(s.up + s.down).toFixed(1), nb: nb.get(s.id) })); },
   fauna: () => caveFauna?.stats() || null,
+  /** Debug: hide scene objects whose name matches a regex (e.g. formations) for screenshots. */
+  hideNamed: (re) => { const r = new RegExp(re); let n = 0; scene.traverse((o) => { if (o.name && r.test(o.name)) { o.visible = false; n++; } }); return n; },
+  names: () => { const m = {}; scene.traverse((o) => { if (o.isMesh || o.isInstancedMesh) m[o.name || "?"] = (m[o.name || "?"] || 0) + 1; }); return m; },
+  setWeapon: (w) => setWeapon(w),
+  /** Test: put the monster d m in front of the player (frozen) and return its health. */
+  monsterAhead: (d = 8) => { const m = game.monster; if (!m) return null; const f = feetPos(); m.pos.set(f.x - Math.sin(player.yaw) * d, f.y, f.z - Math.cos(player.yaw) * d); m.frozen = true; m.state = "roam"; return { health: m.health, alive: m.alive }; },
+  monsterHealth: () => game.monster && { health: game.monster.health, alive: game.monster.alive },
+  archery: () => archery?.stats(),
+  aim: (yaw, pitch) => { if (yaw != null) player.yaw = yaw; if (pitch != null) player.pitch = pitch; player.applyLook(); },
+  look: () => ({ view: (() => { const d = new THREE.Vector3(); viewCam.getWorldDirection(d); return { pos: viewCam.position.toArray(), dir: d.toArray() }; })(), yaw: player.yaw, pitch: player.pitch, eye: camera.position.toArray().map((v) => +v.toFixed(2)) }),
+  animalPos: (kind) => { const n = world.wildlife?.nearest(feetPos(), kind); return n && { x: n.a.pos.x, y: n.a.pos.y, z: n.a.pos.z, d: n.d, id: n.a.id }; },
+  torch: () => ({ intensity: +caveman.light.intensity.toFixed(1), distance: +caveman.light.distance.toFixed(1), decay: caveman.light.decay, fog: +scene.fog.density.toFixed(3), ambient: +ambient.intensity.toFixed(2) }),
   water: () => waterHandle && { path: waterHandle.path?.length || 0, snapped: waterHandle.path?.filter((q) => q.snapped).length || 0, pool: waterHandle.features.pool, first: waterHandle.path?.[Math.floor((waterHandle.path?.length || 0) / 2)], ids: cave?.water?.stationIds },
   faunaObj: () => caveFauna,
   setWalls: (on) => { player.walls = on ? walls : null; },

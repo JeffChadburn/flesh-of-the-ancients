@@ -31,12 +31,14 @@ const S = (g, x, y, z) => { g.scale(x, y, z); return g; };
 
 const SPEC = {
   // alert radii: [still, walking, running, crouched-moving]; flee speed; calm distance; hits to kill
-  rabbit: { r: [4, 9, 15, 2.6], speed: 6.2, calm: 26, hits: 1, reach: 2.9, wander: 0.7 },
-  bird:   { r: [4, 8, 13, 2.6], speed: 7.5, calm: 30, hits: 1, reach: 2.9, wander: 0.5 },
-  deer:   { r: [10, 24, 34, 4.2], speed: 8.2, calm: 45, hits: 2, reach: 3.3, wander: 0.9 },
-  boar:   { r: [7, 16, 24, 3.4], speed: 6.8, calm: 35, hits: 2, reach: 3.0, wander: 0.6 },
-  goat:   { r: [9, 20, 30, 3.8], speed: 7.4, calm: 40, hits: 1, reach: 3.0, wander: 0.6, climb: true },
-  fox:    { r: [6, 12, 20, 3.0], speed: 7.8, calm: 30, hits: 1, reach: 2.9, wander: 0.8 },
+  // Round 9 (easier hunting): flee speeds ~halved, alert radii ~-40%, shorter flights (fleeT),
+  // bigger spear reach. Old values in comments.
+  rabbit: { r: [2.5, 5.5, 9, 1.6], speed: 3.2, calm: 14, hits: 1, reach: 3.8, wander: 0.6, fleeT: 2.5 }, // was r [4,9,15,2.6], speed 6.2, calm 26, reach 2.9
+  bird:   { r: [2.5, 5, 8, 1.6], speed: 4.0, calm: 16, hits: 1, reach: 3.8, wander: 0.5, fleeT: 3 },    // was speed 7.5
+  deer:   { r: [6, 14, 20, 2.6], speed: 4.2, calm: 24, hits: 1, reach: 4.2, wander: 0.8, fleeT: 3.5 },  // was r [10,24,34,4.2], speed 8.2, calm 45, hits 2
+  boar:   { r: [4.5, 10, 15, 2.2], speed: 3.5, calm: 18, hits: 2, reach: 4.0, wander: 0.5, fleeT: 3 },  // was speed 6.8, calm 35
+  goat:   { r: [5.5, 12, 18, 2.4], speed: 3.8, calm: 20, hits: 1, reach: 4.0, wander: 0.5, fleeT: 3, climb: true }, // was speed 7.4
+  fox:    { r: [3.5, 7, 12, 1.8], speed: 4.0, calm: 15, hits: 1, reach: 3.8, wander: 0.7, fleeT: 2.5 }, // was speed 7.8
 };
 const QUAD = { deer: { geo: "deerBody", leg: "leg", hip: 0.86, lx: 0.15, lz: 0.42 }, boar: { geo: "boarBody", leg: "legShort", hip: 0.42, lx: 0.16, lz: 0.36 },
   goat: { geo: "goatBody", leg: "legGoat", hip: 0.6, lx: 0.12, lz: 0.3 }, fox: { geo: "foxBody", leg: "legFox", hip: 0.3, lx: 0.08, lz: 0.2 } };
@@ -73,9 +75,10 @@ export class Wildlife {
     this.camp = terrain.act1 ? terrain.act1.camp : null;
     const C = this.camp;
     if (C) {
-      for (let i = 0; i < (lite ? 4 : 5); i++) this._spawn("rabbit", C, 22, 80);
-      for (let i = 0; i < (lite ? 3 : 4); i++) this._spawn("bird", C, 18, 70);
-      this._spawnHerd(C, lite ? 3 : 4);
+      // round 9: 3x the camp's wildlife (was 5 rabbits, 4 birds, one herd of 4)
+      for (let i = 0; i < (lite ? 10 : 15); i++) this._spawn("rabbit", C, 18, 80);
+      for (let i = 0; i < (lite ? 8 : 12); i++) this._spawn("bird", C, 16, 70);
+      for (let h = 0; h < (lite ? 2 : 3); h++) this._spawnHerd(C, lite ? 3 : 4);
     }
   }
 
@@ -87,8 +90,10 @@ export class Wildlife {
     const rng = mulberry32((h ^ (v * 0x9e3779b1)) >>> 0);
     const mx = (cx + 0.5) * S, mz = (cz + 0.5) * S;
     if (this.camp && Math.hypot(mx - this.camp.x, mz - this.camp.z) < 70) return list; // the camp has its own
-    const groups = this.lite ? 1 + (rng() < 0.35 ? 1 : 0) : 1 + (rng() < 0.6 ? 1 : 0);
+    const groups = this.lite ? 3 + (rng() < 0.6 ? 1 : 0) : 4 + (rng() < 0.6 ? 1 : 0); // round 9: 3x (was 1-2)
+    const cap = this.lite ? 110 : 280;
     for (let g = 0; g < groups; g++) {
+      if (this.list.length >= cap) break;
       let roll = rng(), kind = ROAM[0];
       for (const k of ROAM) { if ((roll -= k[1]) <= 0) { kind = k; break; } }
       const [name, , [n0, n1]] = kind;
@@ -271,7 +276,8 @@ export class Wildlife {
     for (const a of this.list) {
       const dx = a.pos.x - P.x, dz = a.pos.z - P.z, dist = Math.hypot(dx, dz);
       a.dist = dist;
-      a.root.visible = dist < (a.cell ? 120 : 160) && !a.harvested;
+      a.root.visible = dist < (a.cell ? (this.lite ? 85 : 120) : 140) && !a.harvested;
+      if (a.parts.legs) { const lv = dist < 45; if (a.legsOn !== lv) { a.legsOn = lv; for (const l of a.parts.legs) l.visible = lv; } }
       if (!a.alive) { a.deadT += dt; this._pose(a, dt, 0, time); if (a.harvested && a.deadT > 60 && dist > 60 && !a.cell && this.camp) this._respawn(a, P); continue; }
       if (dist > 220) continue; // far away: frozen
       const r = a.spec.r;
@@ -279,7 +285,8 @@ export class Wildlife {
       const radius = player.crouched ? (moving ? r[3] : r[3] * 0.7) : !moving ? r[0] : player.running ? r[2] : r[1];
       a.stateT += dt;
       let speed = 0;
-      if (a.state !== "flee" && dist < radius) {
+      if (a.tired > 0) a.tired -= dt; // winded after a run: lets you close in
+      if (a.state !== "flee" && !(a.tired > 0) && dist < radius) {
         const wary = a.kind === "deer" || a.kind === "goat" || a.kind === "boar";
         if (wary && a.state !== "alert") { a.state = "alert"; a.stateT = 0; }
         else if (!wary || a.stateT > 0.6 || dist < radius * 0.6) this._startFlee(a, P);
@@ -308,7 +315,7 @@ export class Wildlife {
           fx = fx * 0.6 + ax * 0.4; fz = fz * 0.6 + az * 0.4;
           a.yaw = turn(a.yaw, Math.atan2(-fx, -fz), dt * 8);
           speed = a.spec.speed * (a.health < a.spec.hits ? 0.7 : 1) * Math.min(1, 0.4 + a.stateT * 2);
-          if (dist > a.spec.calm && a.stateT > 2.5) { a.state = "idle"; a.stateT = 0; a.home = { x: a.pos.x, z: a.pos.z }; if (a.herd) a.herd.alert = 0; }
+          if ((dist > a.spec.calm && a.stateT > 1.5) || a.stateT > (a.spec.fleeT || 3) + (a.health < a.spec.hits ? 1.5 : 0)) { a.state = "idle"; a.stateT = 0; a.tired = 3; a.home = { x: a.pos.x, z: a.pos.z }; if (a.herd) a.herd.alert = 0; }
           break;
         }
       }
@@ -367,13 +374,30 @@ export class Wildlife {
       const dx = a.pos.x - f.x, dz = a.pos.z - f.z, d = Math.hypot(dx, dz);
       if (d > a.spec.reach || Math.abs(a.pos.y - f.y) > 2.2) continue;
       const dot = d > 1e-3 ? (dx * fx + dz * fz) / d : 1;
-      if (dot < 0.55) continue;
+      if (dot < 0.3) continue;
       if (d < bd) { bd = d; best = a; }
     }
     if (!best) return null;
-    best.health -= dmg;
-    if (best.health <= 0) { best.alive = false; best.deadT = 0; best.fly = 0; best.pos.y = this.t.height(best.pos.x, best.pos.z); this.log.push({ e: "kill", id: best.id }); }
-    else this._startFlee(best, f);
+    return this.damage(best, dmg, f);
+  }
+
+  damage(a, dmg, from) {
+    if (!a.alive) return null;
+    a.health -= dmg;
+    if (a.health <= 0) { a.alive = false; a.deadT = 0; a.fly = 0; a.pos.y = this.t.height(a.pos.x, a.pos.z); this.log.push({ e: "kill", id: a.id }); }
+    else this._startFlee(a, from);
+    return a;
+  }
+
+  /** Arrow test: the living animal whose body is within reach of point p (or null). */
+  bodyAt(p) {
+    const R = { rabbit: 0.35, bird: 0.3, fox: 0.4, goat: 0.6, boar: 0.65, deer: 0.8 }, H = { rabbit: 0.25, bird: 0.15, fox: 0.35, goat: 0.8, boar: 0.6, deer: 1.1 };
+    let best = null, bd = Infinity;
+    for (const a of this.list) {
+      if (!a.alive || !a.root.visible) continue;
+      const d = Math.hypot(a.pos.x - p.x, a.pos.y + H[a.kind] - p.y, a.pos.z - p.z);
+      if (d < R[a.kind] + 0.25 && d < bd) { bd = d; best = a; }
+    }
     return best;
   }
 

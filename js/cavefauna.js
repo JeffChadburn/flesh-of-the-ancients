@@ -56,7 +56,7 @@ export class CaveFauna {
     this.scene = scene; this.lite = lite; this.seed = seed;
     this.group = new THREE.Group(); this.group.name = "cave-fauna"; scene.add(this.group);
     const bg = geoBat();
-    this.maxBats = lite ? 70 : 170; this.maxSpiders = lite ? 18 : 40; this.maxFish = lite ? 16 : 36;
+    this.maxBats = lite ? 200 : 480; this.maxSpiders = lite ? 54 : 120; this.maxFish = lite ? 48 : 108; // round 9: 3x
     const batM = new THREE.MeshLambertMaterial({ color: 0x4e3e34 }), wingM = new THREE.MeshLambertMaterial({ color: 0x6a5044, side: THREE.DoubleSide });
     const spM = new THREE.MeshLambertMaterial({ color: 0x3a2e26 }), fishM = new THREE.MeshLambertMaterial({ color: 0xd8d0c6, emissive: 0x141414 });
     const mk = (geo, mat, n) => { const m = new THREE.InstancedMesh(geo, mat, n); m.count = 0; m.frustumCulled = false; this.group.add(m); return m; };
@@ -94,11 +94,11 @@ export class CaveFauna {
     for (const h of near) {
       const rng = mulberry32(hashStr(h.id) ^ this.seed);
       const room = h.up + h.down, big = h.kind === "cavern";
-      if (!this.flocks.has(h.id) && room > 3.2 && rng() < (big ? 1 : 0.4) && batBudget > 6) {
+      if (!this.flocks.has(h.id) && room > 3.2 && rng() < (big ? 1 : 0.85) && batBudget > 6) {
         // roost: the real ceiling above the hub (needs its rock streamed in)
         const hit = this._ray(meshes, tmpP.set(h.x, h.y - h.down + 1.2, h.z), UP, room + 4);
         if (hit) {
-          const n = Math.min(batBudget, Math.round((big ? 16 + rng() * 10 : 6 + rng() * 6) * (this.lite ? 0.55 : 1)));
+          const n = Math.min(batBudget, Math.round((big ? 30 + rng() * 20 : 10 + rng() * 10) * (this.lite ? 0.55 : 1)));
           const bats = [];
           for (let i = 0; i < n; i++) {
             const a = rng() * 6.28, r = rng() * Math.min(1.4, h.radius * 0.25);
@@ -114,7 +114,7 @@ export class CaveFauna {
       }
       if (!this.spiders.has(h.id) && spBudget > 0) {
         const list = [];
-        const n = rng() < 0.55 ? 1 + Math.floor(rng() * (big ? 4 : 2.5)) : 0;
+        const n = 2 + Math.floor(rng() * (big ? 10 : 5)); // round 9: ~3x
         for (let i = 0; i < n && spBudget > 0; i++) {
           const a = rng() * 6.28, y = h.y - h.down + 0.5 + rng() * Math.min(2.2, room - 0.6);
           const d = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
@@ -135,12 +135,12 @@ export class CaveFauna {
     if (!this.fish && water && (water.path || water.features?.pool)) {
       const rng = mulberry32(this.seed ^ 0xf15);
       const fish = [], path = water.path || [];
-      for (let i = 6; i < path.length - 6 && fish.length < this.maxFish - 6; i += 14 + Math.floor(rng() * 10)) {
+      for (let i = 6; i < path.length - 6 && fish.length < this.maxFish - 6; i += 5 + Math.floor(rng() * 4)) {
         const n = 1 + Math.floor(rng() * 3);
         for (let k = 0; k < n; k++) fish.push({ mode: "stream", i0: i - 5, i1: i + 5, u: i + rng() * 2 - 1, dir: rng() < 0.5 ? 1 : -1, side: (rng() - 0.5) * 0.5, speed: 0.8 + rng() * 0.8, alive: true, phase: rng() * 6, dart: 0 });
       }
       const pool = water.features?.pool;
-      if (pool) for (let k = 0; k < (this.lite ? 3 : 6); k++) fish.push({ mode: "pool", a: rng() * 6.28, r: pool.radius * (0.25 + rng() * 0.6), speed: (0.25 + rng() * 0.3) * (rng() < 0.5 ? 1 : -1), alive: true, phase: rng() * 6, dart: 0 });
+      if (pool) for (let k = 0; k < (this.lite ? 9 : 18); k++) fish.push({ mode: "pool", a: rng() * 6.28, r: pool.radius * (0.25 + rng() * 0.6), speed: (0.25 + rng() * 0.3) * (rng() < 0.5 ? 1 : -1), alive: true, phase: rng() * 6, dart: 0 });
       this.fish = fish;
     }
   }
@@ -265,6 +265,18 @@ export class CaveFauna {
     best.alive = false;
     this.kills[kill]++;
     return { kind: kill, alive: false, food: kill !== "spider" };
+  }
+
+  /** Arrow test: kill the creature nearest point p within r. */
+  hitAt(p, r = 0.45) {
+    let best = null, bd = r, kind = null;
+    const c = (q, k, o) => { if (!q) return; const d = q.distanceTo(p); if (d < bd) { bd = d; best = o; kind = k; } };
+    for (const fl of this.flocks.values()) for (const b of fl.bats) if (b.alive) c(b.pos, "bat", b);
+    for (const l of this.spiders.values()) for (const s of l) if (s.alive) c(s.pos, "spider", s);
+    for (const f of this.fish || []) if (f.alive) c(f.pos, "fish", f);
+    if (!best) return null;
+    best.alive = false; this.kills[kind]++;
+    return { kind, alive: false, food: kind !== "spider" };
   }
 
   stats() {

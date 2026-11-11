@@ -203,6 +203,22 @@ export class Caveman {
     this.spearTip.position.y = -1.75;
     spear.add(this.spearTip);
 
+    // Bow (round 9), in the same hand frame as the spear: a bent stave arcing up/down in front of
+    // the fist with its string toward Kra. Hidden until the bow is selected.
+    const bow = (this.bow = new THREE.Group());
+    const stave = new THREE.TorusGeometry(0.55, 0.026, 5, 16, 1.8);
+    stave.rotateZ(-Math.PI / 2 - 0.9); stave.rotateY(Math.PI / 2); stave.translate(0, 0.55, 0);
+    // canted like a hunter's bow so its curve reads from behind (edge-on it was just a stick)
+    const cant = new THREE.Group(); cant.rotation.z = 1.15; cant.scale.setScalar(1.15); bow.add(cant);
+    cant.add(new THREE.Mesh(stave, wood));
+    const str = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.86, 3), mat(0xd8cfb8, 1));
+    str.rotation.x = Math.PI / 2; str.position.y = 0.21; cant.add(str);
+    const nock = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.7, 4), wood);
+    nock.position.y = -0.12; cant.add(nock);
+    bow.visible = false;
+    this.armR.grip.add(bow);
+    this.weapon = "spear"; this.armed = true;
+
     // Torch in left hand: stick + charred head, flame + embers + light.
     const torch = (this.torch = new THREE.Group());
     const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.55, 6), wood);
@@ -221,7 +237,7 @@ export class Caveman {
     scene.add(this.flame);
     scene.add(this.embers);
 
-    this.light = new THREE.PointLight(0xffa05a, 12, 24.5, 1.5);
+    this.light = new THREE.PointLight(0xffa05a, 26, 45, 1.0);
     scene.add(this.light);
     this.torchPos = new THREE.Vector3();
 
@@ -238,6 +254,12 @@ export class Caveman {
     for (const m of [...this.headParts, ...this.bodyParts]) m.visible = !fp;
     this.legL.th.visible = !fp;
     this.legR.th.visible = !fp;
+  }
+
+  setWeapon(w, armed = this.armed) {
+    this.weapon = w; this.armed = armed;
+    this.spear.visible = armed && w === "spear";
+    this.bow.visible = armed && w === "bow";
   }
 
   /** Start a spear thrust (0.38 s). */
@@ -303,6 +325,8 @@ export class Caveman {
     const armPitch = this.armR.sh.rotation.x + this.armR.el.rotation.x + this.chest.rotation.x;
     this.spear.rotation.x = Math.PI / 2 - armPitch + (this.fp ? -pitch * 0.5 : 0);
     this.spear.position.y = -a * 0.25;
+    this.bow.rotation.x = this.spear.rotation.x;
+    this.bow.position.y = this.weapon === "bow" ? a * 0.12 : 0; // recoil on release
 
     // Torch light + flame follow the torch head (world space).
     this.root.updateMatrixWorld(true);
