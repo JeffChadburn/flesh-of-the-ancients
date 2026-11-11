@@ -176,6 +176,8 @@ export function addWater(group, cave) {
     geo.setIndex(indices);
     geo.computeVertexNormals();
     const mesh = new THREE.Mesh(geo, streamMat);
+    handle.streamMesh = mesh;
+    handle.path = pts.map((q) => ({ x: q.x, y: q.y, z: q.z, w: width, snapped: false }));
     mesh.name = "stream";
     mesh.renderOrder = 2;
     group.add(mesh);
@@ -250,6 +252,7 @@ export function addWater(group, cave) {
     pool.renderOrder = 2;
     group.add(pool);
     handle.features.pool = { x: cx, y: py, z: cz, radius };
+    handle.poolMesh = pool;
   }
 
   if (fallPlan) {
@@ -468,6 +471,63 @@ export function addWater(group, cave) {
       lookX: dest.x, lookY: midY, lookZ: dest.z,
     };
   }
+
+  // Streamed caves build their rock after the water, so the ribbon starts on the analytic floor
+  // and can sink under the noisy rendered floor. snap() lifts it onto the real rock as the
+  // meshes arrive (a few vertices per call), so what you see is where the water really is.
+  const snapRay = new THREE.Raycaster();
+
+  const down = new THREE.Vector3(0, -1, 0), o = new THREE.Vector3();
+  const rockFloor = (meshes, x, y, z) => {
+    o.set(x, y + 1.4, z); snapRay.set(o, down); snapRay.far = 3.2;
+    let best = null;
+    for (const h of snapRay.intersectObjects(meshes, false)) if (h.face && h.face.normal.y > 0.3 && (best == null || h.point.y > best)) best = h.point.y;
+    return best;
+  };
+  let poolSnapped = false;
+  handle.snap = (meshes, near, budget = 24) => {
+    if (!meshes || !meshes.length) return;
+    const P = handle.path, m = handle.streamMesh;
+    if (P && m) {
+      const pos = m.geometry.attributes.position;
+      let changed = false;
+      for (let i = 0; i < P.length && budget > 0; i++) {
+        const q = P[i];
+        if (q.snapped || (near && Math.hypot(q.x - near.x, q.z - near.z) > 40)) continue;
+        budget--;
+        let top = null;
+        for (const k of [i * 2, i * 2 + 1]) {
+          const f = rockFloor(meshes, pos.getX(k), q.y, pos.getZ(k));
+          if (f != null) top = top == null ? f : Math.max(top, f);
+        }
+        const fc = rockFloor(meshes, q.x, q.y, q.z);
+        if (fc != null) top = top == null ? fc : Math.max(top, fc);
+        if (top == null) continue;
+        q.snapped = true;
+        const y = Math.max(q.y, top + 0.05);
+        if (y !== q.y) { q.y = y; pos.setY(i * 2, y); pos.setY(i * 2 + 1, y); changed = true; }
+      }
+      if (changed) { pos.needsUpdate = true; m.geometry.computeBoundingSphere(); }
+    }
+    const pm = handle.poolMesh, pf = handle.features.pool;
+    if (pm && pf && !poolSnapped && budget > 0 && (!near || Math.hypot(pf.x - near.x, pf.z - near.z) < 40)) {
+      let top = null, n = 0;
+      for (let k = 0; k < 7; k++) {
+        const a = k * 0.9, r = k ? pf.radius * 0.6 : 0;
+        const f = rockFloor(meshes, pf.x + Math.cos(a) * r, pf.y, pf.z + Math.sin(a) * r);
+        if (f != null) { n++; top = top == null ? f : Math.max(top, f); }
+      }
+      if (n >= 3) { poolSnapped = true; const y = Math.max(pf.y, top + 0.06); pm.position.y = y; pf.y = y; }
+    }
+  };
+  /** Horizontal distance from (x, y, z) to the visible water's edge (<0 = over the water). */
+  handle.waterDist = (x, y, z) => {
+    let best = Infinity;
+    for (const q of handle.path || []) if (Math.abs(q.y - y) < 1.6) best = Math.min(best, Math.hypot(q.x - x, q.z - z) - q.w);
+    const pf = handle.features.pool;
+    if (pf && Math.abs(pf.y - y) < 1.6) best = Math.min(best, Math.hypot(pf.x - x, pf.z - z) - pf.radius);
+    return best;
+  };
 
   handle.update = (time, fogColor, fogDensity) => {
     const t = time * 0.001;

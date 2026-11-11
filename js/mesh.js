@@ -282,7 +282,7 @@ function sectionPoint(left, right, up, down, angle, pos, fr, roughness = 1, hall
   const floorScale = s < -0.85 ? 0.08 : s < -0.2 ? 0.25 : 1;
   // Walls bulge mostly outward (lumps stay, but rock never pinches inside the walkable LRUD
   // envelope the collision uses, so what you see and what stops you agree).
-  let k = 1 + (s < -0.2 ? n * floorScale : n * 0.6 + 0.1);
+  let k = 1 + (s < -0.2 ? n * floorScale : Math.max(-0.04, n * 0.6 + 0.1));
   if (hall > 0 && s > -0.2) {
     // Large, low-frequency lumps: alcoves, buttresses, ceiling pockets and slabs.
     const hf = Math.min(1, fs * 3);
@@ -365,6 +365,24 @@ export function prepareCavePieces(cave) {
     };
   }
 
+  // Big halls (cavern stations): anything else's wall that falls inside one is dropped, so legs
+  // and small hubs swallowed by a hall don't leave free-standing rock skins in the room.
+  const halls = cave.stations.filter((st) => st.kind === "cavern").map((st) => {
+    const p = stationWorld(st);
+    return { id: st.id, x: p.x, y: p.y, z: p.z, R: Math.max(st.left, st.right) * 0.98, up: st.up, down: st.down };
+  });
+  function insideHall(x, y, z, skipId = null, shrink = 0.92) {
+    for (const H of halls) {
+      if (H.id === skipId) continue;
+      const d = Math.hypot(x - H.x, z - H.z) / (H.R * shrink);
+      if (d >= 1) continue;
+      if (y < H.y - H.down * 0.9 - 0.3) continue;
+      if (y > H.y + H.up * 0.93 * shrink * Math.sqrt(1 - d * d)) continue;
+      return true;
+    }
+    return false;
+  }
+
   for (const leg of cave.legs) {
     const a = smap.get(leg.from);
     const b = smap.get(leg.to);
@@ -392,8 +410,19 @@ export function prepareCavePieces(cave) {
         const radial = (a.kind === "cavern" || b.kind === "cavern")
           ? Math.max(RADIAL_HALL, Math.min(64, Math.round(dimMax * 1.3)))
           : Math.max(RADIAL, Math.min(40, Math.round(dimMax * 1.6)));
-        const rings = [];
+        const rings = [], inOther = [];
         const pos = new THREE.Vector3();
+        // Legs meeting this one at a station: where this tube's wall runs inside one of them
+        // (junction overlap) it would stand across the other passage as a visible, walk-through
+        // wall. Those triangles are dropped, like a hub's.
+        // Any other leg whose tube overlaps this one (incident at a junction, or a passage that
+        // merely crosses / grazes this one): test by bounding spheres first.
+        const cx0 = (va.x + vb.x) / 2, cy0 = (va.y + vb.y) / 2, cz0 = (va.z + vb.z) / 2, R0 = len / 2 + dimMax * 1.4;
+        const others = legInfos.filter((O) => {
+          if (O === L) return false;
+          const oR = O.len / 2 + Math.max(O.a.left, O.a.right, O.a.up, O.b.left, O.b.right, O.b.up) * 1.4;
+          return Math.hypot((O.va.x + O.vb.x) / 2 - cx0, (O.va.y + O.vb.y) / 2 - cy0, (O.va.z + O.vb.z) / 2 - cz0) < R0 + oR;
+        });
         for (let i = 0; i <= segs; i++) {
           const t = i / segs;
           pos.copy(va).lerp(vb, t);
@@ -407,6 +436,11 @@ export function prepareCavePieces(cave) {
             const y = pos.y + fr.r.y * p.x + fr.u.y * p.y;
             const z = pos.z + fr.r.z * p.x + fr.u.z * p.y;
             ring.push(buf.vertex(x, y, z, k / radial, t, vertColor(x, y, z, kind)));
+            // A leg from a hall's own station keeps its floor inside the hall: a rock ramp up to the mouth.
+            const floorPart = Math.sin(ang) < -0.3;
+            let io = halls.length ? insideHall(x, y, z, floorPart ? (a.kind === "cavern" ? a.id : b.kind === "cavern" ? b.id : null) : null) : false;
+            if (!io && others.length) for (const O of others) if (insideLeg(O, x, y, z, 0.99)) { io = true; break; }
+            inOther.push(io);
           }
           rings.push(ring);
           if ((i + 1) % Math.max(1, Math.floor(700 / radial)) === 0) yield;
@@ -416,7 +450,10 @@ export function prepareCavePieces(cave) {
           const r1 = rings[i + 1];
           for (let k = 0; k < radial; k++) {
             const k2 = (k + 1) % radial;
-            buf.indices.push(r0[k], r1[k], r1[k2], r0[k], r1[k2], r0[k2]);
+            const o0 = i * radial, o1 = (i + 1) * radial;
+            const a0 = inOther[o0 + k], a1 = inOther[o1 + k], a2 = inOther[o1 + k2], a3 = inOther[o0 + k2];
+            if (a0 + a1 + a2 < 2) buf.indices.push(r0[k], r1[k], r1[k2]);
+            if (a0 + a2 + a3 < 2) buf.indices.push(r0[k], r1[k2], r0[k2]);
           }
         }
       },
@@ -481,7 +518,7 @@ export function prepareCavePieces(cave) {
         if (Ls.length === 1) R = Math.min(R, Ls[0].len * 0.85);
         const hfs = 1 / Math.max(1, Math.max(st.left, st.right, st.up) / 3);
         const hh = Math.min(1, hfs * 3);
-        const sph = new THREE.SphereGeometry(1, cavern ? 56 : 26, cavern ? 32 : 16);
+        const sph = new THREE.SphereGeometry(1, cavern ? 76 : 26, cavern ? 42 : 16);
         const sp = sph.attributes.position;
         const base = buf.count();
         const outside = [];
@@ -498,6 +535,8 @@ export function prepareCavePieces(cave) {
           const X = p.x + hx, Y = p.y + y, Z = p.z + hz;
           let inAny = false;
           for (const L of near) if (insideLeg(L, X, Y, Z, 0.97)) { inAny = true; break; }
+          if (!inAny && halls.length && insideHall(X, Y, Z, st.id)) inAny = true;
+          if (cavern && dy < -0.25) inAny = false; // a hall's floor is always solid rock
           outside.push(!inAny);
           buf.vertex(X, Y, Z, 0, 0, vertColor(X, Y, Z, st.kind));
           if ((i + 1) % 350 === 0) yield;

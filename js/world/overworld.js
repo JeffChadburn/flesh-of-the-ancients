@@ -152,6 +152,7 @@ export class OverworldLayer {
 
   dispose() {
     for (const g of Object.values(this.geos)) g.dispose();
+    this.archGeo?.dispose();
     for (const m of [this.groundMat, this.treeMat, this.rockMat, this.grassMat, this.entranceMat, this.mouthTubeMat]) m.dispose();
     this.resident.traverse((o) => { o.geometry?.dispose(); o.material?.dispose?.(); });
   }
@@ -367,6 +368,31 @@ export class OverworldLayer {
     mouth.rotation.y = Math.atan2(e.fx, e.fz);
     mouth.renderOrder = 1;
     g.add(mouth);
+    // A jagged rock arch framing the opening and running back into the hill, so the black mouth
+    // meets solid rock all round (no slivers of sky / grass between the hole and the boulders).
+    if (!this.archGeo) {
+      const sh = new THREE.Shape(), N = 18, r2 = mulberry32(911);
+      sh.moveTo(1.62, -0.25);
+      for (let i = 0; i <= N; i++) { const a = (i / N) * Math.PI, r = 1.42 + r2() * 0.26; sh.lineTo(Math.cos(a) * r, Math.max(-0.25, Math.sin(a) * r * 1.04)); }
+      sh.lineTo(-1.62, -0.25); sh.lineTo(-0.985, -0.25);
+      for (let i = N; i >= 0; i--) { const a = (i / N) * Math.PI; sh.lineTo(-Math.cos(Math.PI - a) * 0.985, Math.max(-0.25, Math.sin(a) * 0.985)); }
+      sh.lineTo(0.985, -0.25); sh.closePath();
+      const ag = new THREE.ExtrudeGeometry(sh, { depth: 1.6, bevelEnabled: false, curveSegments: 1 });
+      ag.translate(0, 0, -1.45);
+      this.archGeo = ag.index ? ag.toNonIndexed() : ag;
+      if (this.archGeo !== ag) ag.dispose();
+      this.archGeo.computeVertexNormals();
+      // rock colouring like the boulders (rockMat uses vertex colours), darker toward the mouth
+      const pa = this.archGeo.attributes.position, col = [], c = new THREE.Color();
+      for (let i = 0; i < pa.count; i++) { const r = Math.hypot(pa.getX(i), pa.getY(i)); c.setHex(0x8a857c).lerp(new THREE.Color(0x4a4844), Math.max(0, Math.min(1, (1.5 - r) * 1.6))); col.push(c.r, c.g, c.b); }
+      this.archGeo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+    }
+    const arch = new THREE.Mesh(this.archGeo, this.rockMat);
+    arch.scale.set(1.9 * k, 2.7 * k, 1.4 * k);
+    arch.position.copy(mouth.position);
+    arch.rotation.y = mouth.rotation.y;
+    arch.userData.sharedGeometry = true;
+    g.add(arch);
     return g;
   }
 

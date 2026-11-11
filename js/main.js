@@ -8,6 +8,7 @@ import { Minimap } from "./minimap.js";
 import { hashSeed } from "./rng.js";
 import { addFormations } from "./formations.js";
 import { addWater } from "./water.js";
+import { CaveFauna } from "./cavefauna.js";
 import { CaveAudio } from "./audio.js";
 import { Caveman } from "./caveman.js";
 import { Monster } from "./monster.js";
@@ -71,7 +72,7 @@ scene.add(viewCam);
 const ambient = new THREE.AmbientLight(0x0d0b10, 0.5);
 scene.add(ambient);
 const caveman = new Caveman(scene);
-caveman.baseIntensity = 11.5;
+caveman.baseIntensity = 14;
 // Dark lookup: nothing baked into the rock (no string lights / floods).
 const DARK = { lights: [], at: () => 0, any: false };
 
@@ -100,6 +101,7 @@ const audio = new CaveAudio();
 let cave = null;
 let caveGroup = null;
 let waterHandle = null;
+let caveFauna = null;
 let formInfo = null;
 let player = null;
 let last = performance.now();
@@ -110,7 +112,7 @@ let lightLookup = null;
 let trailHandle = null;
 let labeled = [];
 let fogTarget = 0.085;
-const FOG_DENSITY = 0.065;
+const FOG_DENSITY = 0.058;
 let placeShown = "";
 const lastPos = new THREE.Vector3();
 let speedSmooth = 0;
@@ -131,6 +133,7 @@ function unloadCaveContent() {
   chunks.removeLayer("cave");
   world.caveLayer = null;
   waterHandle = null;
+  if (caveFauna) { caveFauna.dispose(); caveFauna = null; }
   if (game.monster) { game.monster.dispose(); game.monster = null; }
 }
 
@@ -139,7 +142,7 @@ function setCaveLighting() {
   skyFill.intensity = 0;
   ambient.intensity = 0.5;
   ambient.color.set(0x0d0b10);
-  caveman.baseIntensity = 11.5;
+  caveman.baseIntensity = 14;
   if (world.camp) world.camp.fireLight.intensity = 0;
   if (world.wildlife) world.wildlife.setVisible(false);
   storyUI.setClock("Underground");
@@ -192,6 +195,7 @@ function loadCave(nextCave, { fromEntrance = null } = {}) {
     waterHandle = addWater(caveGroup, cave);
   }
   trailHandle = null;
+  if (!show) caveFauna = new CaveFauna(scene, { lite: IS_TOUCH, seed: (cave.seed || 7) ^ 0xbad });
   // Torch-lit darkness everywhere: black, dense fog (useful light ~8-12 m).
   scene.fog.color.set(0x000000);
   scene.background.set(0x000000);
@@ -315,8 +319,8 @@ function ensureWorld() {
     world.camp = new Camp(world.terrain, { lite: IS_TOUCH });
     world.over.resident.add(world.camp.group);
     scene.add(world.camp.fireLight);
-    world.wildlife = new Wildlife(world.terrain, scene, { lite: IS_TOUCH });
   }
+  world.wildlife = new Wildlife(world.terrain, scene, { lite: IS_TOUCH });
 }
 
 /** Where Kra wakes in Act 1: beside the cold fire, facing Old Lume. */
@@ -626,6 +630,7 @@ const story = new Story({
   atmo: () => world.atmo,
   monster: () => game.monster,
   caveKind: () => cave?.kind || null,
+  caveWater: () => (world.mode !== "overworld" ? waterHandle : null),
   volume: () => (player && !player.terrain ? player.volume : null),
   paused: () => storyUI.modal || game.dead,
   hurt: () => damagePlayer(),
@@ -808,7 +813,20 @@ function resolveAttack() {
   const res = { hit: false };
   {
     const f = feetPos();
-    if (story.onAttack(f, -Math.sin(player.yaw), -Math.cos(player.yaw))) { res.hit = true; res.animal = true; game.lastAttack = res; glog({ e: "attack", ...res }); return res; }
+    let hitA = null;
+    if (story.active) { if (story.onAttack(f, -Math.sin(player.yaw), -Math.cos(player.yaw))) hitA = story.lastHit; }
+    else if (world.wildlife && world.mode === "overworld") {
+      hitA = world.wildlife.tryHit(f, -Math.sin(player.yaw), -Math.cos(player.yaw), 1);
+      if (hitA) storyUI.toast(hitA.alive ? `The ${hitA.kind} is wounded and bolts!` : `You killed a ${hitA.kind}`, hitA.alive ? undefined : "good");
+    }
+    if (!hitA && caveFauna && world.mode !== "overworld") {
+      hitA = caveFauna.tryHit(f, -Math.sin(player.yaw), -Math.cos(player.yaw));
+      if (hitA) { if (story.active && hitA.food) story.surv.add("meat", 1); storyUI.toast(`You killed a ${hitA.kind}`, "good"); }
+    }
+    if (hitA) {
+      if (!hitA.alive) { tally.kills += 1; saveTally(); renderStatus(); }
+      res.hit = true; res.animal = true; res.kind = hitA.kind; game.lastAttack = res; glog({ e: "attack", ...res }); return res;
+    }
   }
   if (m && m.alive) {
     const f = feetPos();
@@ -1026,6 +1044,8 @@ function tick(now) {
     minimap.draw(cave, camera.position, player.yaw, placeShown, explored);
     updateLowHint(info);
     if (waterHandle && waterHandle.update) waterHandle.update(now, scene.fog.color, scene.fog.density);
+    if (waterHandle && waterHandle.snap && (game.snapT = (game.snapT || 0) - dt) <= 0) { game.snapT = 0.25; waterHandle.snap(caveWallMeshes(), camera.position); }
+    if (caveFauna) caveFauna.update(dt, { pos: feetPos(), cam: camera.position, noise: playerNoise(), volume: player.volume, meshes: caveWallMeshes(), water: waterHandle });
     if (audio.started) {
       audio.setListener(camera.position, waterHandle && waterHandle.features);
       audio.setEars?.(camera.position, player.yaw);
@@ -1055,8 +1075,18 @@ function tick(now) {
     const roomW = q && q.best && q.best.s ? (q.best.s.left || 1) + (q.best.s.right || 1) : 2;
     const size = Math.max(roomH, roomW * 0.6);
     // Dense black fog: the torch reaches ~8-12 m; slightly thinner in huge rooms.
-    const fogWant = FOG_DENSITY * (size > 20 ? 0.8 : 1);
-    scene.fog.density += (fogWant - scene.fog.density) * Math.min(1, dt * 0.8);
+    // Halls: thinner haze and a longer torch throw so their scale reads (still torch-lit only).
+    const hall = size > 18 ? 1 : size > 10 ? 0.45 : 0;
+    const fogWant = FOG_DENSITY * (1 - 0.5 * hall);
+    caveman.light.distance += (24.5 + 14 * hall - caveman.light.distance) * Math.min(1, dt * 1.5);
+    if (!game.fogLock) {
+      // A faint cold fill in halls (drip-wet rock catching the torch far off) so the room's size reads.
+      game.hallFill = (game.hallFill || 0) + (hall - (game.hallFill || 0)) * Math.min(1, dt * 0.7);
+      const hf = game.hallFill;
+      ambient.color.setRGB(0.051 + 0.06 * hf, 0.043 + 0.055 * hf, 0.063 + 0.07 * hf);
+      ambient.intensity = 0.5 + 1.1 * hf;
+    }
+    if (!game.fogLock) scene.fog.density += (fogWant - scene.fog.density) * Math.min(1, dt * 0.8);
     const m = game.monster;
     if (audio.started) {
       let zone = near && near.zone;
@@ -1149,7 +1179,7 @@ function tickOverworld(dt, info, now) {
   if (site) {
     const marks = [{ x: site.camp.x, z: site.camp.z, color: camp?.fireLit ? "#ffb050" : "#b08a60", label: story.active ? "Camp" : "" }];
     if (story.active && story.flags.lumeDead) marks.push({ x: site.pool.x, z: site.pool.z, color: "#9fd4ff", label: "Falls" });
-    const dots = story.active && story.surv.skills.has("tracking") ? world.wildlife.list.filter((a) => a.alive && a.dist < 140).map((a) => ({ x: a.pos.x, z: a.pos.z, color: a.kind === "deer" ? "#e0a060" : "#d8d0c0" })) : [];
+    const dots = story.active && story.surv.skills.has("tracking") ? world.wildlife.list.filter((a) => a.alive && a.dist < 140).map((a) => ({ x: a.pos.x, z: a.pos.z, color: a.kind === "deer" || a.kind === "boar" || a.kind === "goat" ? "#e0a060" : "#d8d0c0" })) : [];
     extra = { stream: site.stream, marks, dots };
   }
   minimap.drawOverworld(t, p, player.yaw, world.discovered, extra);
@@ -1158,7 +1188,7 @@ function tickOverworld(dt, info, now) {
     : A.update(dt, { eye: viewCam.position, elevation: elev, lights: { sun: moonLight, hemi: skyFill, ambient }, fog: scene.fog, renderer });
   scene.background.copy(A.fogColor);
   world.over.tick(now / 1000, p, A);
-  caveman.baseIntensity = 11.5 * st.torch;
+  caveman.baseIntensity = 14 * st.torch;
   const lab = A.label();
   storyUI.setClock(`${lab.part} ${lab.clock} · ${lab.weather}`);
   let campD = Infinity, waterD = Infinity;
@@ -1166,6 +1196,8 @@ function tickOverworld(dt, info, now) {
     camp.update(dt, now / 1000);
     campD = Math.hypot(p.x - site.camp.x, p.z - site.camp.z);
     waterD = Math.min(Math.hypot(p.x - camp.fallPos.x, p.z - camp.fallPos.z) / 3, t.streamDist(p.x, p.z) + 4);
+  }
+  if (world.wildlife) {
     const f = feetPos();
     world.wildlife.update(dt, { pos: f, speed: speedSmooth, crouched: player.stance !== "stand", running: player.runFrac > 0.4 }, now / 1000);
   }
@@ -1536,7 +1568,7 @@ window.__CAVE__ = {
       game.camOverride = o;
     },
     weathers: WEATHERS,
-    site: () => world.terrain?.act1 && { camp: world.terrain.act1.camp, pool: world.terrain.act1.pool, hollow: { x: world.terrain.act1.caveEntrance.x, z: world.terrain.act1.caveEntrance.z, id: world.terrain.act1.caveEntrance.id } },
+    site: () => world.terrain?.act1 && { camp: world.terrain.act1.camp, pool: world.terrain.act1.pool, hollow: { x: world.terrain.act1.caveEntrance.x, z: world.terrain.act1.caveEntrance.z, id: world.terrain.act1.caveEntrance.id }, stream: world.terrain.act1.stream, h: (x, z) => world.terrain.height(x, z), entrances: world.terrain.entrances },
     /** Teleport next to a named target outdoors, facing it. */
     goto: (what, dist = 1.6, side = 0) => {
       const c = world.camp, t = world.terrain, a = t.act1; let p = null;
@@ -1813,6 +1845,18 @@ window.__CAVE__ = {
   wallProbe: () => { const st = STANCES[player.stance]; const c = player.camera.position; const vq = queryVolume(player.volume, c.x, c.y, c.z, st.radius, 0); const fwd = queryVolume(player.volume, c.x - Math.sin(player.yaw) * 0.3, c.y, c.z - Math.cos(player.yaw) * 0.3, st.radius, 0);
     const sum = (q) => ({ inside: q.inside, floor: +q.floor.toFixed(2), ceil: +q.ceil.toFixed(2), cont: q.containing.map((k) => k.type === "hub" ? `hub ${k.s.id} f${k.floor.toFixed(2)} c${k.ceil.toFixed(2)}` : `seg f${k.floor.toFixed(2)} c${k.ceil.toFixed(2)} t${k.t.toFixed(2)}`) });
     return { here: sum(vq), fwd: sum(fwd), yaw: +player.yaw.toFixed(2), blockedLow: player.blockedLow, ahead: player.ahead, pos: [c.x, c.y, c.z].map((v) => +v.toFixed(2)), stance: player.stance, feet: +(c.y - st.eye).toFixed(2), ground: player.groundEye, hits: walls.probe(c, c.y - st.eye, st) }; },
+  moveProbe: (d = 0.05) => {
+    const P = player, st = STANCES[P.stance], from = P.camera.position.clone();
+    const to = from.clone().add(new THREE.Vector3(-Math.sin(P.yaw) * d, 0, -Math.cos(P.yaw) * d));
+    const r = P._constrain(to, from, st.radius, st);
+    return { from: [from.x, from.y, from.z].map((v) => +v.toFixed(2)), to: [r.x, r.z].map((v) => +v.toFixed(3)), moved: +Math.hypot(r.x - from.x, r.z - from.z).toFixed(3), floorEye: +(r._floor + r._eye).toFixed(2), groundEye: +(P.groundEye ?? 0).toFixed(2), inside: r._inside, blockedLow: r._blockedLow, need: r._needStance };
+  },
+  debugAmbient: (v) => { ambient.color.set(0xffffff); ambient.intensity = v; scene.fog.density = 0.004; game.fogLock = true; },
+  hallCenter: (id) => { const s = stationMap(cave).get(id); const p = stationWorld(s); return { x: p.x, y: p.y, z: p.z, floor: p.y - s.down, R: Math.max(s.left, s.right) }; },
+  halls: () => { const nb = neighborsOf(cave); return cave.stations.filter((s) => s.kind === "cavern").map((s) => ({ id: s.id, w: +(s.left + s.right).toFixed(1), h: +(s.up + s.down).toFixed(1), nb: nb.get(s.id) })); },
+  fauna: () => caveFauna?.stats() || null,
+  water: () => waterHandle && { path: waterHandle.path?.length || 0, snapped: waterHandle.path?.filter((q) => q.snapped).length || 0, pool: waterHandle.features.pool, first: waterHandle.path?.[Math.floor((waterHandle.path?.length || 0) / 2)], ids: cave?.water?.stationIds },
+  faunaObj: () => caveFauna,
   setWalls: (on) => { player.walls = on ? walls : null; },
   walkRoute: (ids, opts = {}) => {
     const dt = opts.dt || 1 / 60, mag = opts.mag ?? 0.8, lateral = opts.lateral || 0;
@@ -1835,7 +1879,7 @@ window.__CAVE__ = {
       for (let i = 0; i < (20 + L / 0.3) / dt; i++) {
         const px = cam.position.x, pz = cam.position.z;
         const dx = tx - px, dz = tz - pz, d = Math.hypot(dx, dz);
-        if (d < 2.0) { ok = true; break; }
+        if (d < (opts.reach || 2.0)) { ok = true; break; }
         P.yaw = Math.atan2(-dx / d, -dz / d);
         // Blocked (e.g. a stalagmite in the line): sidestep like a player would.
         if (run > 12) P.yaw += (Math.floor(frames / 45) % 2 ? 1.1 : -1.1);

@@ -1,5 +1,6 @@
 /**
- * Act 1 wildlife on the overworld: rabbits, birds and a small deer herd near the camp.
+ * Overworld wildlife: rabbits, birds and a small deer herd near the camp, plus a roaming population
+ * (rabbits, birds, deer, boar, goats, foxes) streamed per 64 m cell around the player.
  * Simple, readable AI: idle / graze / wander -> alert -> flee (rabbits zig-zag, birds fly off
  * and land again, deer bolt as a group). How close Kra can get depends on stance and speed
  * (crouch-walk to stalk). Spear hits kill (deer need two unless Kra has Blood Memory: Strength);
@@ -33,11 +34,21 @@ const SPEC = {
   rabbit: { r: [4, 9, 15, 2.6], speed: 6.2, calm: 26, hits: 1, reach: 2.9, wander: 0.7 },
   bird:   { r: [4, 8, 13, 2.6], speed: 7.5, calm: 30, hits: 1, reach: 2.9, wander: 0.5 },
   deer:   { r: [10, 24, 34, 4.2], speed: 8.2, calm: 45, hits: 2, reach: 3.3, wander: 0.9 },
+  boar:   { r: [7, 16, 24, 3.4], speed: 6.8, calm: 35, hits: 2, reach: 3.0, wander: 0.6 },
+  goat:   { r: [9, 20, 30, 3.8], speed: 7.4, calm: 40, hits: 1, reach: 3.0, wander: 0.6, climb: true },
+  fox:    { r: [6, 12, 20, 3.0], speed: 7.8, calm: 30, hits: 1, reach: 2.9, wander: 0.8 },
 };
+const QUAD = { deer: { geo: "deerBody", leg: "leg", hip: 0.86, lx: 0.15, lz: 0.42 }, boar: { geo: "boarBody", leg: "legShort", hip: 0.42, lx: 0.16, lz: 0.36 },
+  goat: { geo: "goatBody", leg: "legGoat", hip: 0.6, lx: 0.12, lz: 0.3 }, fox: { geo: "foxBody", leg: "legFox", hip: 0.3, lx: 0.08, lz: 0.2 } };
+/** Roaming species per streamed 64 m cell: [kind, weight, group size range]. */
+const ROAM = [["rabbit", 0.24, [1, 3]], ["bird", 0.14, [2, 3]], ["deer", 0.16, [2, 4]], ["boar", 0.18, [1, 3]], ["goat", 0.12, [2, 3]], ["fox", 0.16, [1, 1]]];
 export const ANIMAL_YIELD = {
   rabbit: [["meat", 1], ["pelt", 1], ["organ", 1]],
   bird: [["meat", 1], ["feather", 2]],
   deer: [["hide", 1], ["meat", 2], ["organ", 1]],
+  boar: [["meat", 3], ["hide", 1], ["organ", 1]],
+  goat: [["meat", 2], ["hide", 1]],
+  fox: [["pelt", 1], ["meat", 1]],
 };
 
 export class Wildlife {
@@ -52,10 +63,70 @@ export class Wildlife {
     this.group.name = "wildlife";
     scene.add(this.group);
     this.log = [];
-    const C = terrain.act1.camp;
-    for (let i = 0; i < (lite ? 4 : 5); i++) this._spawn("rabbit", C, 22, 80);
-    for (let i = 0; i < (lite ? 3 : 4); i++) this._spawn("bird", C, 18, 70);
-    this._spawnHerd(C, lite ? 3 : 4);
+    this.lite = lite;
+    // Roaming population streamed per 64 m cell around the player (spawned when a cell comes into
+    // range, dropped when it leaves; coming back later restocks it — that's the respawn).
+    this.cells = new Map();
+    this.cellSize = 64;
+    this.cellR = lite ? 1 : 2;
+    this.streamT = 0;
+    this.camp = terrain.act1 ? terrain.act1.camp : null;
+    const C = this.camp;
+    if (C) {
+      for (let i = 0; i < (lite ? 4 : 5); i++) this._spawn("rabbit", C, 22, 80);
+      for (let i = 0; i < (lite ? 3 : 4); i++) this._spawn("bird", C, 18, 70);
+      this._spawnHerd(C, lite ? 3 : 4);
+    }
+  }
+
+  _cellSpawn(cx, cz) {
+    const S = this.cellSize, list = [];
+    let h = (cx * 73856093) ^ (cz * 19349663) ^ this.t.seed ^ 0x5eed;
+    const visits = (this.visits || (this.visits = new Map()));
+    const key = cx + "," + cz, v = (visits.get(key) || 0) + 1; visits.set(key, v);
+    const rng = mulberry32((h ^ (v * 0x9e3779b1)) >>> 0);
+    const mx = (cx + 0.5) * S, mz = (cz + 0.5) * S;
+    if (this.camp && Math.hypot(mx - this.camp.x, mz - this.camp.z) < 70) return list; // the camp has its own
+    const groups = this.lite ? 1 + (rng() < 0.35 ? 1 : 0) : 1 + (rng() < 0.6 ? 1 : 0);
+    for (let g = 0; g < groups; g++) {
+      let roll = rng(), kind = ROAM[0];
+      for (const k of ROAM) { if ((roll -= k[1]) <= 0) { kind = k; break; } }
+      const [name, , [n0, n1]] = kind;
+      const maxSlope = SPEC[name].climb ? 1.3 : 0.55;
+      let c = null;
+      for (let k = 0; k < 14 && !c; k++) {
+        const x = cx * S + rng() * S, z = cz * S + rng() * S;
+        const m = this.t.slope(x, z).m;
+        if (m > maxSlope || (SPEC[name].climb && m < 0.25 && k < 10)) continue;
+        if (this.t.streamDist(x, z) < 3 || this.t.inClearing?.(x, z)) continue;
+        if (this.t.entrances?.some((e) => Math.hypot(e.x - x, e.z - z) < 10)) continue;
+        c = { x, z };
+      }
+      if (!c) continue;
+      const n = n0 + Math.floor(rng() * (n1 - n0 + 1));
+      const herd = n > 1 && name !== "rabbit" && name !== "bird" ? { id: "herd" + key + g, alert: 0 } : null;
+      for (let i = 0; i < n; i++) {
+        const at = { x: c.x + Math.cos(i * 2.2 + g) * (1.5 + i), z: c.z + Math.sin(i * 2.2 + g) * (1.5 + i) };
+        const a = this._spawn(name, null, 0, 0, at, herd, name === "deer" && i === 0);
+        a.cell = key; list.push(a);
+      }
+    }
+    return list;
+  }
+
+  /** Keep the roaming population streamed around the player. */
+  _stream(P) {
+    const S = this.cellSize, pcx = Math.floor(P.x / S), pcz = Math.floor(P.z / S), R = this.cellR;
+    for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
+      const key = (pcx + dx) + "," + (pcz + dz);
+      if (!this.cells.has(key)) this.cells.set(key, this._cellSpawn(pcx + dx, pcz + dz));
+    }
+    for (const [key, list] of this.cells) {
+      const [cx, cz] = key.split(",").map(Number);
+      if (Math.abs(cx - pcx) <= R + 1 && Math.abs(cz - pcz) <= R + 1) continue;
+      for (const a of list) { this.group.remove(a.root); const i = this.list.indexOf(a); if (i >= 0) this.list.splice(i, 1); }
+      this.cells.delete(key);
+    }
   }
 
   _geos() {
@@ -93,7 +164,43 @@ export class Wildlife {
       [T(new THREE.CylinderGeometry(0.014, 0.018, 0.22, 4).rotateX(-0.6), 0.2, 2.08, -0.8), 0xd9ccb0],
     ]);
     const leg = merged([[T(new THREE.CylinderGeometry(0.035, 0.05, 0.85, 5), 0, -0.42, 0), 0x6e4c32]]);
-    return { rab, birdBody, wing, deerBody, antlers, leg };
+    const boarBody = merged([
+      [S(T(new THREE.CapsuleGeometry(0.3, 0.55, 3, 7).rotateX(Math.PI / 2), 0, 0.62, 0), 1, 1.05, 1), 0x3e3128],
+      [S(T(new THREE.BoxGeometry(0.1, 0.16, 0.7), 0, 0.92, -0.05), 1, 1, 1), 0x2a211b],
+      [S(T(new THREE.SphereGeometry(0.22, 7, 5), 0, 0.6, -0.55), 1, 0.95, 1.25), 0x46372c],
+      [T(new THREE.CylinderGeometry(0.08, 0.1, 0.12, 6).rotateX(Math.PI / 2), 0, 0.55, -0.82), 0x6a5040],
+      [T(new THREE.ConeGeometry(0.025, 0.14, 4).rotateX(-2.2), -0.09, 0.5, -0.76), 0xe8e0cc],
+      [T(new THREE.ConeGeometry(0.025, 0.14, 4).rotateX(-2.2), 0.09, 0.5, -0.76), 0xe8e0cc],
+      [T(new THREE.ConeGeometry(0.06, 0.12, 4), -0.12, 0.82, -0.5), 0x2e241d],
+      [T(new THREE.ConeGeometry(0.06, 0.12, 4), 0.12, 0.82, -0.5), 0x2e241d],
+      [T(new THREE.SphereGeometry(0.025, 4, 3), -0.1, 0.68, -0.72), 0x111111],
+      [T(new THREE.SphereGeometry(0.025, 4, 3), 0.1, 0.68, -0.72), 0x111111],
+    ]);
+    const goatBody = merged([
+      [S(T(new THREE.CapsuleGeometry(0.22, 0.5, 3, 7).rotateX(Math.PI / 2), 0, 0.78, 0), 1, 1.05, 1), 0xc9c1b2],
+      [T(new THREE.CylinderGeometry(0.08, 0.11, 0.38, 6).rotateX(0.5), 0, 1.0, -0.4), 0xbfb6a6],
+      [S(T(new THREE.BoxGeometry(0.15, 0.17, 0.3), 0, 1.2, -0.56), 1, 1, 1), 0xb3aa99],
+      [T(new THREE.TorusGeometry(0.1, 0.022, 4, 8, Math.PI * 1.2).rotateY(Math.PI / 2), -0.07, 1.32, -0.48), 0x5b5248],
+      [T(new THREE.TorusGeometry(0.1, 0.022, 4, 8, Math.PI * 1.2).rotateY(Math.PI / 2), 0.07, 1.32, -0.48), 0x5b5248],
+      [T(new THREE.ConeGeometry(0.03, 0.12, 4).rotateX(Math.PI), 0, 1.05, -0.68), 0xe0d8c8],
+      [T(new THREE.SphereGeometry(0.02, 4, 3), -0.07, 1.25, -0.7), 0x111111],
+      [T(new THREE.SphereGeometry(0.02, 4, 3), 0.07, 1.25, -0.7), 0x111111],
+    ]);
+    const foxBody = merged([
+      [S(T(new THREE.CapsuleGeometry(0.12, 0.42, 3, 7).rotateX(Math.PI / 2), 0, 0.38, 0), 1, 1, 1), 0xc0602a],
+      [S(T(new THREE.SphereGeometry(0.12, 7, 5), 0, 0.46, -0.36), 1, 0.9, 1.1), 0xc8662c],
+      [T(new THREE.ConeGeometry(0.05, 0.16, 5).rotateX(-Math.PI / 2), 0, 0.43, -0.52), 0xd8d0c4],
+      [T(new THREE.ConeGeometry(0.045, 0.12, 4), -0.06, 0.6, -0.34), 0x3a2418],
+      [T(new THREE.ConeGeometry(0.045, 0.12, 4), 0.06, 0.6, -0.34), 0x3a2418],
+      [S(T(new THREE.SphereGeometry(0.09, 6, 5), 0, 0.4, 0.42), 1, 0.9, 2.6), 0xb85a26],
+      [T(new THREE.SphereGeometry(0.05, 5, 4), 0, 0.42, 0.64), 0xf2ece2],
+      [T(new THREE.SphereGeometry(0.015, 4, 3), -0.05, 0.5, -0.46), 0x111111],
+      [T(new THREE.SphereGeometry(0.015, 4, 3), 0.05, 0.5, -0.46), 0x111111],
+    ]);
+    const legShort = merged([[T(new THREE.CylinderGeometry(0.045, 0.055, 0.42, 5), 0, -0.21, 0), 0x2a211b]]);
+    const legGoat = merged([[T(new THREE.CylinderGeometry(0.03, 0.04, 0.6, 5), 0, -0.3, 0), 0x8f8676]]);
+    const legFox = merged([[T(new THREE.CylinderGeometry(0.02, 0.025, 0.3, 4), 0, -0.15, 0), 0x2a1a12]]);
+    return { rab, birdBody, wing, deerBody, antlers, leg, boarBody, goatBody, foxBody, legShort, legGoat, legFox };
   }
 
   _place(C, rmin, rmax) {
@@ -115,11 +222,12 @@ export class Wildlife {
       parts.wr = new THREE.Mesh(this.geos.wing, this.mat); parts.wr.position.set(-0.05, 0.15, 0); parts.wr.rotation.y = Math.PI;
       root.add(parts.wl, parts.wr);
     } else {
-      parts.body = new THREE.Mesh(this.geos.deerBody, this.mat); root.add(parts.body);
+      const q = QUAD[kind];
+      parts.body = new THREE.Mesh(this.geos[q.geo], this.mat); root.add(parts.body);
       if (buck) root.add(new THREE.Mesh(this.geos.antlers, this.mat));
       parts.legs = [];
-      for (const [x, z] of [[-0.15, -0.42], [0.15, -0.42], [-0.15, 0.42], [0.15, 0.42]]) {
-        const l = new THREE.Mesh(this.geos.leg, this.mat); l.position.set(x, 0.86, z); root.add(l); parts.legs.push(l);
+      for (const [x, z] of [[-q.lx, -q.lz], [q.lx, -q.lz], [-q.lx, q.lz], [q.lx, q.lz]]) {
+        const l = new THREE.Mesh(this.geos[q.leg], this.mat); l.position.set(x, q.hip, z); root.add(l); parts.legs.push(l);
       }
     }
     root.traverse((o) => { o.userData.sharedGeometry = true; });
@@ -131,7 +239,7 @@ export class Wildlife {
     const p = at || this._place(C, rmin, rmax);
     const m = this._make(kind, buck);
     const a = {
-      id: kind + this.list.length, kind, spec: SPEC[kind], pos: new THREE.Vector3(p.x, this.t.height(p.x, p.z), p.z), yaw: this.rng() * 6.28,
+      id: kind + (this.nextId = (this.nextId || 0) + 1), kind, spec: SPEC[kind], pos: new THREE.Vector3(p.x, this.t.height(p.x, p.z), p.z), yaw: this.rng() * 6.28,
       state: "idle", stateT: this.rng() * 3, health: SPEC[kind].hits, herd, alive: true, harvested: false, fly: 0, phase: this.rng() * 10, ...m,
       goal: null, flee: null, deadT: 0, home: { x: p.x, z: p.z },
     };
@@ -158,11 +266,13 @@ export class Wildlife {
   /** player: { pos (feet), speed, crouched, running } */
   update(dt, player, time) {
     const P = player.pos;
+    this.streamT -= dt;
+    if (this.streamT <= 0) { this.streamT = 1; this._stream(P); }
     for (const a of this.list) {
       const dx = a.pos.x - P.x, dz = a.pos.z - P.z, dist = Math.hypot(dx, dz);
       a.dist = dist;
-      a.root.visible = dist < 160 && !a.harvested;
-      if (!a.alive) { a.deadT += dt; this._pose(a, dt, 0, time); if (a.harvested && a.deadT > 60 && dist > 60) this._respawn(a, P); continue; }
+      a.root.visible = dist < (a.cell ? 120 : 160) && !a.harvested;
+      if (!a.alive) { a.deadT += dt; this._pose(a, dt, 0, time); if (a.harvested && a.deadT > 60 && dist > 60 && !a.cell && this.camp) this._respawn(a, P); continue; }
       if (dist > 220) continue; // far away: frozen
       const r = a.spec.r;
       const moving = player.speed > 0.3;
@@ -170,8 +280,9 @@ export class Wildlife {
       a.stateT += dt;
       let speed = 0;
       if (a.state !== "flee" && dist < radius) {
-        if (a.kind === "deer" && a.state !== "alert") { a.state = "alert"; a.stateT = 0; }
-        else if (a.kind !== "deer" || a.stateT > 0.6 || dist < radius * 0.6) this._startFlee(a, P);
+        const wary = a.kind === "deer" || a.kind === "goat" || a.kind === "boar";
+        if (wary && a.state !== "alert") { a.state = "alert"; a.stateT = 0; }
+        else if (!wary || a.stateT > 0.6 || dist < radius * 0.6) this._startFlee(a, P);
       }
       switch (a.state) {
         case "idle":
@@ -203,7 +314,7 @@ export class Wildlife {
       }
       if (speed > 0) {
         const nx = a.pos.x - Math.sin(a.yaw) * speed * dt, nz = a.pos.z - Math.cos(a.yaw) * speed * dt;
-        if (a.kind === "bird" && a.fly > 0 || this.t.slope(nx, nz).m < 0.9) { a.pos.x = nx; a.pos.z = nz; }
+        if (a.kind === "bird" && a.fly > 0 || this.t.slope(nx, nz).m < (a.spec.climb ? 1.6 : 0.9)) { a.pos.x = nx; a.pos.z = nz; }
         else a.yaw += 1.2;
       }
       const g = this.t.height(a.pos.x, a.pos.z);

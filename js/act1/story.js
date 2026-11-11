@@ -136,11 +136,13 @@ export class Story {
       if (carc) return s.tools.knife ? { label: `Harvest the ${carc.kind} with your knife`, act: () => this.harvest(carc) } : { label: "You need a knife to cut it", act: () => env.ui.toast("You need a knife") };
       if (!camp.tor.skinned && d2(camp.tor) < 2.4 && fl.lumeDead) return { label: "Kneel by Tor", act: () => this.torChoice() };
       for (const b of camp.bushes) if (b.ready && d2(b) < 2.2) return { label: b.kind === "berries" ? "Pick berries" : "Dig up roots", act: () => this.gather(b) };
-      if (t.streamDist(f.x, f.z) < 2.4) return { label: "Drink from the stream", act: () => this.drinkWater() };
+      if (t.streamDist(f.x, f.z) < 2.1) return { label: "Drink from the stream", act: () => this.drinkWater() };
       for (const b of camp.bodies) if (d2(b) < 1.8) return { label: "The dead lie with their mouths open", act: () => env.ui.toast("Their mouths are frozen open. Something drank them out.") };
       return null;
     }
-    // caves
+    // caves: drink only where the rendered stream / pool really is
+    const wh = env.caveWater?.();
+    if (wh && wh.waterDist && wh.waterDist(f.x, f.y, f.z) < 0.9) return { label: "Drink from the stream", act: () => this.drinkWater() };
     if (env.caveKind() !== "hollow") return null;
     const m = env.monster();
     if (m && !m.alive && m.kind === "rat" && !fl.ratHarvested && Math.hypot(m.pos.x - f.x, m.pos.z - f.z) < 2.4) return { label: "Collect the creature's blood and organ", act: () => this.harvestRat() };
@@ -264,6 +266,7 @@ export class Story {
     if (!this.active || this.env.mode() !== "overworld") return false;
     const dmg = 1 + (this.surv.tools.spearDone || this.surv.str > 0 ? 1 : 0);
     const a = this.env.wildlife()?.tryHit(feet, fx, fz, dmg);
+    this.lastHit = a;
     if (!a) return false;
     if (!a.alive) {
       if (a.kind === "deer") this.surv.stats.deer++; else this.surv.stats.small++;

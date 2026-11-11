@@ -54,8 +54,9 @@ export function defaultCharacter(rng) {
 
 function sampleLRUD(rng, ch, kind) {
   if (kind === "cavern") {
-    const w = randRange(rng, 10, 18);
-    const h = randRange(rng, 9, 16);
+    // Round 8: halls about 2-2.5x the old span and height.
+    const w = randRange(rng, 22, 36);
+    const h = randRange(rng, 18, 30);
     return {
       left: w * randRange(rng, 0.42, 0.58),
       right: w * randRange(rng, 0.42, 0.58),
@@ -378,14 +379,20 @@ function setClearance(s) {
   else s.clearance = "stand";
 }
 
-function inflateCavern(s, rng) {
-  const w = randRange(rng, 10, 17);
-  const h = randRange(rng, 9, 15);
+function inflateCavern(s, rng, maxR = Infinity) {
+  const w = randRange(rng, 22, 36);
+  const h = randRange(rng, 18, 30);
   s.kind = "cavern";
   s.left = w * randRange(rng, 0.42, 0.58);
   s.right = w * randRange(rng, 0.42, 0.58);
+  s.left = Math.min(s.left, maxR);
+  s.right = Math.min(s.right, maxR);
   s.up = h * randRange(rng, 0.74, 0.86);
-  s.down = Math.max(0.9, h * randRange(rng, 0.1, 0.18));
+  const floor0 = s.z - (s.down || 1);
+  s.down = Math.max(1.2, h * randRange(rng, 0.08, 0.13));
+  // Keep the hall floor at the station's original floor level (the dome grows upward), so the
+  // incident passages meet the floor instead of hanging as raised terraces.
+  s.z = floor0 + s.down;
   s.clearance = "stand";
 }
 
@@ -429,38 +436,88 @@ function shapeCavernsAndSqueezes(cave, rng) {
     candidates.push(s);
   }
   const side = stations.filter((s) => !pathSet.has(s.id) && s.kind !== "entrance" && s.kind !== "exit");
+  // Horizontal clearance from a point to every passage not touching `excl`, counting only legs
+  // whose height there falls in [zLo, zHi] (a hall's dome must not swallow other passages).
+  const clearance = (x, y, zLo, zHi, excl) => {
+    let best = Infinity;
+    for (const lg of cave.legs) {
+      if (lg.from === excl || lg.to === excl) continue;
+      const a = smap.get(lg.from), b = smap.get(lg.to);
+      if (!a || !b) continue;
+      const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / L2));
+      const vz = a.z + (b.z - a.z) * t;
+      if (vz < zLo - 3 || vz > zHi + 3) continue;
+      best = Math.min(best, Math.hypot(x - a.x - dx * t, y - a.y - dy * t));
+    }
+    const e = smap.get(startId);
+    if (e) best = Math.min(best, Math.hypot(x - e.x, y - e.y) - 6);
+    return best;
+  };
+  const roomFor = (st) => clearance(st.x, st.y, st.z - 2, st.z + 26, st.id);
+  const pickBest = (list, centre) => {
+    let best = null, bs = -Infinity;
+    list.forEach((st, i) => {
+      const sc = Math.min(roomFor(st), 22) - Math.abs(i / Math.max(1, list.length - 1) - centre) * 8;
+      if (sc > bs) { bs = sc; best = st; }
+    });
+    return best;
+  };
   const picks = [];
-  if (candidates.length) picks.push(candidates[Math.floor(candidates.length * 0.55)]);
-  if (side.length && rng() < 0.85) picks.push(side[Math.floor(rng() * side.length)]);
+  if (candidates.length) picks.push(pickBest(candidates, 0.55));
+  if (side.length && rng() < 0.85) {
+    const sp = pickBest(side.filter((st) => !picks.includes(st)), rng());
+    if (sp) picks.push(sp);
+  }
   if (!picks.length) picks.push(stations[Math.floor(stations.length / 2)]);
   const caverns = [];
   for (const s of picks.slice(0, 2)) {
-    inflateCavern(s, rng);
+    if (caverns.some((c) => Math.hypot(c.x - s.x, c.y - s.y) < 40)) continue;
+    inflateCavern(s, rng, Math.max(7, roomFor(s) - 3));
     caverns.push(s);
     // Flare the mouths into the hall.
     for (const nid of nbrs.get(s.id) || []) {
       const n = smap.get(nid);
       if (!n || n.kind === "entrance") continue;
       if (n.kind === "exit") continue;
-      n.left = Math.max(n.left, randRange(rng, 2.2, 3.6));
-      n.right = Math.max(n.right, randRange(rng, 2.2, 3.6));
-      n.up = Math.max(n.up, randRange(rng, 2.4, 4.0));
+      n.left = Math.max(n.left, randRange(rng, 3.2, 5.5));
+      n.right = Math.max(n.right, randRange(rng, 3.2, 5.5));
+      n.up = Math.max(n.up, randRange(rng, 3.5, 6.5));
     }
     // Two large alcoves so the room is a hall, not just a fat sausage.
     const p = { x: s.x, y: s.y, z: s.z };
+    // Each alcove must keep clear of every other passage (an alcove dome swallowing a
+    // passage left invisible holes / unwalkable floor near it).
+    const legDist = (x, y, z) => {
+      let best = Infinity;
+      for (const lg of cave.legs) {
+        if (lg.from === s.id || lg.to === s.id) continue;
+        const a = smap.get(lg.from), b = smap.get(lg.to);
+        if (!a || !b) continue;
+        const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy || 1;
+        const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / L2));
+        const vz = a.z + (b.z - a.z) * t;
+        if (Math.abs(vz - z) > 14) continue;
+        best = Math.min(best, Math.hypot(x - a.x - dx * t, y - a.y - dy * t));
+      }
+      return best;
+    };
     for (let i = 0; i < 2; i++) {
-      const ang = rng() * Math.PI * 2;
-      const dist = randRange(rng, 4.5, 7.5);
-      const pos = {
-        x: p.x + Math.sin(ang) * dist,
-        y: p.y + Math.cos(ang) * dist,
-        z: p.z + randRange(rng, -1.2, 0.4),
-      };
+      const R = randRange(rng, 8, 13);
+      let pos = null;
+      for (let tries = 0; tries < 14 && !pos; tries++) {
+        const ang = rng() * Math.PI * 2;
+        const dist = randRange(rng, 12, 20);
+        const c = { x: p.x + Math.sin(ang) * dist, y: p.y + Math.cos(ang) * dist, z: p.z + randRange(rng, -1.2, 0.4) };
+        if (legDist(c.x, c.y, c.z) > R + 3 && clearance(c.x, c.y, c.z - 2, c.z + 18, s.id) > R + 3 &&
+          stations.every((o) => o.kind !== "cavern" || o === s || Math.hypot(o.x - c.x, o.y - c.y) > R + Math.max(o.left, o.right) + 2)) pos = c;
+      }
+      if (!pos) continue;
       const id = `S${stations.length}`;
       const alc = {
         id, x: pos.x, y: pos.y, z: pos.z, kind: "cavern",
-        left: randRange(rng, 3.5, 6), right: randRange(rng, 3.5, 6),
-        up: randRange(rng, 5, 9), down: randRange(rng, 0.8, 1.4),
+        left: R, right: R * randRange(rng, 0.8, 1.1),
+        up: randRange(rng, 12, 22), down: randRange(rng, 1.0, 1.8),
         clearance: "stand",
       };
       stations.push(alc);

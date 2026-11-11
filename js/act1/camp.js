@@ -258,18 +258,32 @@ export class Camp {
     // ---- stream, pool, waterfall ----
     this.waterTex = streakTexture(false);
     this.fallTex = streakTexture(true);
-    const waterM = new THREE.MeshLambertMaterial({ color: 0x6a8ea0, map: this.waterTex, transparent: true, opacity: 0.82, emissive: 0x0a1418, depthWrite: false });
+    const waterM = new THREE.MeshLambertMaterial({ color: 0x6a8ea0, map: this.waterTex, transparent: true, opacity: 0.82, emissive: 0x0a1418, depthWrite: false, side: THREE.DoubleSide });
     {
-      const P = a.stream, pos = [], uv = [], idx = [];
+      // Densify the centreline (the bed is carved along straight segments between points).
+      const P = [], pos = [], uv = [], idx = [];
+      for (let i = 0; i < a.stream.length - 1; i++) {
+        const p0 = a.stream[i], p1 = a.stream[i + 1], n = Math.max(1, Math.ceil(Math.hypot(p1.x - p0.x, p1.z - p0.z) / 1.2));
+        for (let k = 0; k < n; k++) P.push({ x: p0.x + (p1.x - p0.x) * (k / n), z: p0.z + (p1.z - p0.z) * (k / n) });
+      }
+      P.push(a.stream[a.stream.length - 1]);
+      // The terrain chunks are a 2 m (near) / 4 m (mid) grid that can't follow the narrow carved
+      // bed, so sit the water on the highest of the true height and both grid interpolations;
+      // otherwise the rendered ground swallows stretches of the stream.
+      const grid = (x, z, st) => {
+        const gx = Math.floor(x / st) * st, gz = Math.floor(z / st) * st, fx = (x - gx) / st, fz = (z - gz) / st;
+        const h00 = H(gx, gz), h10 = H(gx + st, gz), h01 = H(gx, gz + st), h11 = H(gx + st, gz + st);
+        return (h00 * (1 - fx) + h10 * fx) * (1 - fz) + (h01 * (1 - fx) + h11 * fx) * fz;
+      };
+      const surf = (x, z) => Math.max(H(x, z) + 0.3, grid(x, z, 2) + 0.12, grid(x, z, 4) + 0.06);
       let L = 0;
       for (let i = 0; i < P.length; i++) {
         const p0 = P[Math.max(0, i - 1)], p1 = P[Math.min(P.length - 1, i + 1)];
         const dx = p1.x - p0.x, dz = p1.z - p0.z, l = Math.hypot(dx, dz) || 1, nx = -dz / l, nz = dx / l;
         if (i > 0) L += Math.hypot(P[i].x - P[i - 1].x, P[i].z - P[i - 1].z);
         const w = i === 0 ? 2.2 : 1.35;
-        const y = H(P[i].x, P[i].z) + 0.3;
-        for (const s of [-1, 1]) { pos.push(P[i].x + nx * w * s, y, P[i].z + nz * w * s); uv.push(L / 6, s > 0 ? 1 : 0); }
-        if (i < P.length - 1) { const k = i * 2; idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
+        for (const s of [-1, 1]) { const vx = P[i].x + nx * w * s, vz = P[i].z + nz * w * s; pos.push(vx, Math.max(surf(vx, vz), surf(P[i].x, P[i].z) - 0.05), vz); uv.push(L / 6, s > 0 ? 1 : 0); }
+        if (i < P.length - 1) { const k = i * 2; idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); } // counter-clockwise from above (was culled: the stream was invisible)
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);

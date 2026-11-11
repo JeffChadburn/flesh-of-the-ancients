@@ -221,7 +221,7 @@ export class Caveman {
     scene.add(this.flame);
     scene.add(this.embers);
 
-    this.light = new THREE.PointLight(0xffa05a, 10, 21, 1.5);
+    this.light = new THREE.PointLight(0xffa05a, 12, 24.5, 1.5);
     scene.add(this.light);
     this.torchPos = new THREE.Vector3();
 

@@ -88,6 +88,14 @@ export function buildVolume(cave, obstacles = []) {
       if (d > 0.2) radius = Math.min(radius, d * 0.42);
     }
     radius = Math.max(0.18, radius);
+    if (s.kind === "cavern") {
+      // Halls: walk the whole room (not just the legs crossing it), inside the rendered dome.
+      const big = Math.max(s.left, s.right) * 0.86;
+      const deg = (nbrs.get(s.id) || []).length;
+      let lim = Infinity;
+      if (deg === 1) for (const nid of nbrs.get(s.id) || []) { const n = smap.get(nid); if (n) { const q = stationWorld(n); lim = Math.hypot(p.x - q.x, p.z - q.z) * 0.75; } }
+      radius = Math.max(radius, Math.min(big, lim));
+    }
     hubs.push({
       id: s.id,
       x: p.x, y: p.y, z: p.z,
@@ -107,7 +115,26 @@ export function buildVolume(cave, obstacles = []) {
       if (h) (h.segs || (h.segs = [])).push(i);
     }
   });
-  return { segments, hubs, obstacles: obstacles.slice(), cave };
+  // Halls: a passage that crosses a big hall above its floor has its rock clipped away by the
+  // hall (mesh.js), so it must not stay walkable there either (no invisible bridges).
+  const halls = hubs.filter((h) => h.kind === "cavern").map((h) => ({ id: h.id, x: h.x, y: h.y, z: h.z, floor: h.floor, up: h.up, r: h.radius + 0.6 }));
+  return { segments, hubs, halls, obstacles: obstacles.slice(), cave };
+}
+
+function overHall(volume, x, z, floor, seg) {
+  const hs = volume.halls;
+  if (!hs || !hs.length) return false;
+  // Legs from the hall's own station stay walkable: they are the (visible) ramps up to its mouths.
+  // Only where the passage actually lies inside the hall's dome (an ellipsoid, like mesh.js
+  // insideHall); passages above the dome keep their own rock and stay walkable.
+  for (const h of hs) {
+    if (seg.from === h.id || seg.to === h.id || floor <= h.floor + 1.6) continue;
+    const d = Math.hypot(x - h.x, z - h.z);
+    if (d >= h.r) continue;
+    const dy = Math.max(0, floor + 0.9 - h.y) / Math.max(1, h.up * 0.92);
+    if ((d / h.r) ** 2 + dy * dy < 1) return true;
+  }
+  return false;
 }
 
 /**
@@ -130,7 +157,7 @@ function smoothGround(volume, x, y, z, containing, fallbackFloor, fallbackCeil) 
     const floor = seg.ay + seg.aby * t - (seg.ad + (seg.bd - seg.ad) * t);
     // Only legs on (about) the same level as the floor you're on: a passage passing above or
     // below within a few metres must not drag the ground up (that caused squeezes and snags).
-    if (Math.abs(floor - fallbackFloor) > 1.1) continue;
+    if (Math.abs(floor - fallbackFloor) > 1.8) continue;
     const ceil = seg.ay + seg.aby * t + (seg.au + (seg.bu - seg.au) * t);
     const q = d * d + 0.04;
     const w = 1 / (q * q * q);
@@ -194,7 +221,7 @@ export function queryVolume(volume, x, y, z, radius = PLAYER_RADIUS, eps = 0) {
     const dx = x - s.x;
     const dz = z - s.z;
     const d = Math.hypot(dx, dz);
-    if (inLat && inY && inLen) containing.push({ type: "seg", segIndex: si, s, t, lat, floor: s.floor, ceil: s.ceil, up: s.up, down: s.down });
+    if (inLat && inY && inLen && !overHall(volume, x, z, s.floor, seg)) containing.push({ type: "seg", segIndex: si, s, t, lat, floor: s.floor, ceil: s.ceil, up: s.up, down: s.down });
     // Distance to the allowed slab (for projection).
     const clat = clamp(lat, -maxL, maxR);
     const px = s.x + s.rx * clat;

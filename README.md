@@ -225,6 +225,19 @@ Draw calls go up slightly because each cell is its own mesh. The triangle count 
 
 ## Changelog
 
+- **Round 8: Solid rock, bigger halls, more life.**
+  - **Walls and physics:** cave walls now collide against the rendered rock itself (BVH raycasts against the passage meshes, vendored `three-mesh-bvh`), so dead ends, stubs and side branches are solid everywhere. Rock noise bulges outward only, tubes are clipped where passages overlap (no stray wall slabs across junctions), and floor blending ignores passages on other levels, so ridges and junctions such as Mud Vein S6 no longer snag or lift you.
+  - **Water:** the overworld stream was being back-face culled and was invisible; it is now drawn, sits on the real ground, and drinking only works within reach of it or the pool. Cave streams and pools are lifted onto the rendered floor as the rock streams in, and you can drink from them in story mode.
+  - **Torch:** about 22% brighter (intensity 11.5 → 14) with a longer throw (21 → 24.5 m), and longer still in big halls; caves stay dark.
+  - **Caverns:** halls are 2–3× wider and taller (22–36 m across, 18–30 m high) with two big side alcoves each. Their floors stay at passage level and they are placed clear of other passages. They are filled with formations: giant stalagmites, stalactites hanging from the dome, columns, flowstone drapes and rimstone. A faint fill light makes a hall's size readable.
+  - **Animals:** the overworld now has a roaming population of rabbits, birds, deer, boar, goats and foxes, streamed per 64 m cell. Cells restock when you come back. Kills count in the Kills tally, and carcasses give meat, hide, pelt and organs. Free play can hunt too.
+  - **Cave life (harmless):** bat flocks roost under high ceilings and scatter when the torch gets close or you make noise. Fish swim in cave streams and pools, and spiders sit on the walls and scuttle away from the torch. All of them can be speared: bats and fish give a scrap of meat, and each kill counts.
+  - **Cave mouths:** a solid rock arch now frames each overworld entrance, so the black opening meets rock all round with no gaps.
+  - **Known issues:**
+    - Where two passages cross at different heights, a squeeze can be partly closed by the other passage's rock. The collision matches what you see there, but it can block the way (seen on seed 7 at S33).
+    - Bats are simple flapping silhouettes.
+    - The inside of the cave mouth is unchanged.
+
 - **Round 7: Act I and the living sky.**
   - Day/night cycle and six blended weather states, with lightning, thunder and time-driven ambience; debug keys T and Y.
   - Act I is the new-game start: the ruined camp, Old Lume's dialogue with a murmured voice, survival meters, foraging, hunting (rabbits, birds, a deer herd), harvesting, fire and cooking, crafting (backpack, spear), and Waterfall Hollow with the rat-thing, blood glyphs, face-taking and Blood Memory.

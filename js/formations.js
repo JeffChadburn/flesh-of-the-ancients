@@ -119,7 +119,7 @@ export function addFormations(group, cave, material, lookup = null, opts = {}) {
         addInstance(stalagmites, dummy, fx, floor + h * 0.5, fz, r / 0.08, h / 0.6, r / 0.08, 0, rng() * 6, 0, color);
         placeOnFloor(fx, fz, floor, r * 0.85, h);
       }
-      if (chamberish && rng() < 0.16 && (!show || ceil - floor < 30)) {
+      if (chamberish && rng() < 0.16 && (show ? ceil - floor < 30 : ceil - floor < 7)) {
         const h = (ceil - floor) * randRange(rng, 0.92, 1.0);
         const r = randRange(rng, 0.07, 0.16) * (show ? Math.max(4, h * 0.08) : 1);
         addInstance(columns, dummy, fx, floor + h * 0.5, fz, r / 0.1, h / 1.6, r / 0.1, 0, rng() * 6, 0, color);
@@ -154,11 +154,64 @@ export function addFormations(group, cave, material, lookup = null, opts = {}) {
       const gap = Math.min(ceil - floor, show ? 26 : 99);
       const h1 = gap * randRange(rng, 0.35, 0.5);
       const h2 = gap - h1;
-      const r = randRange(rng, 0.08, 0.17) * (show ? Math.max(1, gap * 0.12) : 1);
+      const r = randRange(rng, 0.08, 0.17) * (show ? Math.max(1, gap * 0.12) : Math.max(1, gap * 0.08));
       const col = wetColor(rng);
       if (!show || ceil - floor < 26) addInstance(stalactites, dummy, x, ceil - h1 * 0.5, z, r / 0.08, h1 / 0.6, r / 0.08, Math.PI, 0, 0, col);
       addInstance(stalagmites, dummy, x, floor + h2 * 0.5, z, r / 0.08 * 1.1, h2 / 0.6, r / 0.08 * 1.1, 0, 0, 0, col);
       placeOnFloor(x, z, floor, r * 0.9, h2);
+    }
+  }
+
+  // Round 8 halls: a dripstone forest scaled to the room (giant stalagmites and stalactites,
+  // floor-to-ceiling columns, rimstone dams on the floor, flowstone sheets on the walls).
+  // Walkways from the hall's centre to each mouth stay clear.
+  if (!show) for (const s of cave.stations) {
+    if (s.kind !== "cavern") continue;
+    const p = stationWorld(s);
+    const R = Math.max(s.left, s.right) * 0.98;
+    if (R < 6) continue;
+    const floor = p.y - s.down;
+    const ways = (nbrs.get(s.id) || []).map((id) => stationWorld(smap.get(id))).map((q) => ({ x: q.x - p.x, z: q.z - p.z }));
+    const onWay = (x, z, w) => ways.some((d) => {
+      const L = Math.hypot(d.x, d.z) || 1, t = Math.max(0, ((x - p.x) * d.x + (z - p.z) * d.z) / (L * L));
+      return Math.hypot(x - p.x - d.x * t, z - p.z - d.z * t) < w;
+    });
+    const ceilAt = (rad) => p.y + s.up * 0.9 * Math.sqrt(Math.max(0, 1 - (rad / R) ** 2));
+    const area = Math.PI * R * R;
+    const N = Math.min(90, Math.round(area / 12));
+    for (let i = 0; i < N; i++) {
+      const ang = rng() * Math.PI * 2, rad = Math.sqrt(rng()) * R * 0.86;
+      const x = p.x + Math.cos(ang) * rad, z = p.z + Math.sin(ang) * rad;
+      if (onWay(x, z, 2.4)) continue;
+      const ceil = ceilAt(rad), gap = ceil - floor;
+      if (gap < 2.5) continue;
+      const col = wetColor(rng), roll = rng();
+      if (roll < 0.38) { // stalagmite, sometimes giant
+        const h = Math.min(gap * 0.5, randRange(rng, 0.4, 1.6) * (rng() < 0.25 ? 3.2 : 1));
+        const r = h * randRange(rng, 0.12, 0.2);
+        addInstance(stalagmites, dummy, x, floor + h * 0.5, z, r / 0.08, h / 0.6, r / 0.08, 0, rng() * 6, 0, col);
+        placeOnFloor(x, z, floor, r * 0.85, h);
+      } else if (roll < 0.78) { // stalactite from the dome
+        const h = Math.min(gap * 0.45, randRange(rng, 0.6, 2.4) * (rng() < 0.3 ? 2.6 : 1));
+        const r = h * randRange(rng, 0.08, 0.14);
+        addInstance(stalactites, dummy, x, ceil - h * 0.5, z, r / 0.08, h / 0.6, r / 0.08, Math.PI, rng() * 6, 0, col);
+      } else if (roll < 0.83) { // column
+        const r = randRange(rng, 0.3, 0.8) * Math.min(1.6, gap / 10);
+        addInstance(columns, dummy, x, floor + gap * 0.5, z, r / 0.1, gap / 1.6, r / 0.1, 0, rng() * 6, 0, col);
+        placeOnFloor(x, z, floor, r * 0.95, gap);
+      } else { // rimstone dam: a low, wide terrace lip on the floor
+        const r = randRange(rng, 0.7, 1.6), h = randRange(rng, 0.1, 0.22);
+        addInstance(stalagmites, dummy, x, floor + h * 0.25, z, r / 0.08, h / 0.6, r / 0.08 * randRange(rng, 0.6, 1), 0, rng() * 6, 0, col);
+      }
+    }
+    // Flowstone curtains around the hall wall
+    const nf = Math.round(R * 1.2);
+    for (let i = 0; i < nf; i++) {
+      const ang = (i / nf) * Math.PI * 2 + rng() * 0.3;
+      const rad = R * 0.9, x = p.x + Math.cos(ang) * rad, z = p.z + Math.sin(ang) * rad;
+      if (onWay(x, z, 3.2)) continue;
+      const h = randRange(rng, 2.5, Math.min(9, s.up * 0.5)), w = randRange(rng, 1.2, 3.2);
+      addInstance(drapes, dummy, x, floor, z, w, h, 1.4, 0, Math.atan2(Math.cos(ang), Math.sin(ang)), 0, wetColor(rng));
     }
   }
 

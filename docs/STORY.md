@@ -57,3 +57,16 @@ Side activities: legendary hunts, rare plants for medicine, optional caves with 
   - Kra's face suit as a visible model
   - the full skill tree
   - the act's 2–3 h of content (the slice is a condensed version)
+
+## Implementation status (round 8, 2026-11-11)
+
+- **Done:**
+  - solid cave walls (collision uses the rendered rock)
+  - smoother slopes and junctions
+  - a visible overworld stream, with drinking that matches the real water in caves and outdoors
+  - a brighter torch
+  - 2–3× larger halls full of formations
+  - a roaming overworld population (rabbits, birds, deer, boar, goats, foxes) that respawns as you move, with kills counted
+  - harmless cave fauna: bat flocks that scatter, fish, wall spiders (all huntable for small food)
+  - rock arches around cave mouths
+- **Still to do:** see round 7's list (Acts 2–4, tribes and NPCs, the face suit model, the full skill tree).
