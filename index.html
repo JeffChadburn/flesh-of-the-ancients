@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>Flesh of the Ancients</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='7' fill='%23110e0a'/><circle cx='8' cy='8' r='3' fill='%23e0b56a'/></svg>" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="game">
+    <canvas id="view"></canvas>
+    <canvas id="minimap" width="256" height="256" aria-label="Cave plan minimap"></canvas>
+    <div id="hud">
+      <h1 id="cave-name">Cavern</h1>
+      <div id="readout">
+        <span id="depth">Depth 0.0 m</span>
+        <span id="dist">Travelled 0.0 m</span>
+      </div>
+      <div id="seed-line">Seed <span id="seed-value">—</span></div>
+      <div id="place" aria-live="polite"></div>
+      <div id="status"><span id="hp" aria-label="Health"></span><span id="kills">Kills 0</span><span id="deaths">Deaths 0</span></div>
+    </div>
+    <button id="menu-btn" type="button" aria-label="Menu">&#9776;</button>
+    <button id="about-btn" type="button">About</button>
+    <div id="toolbar">
+      <button id="menu-main-btn" type="button" title="Continue / New Game / Free Play">Main menu</button>
+      <button id="pack-btn" type="button" title="Inventory, crafting, skills (I / Tab / K)">Pack</button>
+      <button id="hills-btn" type="button" title="Back outside to the hills">Hills</button>
+      <button id="new-cave" type="button">New cave</button>
+      <button id="carlsbad-btn" type="button" title="Real layout traced from NPS maps">Carlsbad</button>
+      <label>Seed <input id="seed-input" inputmode="numeric" autocomplete="off" spellcheck="false" /></label>
+      <button id="go-seed" type="button">Load</button>
+      <button id="mute-btn" type="button">Sound on</button>
+      <button id="music-btn" type="button" title="Creepy music (M)">Music on</button>
+      <button id="reset-tally" type="button" title="Reset kills and deaths">Reset tally</button>
+      <button id="debug-btn" type="button" title="Chunk / memory overlay (G)">Debug</button>
+      <label class="file-btn">Open survey<input id="survey-file" type="file" accept=".json,.csv,application/json,text/csv" hidden /></label>
+    </div>
+    <div id="touch" class="hidden">
+      <div id="joystick" aria-label="Move"><div id="joy-knob"></div></div>
+    </div>
+    <div id="stance-bar">
+      <button id="btn-crouch" type="button">Crouch <kbd>C</kbd></button>
+      <button id="btn-crawl" type="button">Crawl <kbd>Z</kbd></button>
+      <button id="btn-view" type="button">1st person <kbd>V</kbd></button>
+    </div>
+    <button id="attack-btn" type="button" aria-label="Stab with spear">Stab</button>
+    <div id="vignette"></div>
+    <div id="kill-flash" class="hidden">KILL</div>
+    <div id="death-screen" class="hidden"><h2>You were taken</h2><p>Returning to the entrance&hellip;</p></div>
+    <div id="fade"></div>
+    <pre id="debug" class="hidden"></pre>
+    <div id="low-hint" class="hidden">Low passage — Crouch (C)</div>
+    <div id="hint">Click to look around · WASD to walk</div>
+    <div id="found" class="hidden">
+      <h2>You found the way out</h2>
+      <button id="again" type="button">New cave</button>
+    </div>
+    <div id="about" class="hidden">
+      <button id="about-close" type="button">Close</button>
+      <h2>Cavern</h2>
+      <p>You are a caveman with a torch and a stone-tipped spear, deep in a dark cave. Something pale and eyeless lives down here. It hunts by sound and by the glow of your torch: running is loud, walking is quieter, crouching and crawling are quietest. Stab it three times to kill it. It takes three hits to kill you. Big open caverns, tight squeezes, side tunnels and dead-end grottos; the minimap only shows where you have been. Low passages will not auto-crouch you: press Crouch or Crawl (C / Z) to get through. You stay inside the passages: walls, floors, ceilings, and junctions all contain you. This prototype builds a new cave from a seed. The same centerline-plus-widths format can later be filled from a real survey.</p>
+      <h3>Controls</h3>
+      <ul>
+        <li><strong>Desktop:</strong> click to look around, WASD or arrows to walk, Shift to run, left click or <kbd>F</kbd> to stab, <kbd>V</kbd> to switch third / first person, <kbd>C</kbd> to crouch, <kbd>Z</kbd> or Ctrl to crawl, Esc to release the mouse.</li>
+        <li><strong>Phone:</strong> the left pad moves you (push a little to creep, to the edge to run); drag on the right side to look; the big <em>Stab</em> button thrusts the spear; Crouch / Crawl for low passages; the &#9776; button opens the menu.</li>
+        <li><strong>Carlsbad</strong> loads Carlsbad Cavern (New Mexico): the Natural Entrance route down the Main Corridor to the Underground Lunchroom and elevators (the exit), and the Big Room loop. The layout is traced approximately from public National Park Service maps. Named places show under the seed when you're near them.</li>
+        <li>The glowing point is the way out. Open <em>New cave</em> for another layout, or type a seed and press Load to replay one.</li>
+        <li><strong>Sound on / off</strong> mutes everything (dripping water, stream, echo, music). <strong>Music on / off</strong> or <kbd>M</kbd> toggles only the creepy score, which grows denser the deeper you go and the more you move. Sound starts after the first tap or click.</li>
+      </ul>
+      <h3>Survey format</h3>
+      <p>Caves are a list of stations and legs. Coordinates are metres, with <code>x</code> east, <code>y</code> north, and <code>z</code> up. Each station has LRUD widths (left, right, up, down) from the centerline, the same idea used by Survex and Compass. You can open a <code>.json</code> or simple <code>.csv</code> file with that shape.</p>
+      <pre>{
+  "name": "Example",
+  "entranceId": "S0",
+  "exitId": "S12",
+  "stations": [
+    { "id": "S0", "x": 0, "y": 0, "z": 0,
+      "left": 1.2, "right": 1.1, "up": 1.6, "down": 0.6,
+      "kind": "entrance" }
+  ],
+  "legs": [{ "from": "S0", "to": "S1" }]
+}</pre>
+      <p>CSV can list <code>id,x,y,z,left,right,up,down,kind</code> rows, then a <code>from,to</code> header and the legs. If legs are omitted, stations are connected in order.</p>
+      <h3>Credits</h3>
+      <p>Rendered with <a href="https://threejs.org/" style="color:#e0b56a">Three.js</a> (MIT licence). Cave layouts in this build are generated in the browser; no real survey is bundled yet.</p>
+    </div>
+  </div>
+  <script type="importmap">
+  { "imports": { "three": "./vendor/three.module.min.js", "three-mesh-bvh": "./vendor/three-mesh-bvh.module.js" } }
+  </script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
