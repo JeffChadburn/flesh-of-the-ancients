@@ -27,7 +27,7 @@ import { People } from "./world/people.js";
 import { Story } from "./act1/story.js";
 import { StoryUI } from "./act1/ui.js";
 import { gfxQuality, setGfxQuality } from "./realism.js";
-import { readSave, clearSave } from "./act1/survival.js";
+import { readSave, clearSave, ITEMS } from "./act1/survival.js";
 import { planPlaces, makeNPC, NPCS } from "./act1/quests.js";
 import { WorldMap } from "./worldmap.js";
 import { mapFilters, toggleFilters } from "./mapfilters.js";
@@ -40,6 +40,7 @@ const trip_MELT = () => MELT.value.x;
 import { Visions } from "./world/visions.js";
 import { TripMusic } from "./tripmusic.js";
 import { Shrooms } from "./world/shrooms.js";
+import { Multiplayer } from "./mp/mp.js"; // round 22
 
 const errors = [];
 window.addEventListener("error", (e) => errors.push(String(e.message || e.error || e)));
@@ -387,7 +388,7 @@ function ensureWorld() {
   // Round 20: Kra's own settlements, townsfolk who talk and remember him
   const pack = () => story.active || story.sandbox;
   world.colony = new Colony({ terrain: world.terrain, parent: world.settleRoot, people: world.people, toast: (m, k) => storyUI.toast(m, k),
-    skills: () => (pack() ? story.surv.skills : new Set()), key: () => `fota-colony-v1-${story.sandbox ? "free" : "story"}-${seed}` });
+    skills: () => (pack() ? story.surv.skills : new Set()), key: () => `fota-colony-v1-${story.sandbox ? (mpActive ? "mp" : "free") : "story"}-${seed}` }); // round 22: multiplayer keeps its own
   world.talk = new TownTalk({ ui: storyUI, voice: storyUI.voice, surv: () => (pack() ? story.surv : null), terrain: () => world.terrain, atmo: () => world.atmo,
     people: () => world.people, colony: () => world.colony, story: () => story.active, wildlife: () => world.wildlife, discovered: () => world.discovered,
     kills: () => { const st = story.surv.stats; return (st.small || 0) + (st.deer || 0); }, questsDone: () => (story.active ? story.quests.completed().length : 0), time: () => game.time,
@@ -833,6 +834,34 @@ storyUI.voice.onBroken = () => syncVoice();
 syncVoice();
 window.__VOICE__ = storyUI.voice;
 storyUI.tripOn = () => trip.on; // round 21
+// Round 22: multiplayer (rooms, avatars, chat, voice). Idle until you open ☰ → Multiplayer.
+// the room to join: from an invite link, or this tab's room after a reload (the address bar is tidied on load)
+const MP_ROOM = URLP.get("room") || (performance.getEntriesByType?.("navigation")[0]?.type === "reload" ? sessionStorage.getItem("fota-mp-room") : null);
+let mpActive = !!MP_ROOM;
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const mp = new Multiplayer({
+  scene, root: gameEl, isTouch: IS_TOUCH, isIOS: IS_IOS, items: ITEMS,
+  toast: (m) => storyUI.toast(m), ask: (...a) => storyUI.ask(...a),
+  seed: () => world.terrain?.seed ?? (URLP.has("world") ? parseSeed(URLP.get("world")) : 20261111),
+  inFreePlay: () => story.sandbox && !story.active,
+  gotoFree: (code, seed) => { const u = new URL(location.origin + location.pathname); for (const k of ["net", "srv", "gfx", "daymin"]) if (URLP.has(k)) u.searchParams.set(k, URLP.get(k)); u.searchParams.set("play", "free"); u.searchParams.set("room", code); if (seed != null && seed !== 20261111) u.searchParams.set("world", seed); location.href = u.toString(); },
+  area: () => (world.mode === "overworld" ? "o" : cave ? "c:" + (cave.seed ?? cave.name ?? "x") : ""),
+  me: () => {
+    if (!player || !ready || game.dead) return null;
+    const f = feetPos();
+    return { x: f.x, y: f.y, z: f.z, yaw: game.boat ? game.boat.yaw : player.yaw, pitch: player.pitch, run: player.runFrac || 0, st: player.stance, mounted: !!player.mounted, boat: game.boat ? game.boat.kind || "canoe" : 0, torch: caveman.flame.visible !== false, armed: !!game.armed, w: game.weapon };
+  },
+  gear: () => [...(story.surv?.wear || [])],
+  surv: () => (story.sandbox || story.active ? story.surv : null),
+  colony: () => world.colony,
+  makeGuestColony: () => { const c = new Colony({ terrain: world.terrain, parent: world.settleRoot, people: world.people, toast: () => {}, skills: () => new Set(), key: () => "fota-guest-colony-unsaved" }); c.save = () => {}; c._colliders = () => {}; return c; },
+  groundAt: (p) => (world.mode === "overworld" && world.terrain ? world.terrain.height(p.x, p.z) : null),
+  audioCtx: () => audio.ctx, armAudio: () => armAudio(),
+  pxH: () => renderer.domElement.height, torchBase: () => caveman.baseIntensity,
+  exitLock: () => { if (document.pointerLockElement) document.exitPointerLock(); },
+  changed: () => { try { storyUI.renderPanel?.(); } catch {} },
+  onActive: (on) => { if (mpActive !== on) { mpActive = on; syncColony(); } },
+});
 const story = new Story({
   ui: storyUI, audio,
   time: () => game.time,
@@ -1069,6 +1098,7 @@ function attack() {
   game.attackPending = 0.14;
   game.noiseBurst = 0.45;
   caveman.thrust();
+  mp.fx("thrust");
   attackBtn?.classList.add("hit");
   setTimeout(() => attackBtn?.classList.remove("hit"), 150);
   return true;
@@ -1367,6 +1397,7 @@ function shootArrow() {
   const d = target.sub(origin);
   { const L = d.length(); d.y += 0.5 * 7.5 * (L / 40) ** 2; } // aim above by the gravity drop, so the arrow lands on the cross
   archery.shoot(origin, d);
+  mp.fx("arrow", origin, d);
   audio.bowShot?.();
   glog({ e: "shoot" });
   return true;
@@ -1426,7 +1457,8 @@ canvas.addEventListener("mousedown", (e) => {
   if (e.button === 0 && document.pointerLockElement === canvas) attack();
 });
 window.addEventListener("keydown", (e) => {
-  if (e.target instanceof HTMLInputElement || e.repeat) return;
+  if (e.target instanceof HTMLInputElement) return;
+  if (mp.key(e, true) || e.repeat) return; // round 22: V = push-to-talk, T / Enter = chat while in a room
   if (e.code === "KeyF") attack();
   if (e.code === "KeyQ" || e.code === "KeyB") setWeapon(game.weapon === "bow" ? "spear" : "bow");
   if (e.code === "KeyV") toggleView();
@@ -1527,6 +1559,7 @@ function mapState() {
     if (world.colony) for (const c of world.colony.list) out.towns.push({ x: c.x, z: c.z, name: `${c.name} · ${COL_AGES[c.age].name} · 👥${c.vill.length}`, kind: "village", color: "#7fe0ff", known: true }); // round 20
     if (world.boats) out.boats = world.boats.list.map((b) => ({ x: b.x, z: b.z, yaw: b.yaw, kind: b.kind, mine: b === game.boat || b === game.myBoat, riding: b === game.boat }));
     if (world.shrooms) for (const q of world.shrooms.marks()) out.marks.push({ x: q.x, z: q.z, color: "#ff6af0", label: "🍄" }); // round 21
+    for (const m of mp.marks()) (m.town ? out.towns.push({ x: m.x, z: m.z, name: m.label, kind: "village", color: m.color, known: true }) : out.marks.push({ x: m.x, z: m.z, color: m.color, label: "👤 " + m.label })); // round 22
     out.npcs = world.places ? Object.entries(world.places.npc).map(([id, n]) => ({ x: n.x, z: n.z, mark: story.npcMark(id) })) : [];
   } else if (cave) {
     out.title = nameEl?.textContent || "Cave";
@@ -1769,6 +1802,7 @@ function tick(now) {
     });
     caveman.root.visible = !game.dead;
     void st;
+    mp.update(dt); // round 22
     // Hurt feedback.
     const low = !game.dead && game.health === 1 ? 0.28 + 0.12 * Math.sin(game.time * 4) : 0;
     if (vignetteEl) vignetteEl.style.opacity = String(Math.min(1, Math.max(game.vignette, low)));
@@ -2010,6 +2044,7 @@ function tickOverworld(dt, info, now) {
   if (world.shrooms && mapFilters.places) { // round 21: mushroom patches you have seen
     const sm = world.shrooms.marks(); if (sm.length) { extra = extra || { marks: [], dots: [] }; for (const q of sm) if (Math.abs(q.x - p.x) < 500 && Math.abs(q.z - p.z) < 500) extra.marks.push({ x: q.x, z: q.z, color: "#ff6af0", r: 0.013, label: "🍄" }); }
   }
+  if (mp.on) { const pm = mp.marks(); if (pm.length) { extra = extra || { marks: [], dots: [] }; for (const m of pm) extra.marks.push({ x: m.x, z: m.z, color: m.color, r: m.town ? 0.024 : 0.019, edge: true, label: m.label }); } } // round 22: other players
   if (extra) extra.noLabels = !mapFilters.labels;
   minimap.drawOverworld(t, p, player.yaw, mapFilters.caves ? world.discovered : new Set(), extra);
   updateLowHint(info);
@@ -2822,6 +2857,7 @@ window.__CAVE__ = {
     return true;
   },
   attack: () => attack(),
+  mapState: () => mapState(), // round 22 tests
   /** Stand in a roomy spot (wide + tall) looking along the passage; for screenshots. */
   placeRoomy: (minW = 3.2, minH = 2.8, skip = 0) => {
     const nb = neighborsOf(cave), sm = stationMap(cave);
@@ -3046,7 +3082,7 @@ if (directCave) {
   if (params.get("cave") === "carlsbad") loadCarlsbad();
 } else {
   // Default: main menu (Continue / New Game / Free Play) over the dawn camp. ?play=new|free|continue skips it.
-  const play = params.get("play");
+  const play = MP_ROOM ? "free" : params.get("play"); // round 22: an invite link drops you into free play
   if (play === "new") startNewGame();
   else if (play === "free") startFreePlay();
   else if (play === "continue" && readSave()) continueGame();
@@ -3060,6 +3096,11 @@ if (directCave) {
   }
 }
 
+// Round 22: invite links (?room=ABCDE) join straight away (or ask for a name first).
+if (MP_ROOM && !directCave) mp.autoJoin(MP_ROOM);
+window.addEventListener("keyup", (e) => { if (!(e.target instanceof HTMLInputElement)) mp.key(e, false); });
+document.getElementById("mp-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); mp.open(); });
+window.__CAVE__.mp = mp;
 const shot = params.get("shot");
 if (shot === "mid" || params.get("demo") === "1") player.placeAlongMainPath(0.42, mainPath);
 if (shot === "exit") player.placeAlongMainPath(0.92, mainPath);

@@ -251,6 +251,13 @@ Draw calls go up slightly because each cell is its own mesh. The triangle count 
   - *Options:* ☰ → **Calm visuals** tones down flashing, colour cycling, waves, tracers and melting. **🍄 End vision** (top of the screen, and in the Pack) fades it out in a few seconds. On Low graphics the effect renders at half resolution.
   - A vision in progress is not saved: it simply ends on reload.
   - Fix: the music now dips properly while characters speak (the dip used to throw an error).
+- **Round 22: multiplayer.**
+  - ☰ → **Multiplayer**: a name (saved, filtered) and a colour; **Create room** gives a 5-letter code and an invite link (`?room=ABCDE`), or **Join** by code. Up to 8 players; player list with ping, 🎁 hand over an item (the other player accepts), 🔈 mute, 🚫 block, Leave.
+  - Peer-to-peer WebRTC (Trystero 0.27, MIT, vendored): signalled over free public Nostr relays with public STUN; no account, nothing stored on a server. The host's world seed is used (joiners on another world reload into it).
+  - Other players are full cavemen with their clothes, colour, name tag, torch light, walk/run/crouch/crawl poses, horse and boat, spear stabs and arrows, chat bubbles and emotes (👋 👉 💃), smoothly interpolated. They show on the minimap and the big map, with their settlements, which you can walk through read-only.
+  - Chat: T / Enter / 💬. Voice: hold V (desktop) or 🎙 (phone), or tap-to-toggle; proximity (volume + left/right by distance) or room-wide; mute all; a green dot on the name tag when someone talks.
+  - Multiplayer always runs in free play with its own settlement save; story saves are never touched.
+  - The network layer (`js/net/`) is transport-agnostic: P2P now, a same-browser test transport, and a stub WebSocket server client. See `docs/MULTIPLAYER.md` for moving to a dedicated server.
 
 - **Round 20: talkative townsfolk, your own settlements, and the ages.**
   - *Talk to anyone:* every person in a town (and your own villagers) can be talked to with E / **Talk**, in the story and in free play. They stop and turn when you walk up.

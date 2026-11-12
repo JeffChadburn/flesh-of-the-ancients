@@ -302,3 +302,4 @@ export class Boats {
   marks() { return this.list.map((b) => ({ x: b.x, z: b.z, kind: b.kind, taken: b.taken })); }
   dispose() { this.group.parent?.remove(this.group); for (const g of Object.values(this.geo)) g.dispose(); this.dockG.dispose(); this.postG.dispose(); this.mat.dispose(); }
 }
+export const BOAT_GEO = { canoe: canoeGeo, raft: raftGeo, umiak: umiakGeo }; // round 22: remote players' boats
