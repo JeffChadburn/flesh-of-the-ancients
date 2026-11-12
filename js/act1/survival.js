@@ -80,6 +80,7 @@ export class Survival {
     this.crafted = new Set();
     this.stats = { ate: 0, drank: 0, small: 0, deer: 0, cooked: 0, harvested: 0 };
     this.xp = 0; this.sp = 0; this.recipes = new Set(); this.wear = new Set();
+    this.inspected = new Set(); // round 17
   }
 
   // ---- round 16: XP / skill tree / gear ----
@@ -187,7 +188,7 @@ export class Survival {
 
   toJSON() {
     return { hunger: this.hunger, thirst: this.thirst, stamina: this.stamina, slots: this.slots, inv: this.inv, skills: [...this.skills], faces: this.faces, str: this.str, hpBonus: this.hpBonus,
-      tools: this.tools, crafted: [...this.crafted], stats: this.stats, xp: this.xp, sp: this.sp, recipes: [...this.recipes], wear: [...this.wear] };
+      tools: this.tools, crafted: [...this.crafted], stats: this.stats, xp: this.xp, sp: this.sp, recipes: [...this.recipes], wear: [...this.wear], inspected: [...this.inspected] };
   }
   fromJSON(o) {
     this.reset();
@@ -195,6 +196,7 @@ export class Survival {
     Object.assign(this, { hunger: o.hunger, thirst: o.thirst, stamina: o.stamina ?? 100, slots: o.slots || 6, inv: (o.inv || []).map((s) => ({ ...s })), faces: o.faces || 0, str: o.str || 0, hpBonus: o.hpBonus || 0 });
     this.skills = new Set(o.skills || []); this.tools = { ...this.tools, ...(o.tools || {}) }; this.crafted = new Set(o.crafted || []); this.stats = { ...this.stats, ...(o.stats || {}) };
     this.xp = o.xp || 0; this.sp = o.sp || 0; this.recipes = new Set(o.recipes || []); this.wear = new Set(o.wear || []);
+    this.inspected = new Set(o.inspected || []);
     return this;
   }
 }

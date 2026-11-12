@@ -8,7 +8,7 @@ export class Minimap {
     this.ctx = canvas.getContext("2d");
   }
 
-  draw(cave, playerPos, yaw, placeLabel = "", explored = null) {
+  draw(cave, playerPos, yaw, placeLabel = "", explored = null, opts = {}) {
     const c = this.canvas;
     const ctx = this.ctx;
     const w = c.width;
@@ -119,7 +119,7 @@ export class Minimap {
       ctx.beginPath();
       ctx.arc(p.x, p.y, here ? 3.2 : 2, 0, Math.PI * 2);
       ctx.fill();
-      if (here) {
+      if (here && opts.labels !== false) {
         ctx.font = `${Math.max(9, Math.round(w / 22))}px Georgia, serif`;
         ctx.textAlign = "center";
         ctx.fillStyle = "#ffe3a8";
@@ -134,6 +134,16 @@ export class Minimap {
     drawDot(cave.entranceId, "#8fd0a8", 4.5);
     if (seen(cave.exitId)) drawDot(cave.exitId, "#ffd27a", 5);
 
+    // round 17: objective / hint marker (clamped to the rim) and the creature blip
+    if (opts.target) {
+      let q = toMap(opts.target.x, opts.target.z);
+      const dx = q.x - w / 2, dy = q.y - h / 2, d = Math.hypot(dx, dy), rim = w / 2 - 9;
+      if (d > rim) q = { x: w / 2 + (dx / d) * rim, y: h / 2 + (dy / d) * rim };
+      const k = 1 + 0.25 * Math.sin((opts.t || 0) * 5), r = Math.max(4, w * 0.035) * k;
+      ctx.fillStyle = "#ff9a5a"; ctx.strokeStyle = "#1a0e04"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(q.x, q.y - r); ctx.lineTo(q.x + r * 0.8, q.y); ctx.lineTo(q.x, q.y + r); ctx.lineTo(q.x - r * 0.8, q.y); ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+    if (opts.monster) { const q = toMap(opts.monster.x, opts.monster.z); ctx.fillStyle = "#ff4030"; ctx.beginPath(); ctx.arc(q.x, q.y, Math.max(3, w * 0.022), 0, Math.PI * 2); ctx.fill(); }
     if (playerPos) {
       const p = toMap(playerPos.x, playerPos.z);
       ctx.save();
@@ -206,7 +216,7 @@ export class Minimap {
       const x = w / 2 + (e.x - playerPos.x) * scale, y = h / 2 + (e.z - playerPos.z) * scale;
       ctx.fillStyle = e.cave === "carlsbad" ? "#ffcf6a" : "#e8e0d0";
       ctx.beginPath(); ctx.arc(x, y, Math.max(3, w * 0.025), Math.PI, 0); ctx.closePath(); ctx.fill();
-      this._label(e.name.split(" ")[0], x, y - 4, "#e8e0d0");
+      if (!extra?.noLabels) this._label(e.name.split(" ")[0], x, y - 4, "#e8e0d0");
     }
     if (extra) {
       // stream line, camp / goal markers, tracked animals
@@ -223,7 +233,7 @@ export class Minimap {
           if (d > rim) { x = w / 2 + (dx / d) * rim; y = h / 2 + (dy / d) * rim; ctx.globalAlpha = 0.75; ctx.fillStyle = m.color; ctx.beginPath(); ctx.arc(x, y, Math.max(2, w * 0.014), 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1; continue; }
         }
         ctx.fillStyle = m.color; ctx.beginPath(); ctx.arc(x, y, Math.max(3, w * (m.r || 0.022)), 0, Math.PI * 2); ctx.fill();
-        if (m.label) this._label(m.label, x, y + 4, m.color);
+        if (m.label && (!extra.noLabels || m.label.length <= 2)) this._label(m.label, x, y + 4, m.color);
       }
       for (const d of extra.dots || []) { const [x, y] = P(d.x, d.z); ctx.fillStyle = d.color; ctx.fillRect(x - 2, y - 2, 4, 4); }
     }

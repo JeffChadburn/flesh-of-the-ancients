@@ -72,6 +72,7 @@ export class Story {
     this.sandbox = false; // round 16: free play keeps a pack (baskets, crafting) without the story
     this.pickups = []; this.picked = {};
     env.ui.onPanelAction = (a, id) => this.panelAction(a, id);
+    env.ui.onInspect = (id, r) => this.inspected(id, r);
     env.ui.onTrack = (id) => { if (this.quests.state(id) === "active") { this.quests.tracked = id; this._objT = 0; } };
     env.ui.questDone = (id) => this.quests.done(id);
   }
@@ -130,6 +131,16 @@ export class Story {
     if (this.quests.active().some((q) => QUEST[q].turnIn === id && this.questReady(q))) return "?";
     if (QUESTS.some((d) => d.giver === id && !this.quests.state(d.id) && (d.req || []).every((r) => this.quests.done(r)))) return "!";
     return "";
+  }
+  /** Round 17: the first look at each item: +5 XP (+15 and a lore line for story items). */
+  inspected(id, r = {}) {
+    const s = this.surv;
+    if (s.inspected.has(id)) return 0;
+    s.inspected.add(id);
+    const n = r.special ? 15 : 5;
+    this.env.ui.toast(r.special ? `Lore learned: ${r.name} (+${n} XP)` : `Inspected ${r.name} (+${n} XP)`, r.special ? "skill" : "");
+    this.xp(n, "inspect");
+    return n;
   }
   /** Add XP (toast on level up). */
   xp(n, why = "") {
@@ -222,7 +233,7 @@ export class Story {
       { title: "Fire", lines: [["Relight the camp fire", f.fireLit], ["Cook meat at the fire", st.cooked > 0]], done: f.fireLit && st.cooked > 0 },
       { title: "A pack for the journey", lines: [["Craft a backpack (Tab / Pack → Crafting) from a hide, or from Tor...", s.crafted.has("backpack")]], done: s.crafted.has("backpack") },
       { title: "The first throat", lines: [["Find the cave beside the waterfall", f.enteredHollow]], done: f.enteredHollow },
-      { title: "Waterfall Hollow", lines: [["Kill what lives in the dark", f.ratKilled], ["Collect its blood", f.ratHarvested], ["Paint a blood glyph on the wall", this.glyphs.length > 0], ["Take the dead hunter's face", f.faceTaken], ["Eat the creature's organ", f.memory]], done: f.ratKilled && f.ratHarvested && this.glyphs.length > 0 && f.faceTaken && f.memory },
+      { title: "Waterfall Hollow", lines: [["Kill what lives in the dark", f.ratKilled], ["Collect its blood", f.ratHarvested], ["Paint a blood glyph on the wall", this.glyphs.length > 0], ["Find the dead hunter deep in the cave and remove his face", f.faceTaken], ["Eat the creature's organ", f.memory]], done: f.ratKilled && f.ratHarvested && this.glyphs.length > 0 && f.faceTaken && f.memory },
       { title: "Home", lines: [["Return to camp and rest at the fire (save)", f.actDone]], done: f.actDone },
     ];
   }
@@ -254,7 +265,8 @@ export class Story {
     }
     if (ui.modal) { ui.setPrompt(null); this.prompt = null; return; }
     this.prompt = this.findInteraction();
-    ui.setPrompt(this.prompt ? this.prompt.label : null);
+    ui.setPrompt(this.prompt ? this.prompt.label : null, this.prompt?.big);
+    if (this.hunter?.glow) this.hunter.glow.userData.tick(env.time());
   }
 
   // ---------------- interactions ----------------
@@ -288,10 +300,18 @@ export class Story {
       const carc = env.wildlife()?.nearestCarcass(f, 2.6);
       if (carc) return s.tools.knife ? { label: `Harvest the ${carc.kind} with your knife`, act: () => this.harvest(carc) } : { label: "You need a knife to cut it", act: () => env.ui.toast("You need a knife") };
       if (!camp.tor.skinned && d2(camp.tor) < 2.4 && fl.lumeDead) return { label: "Kneel by Tor", act: () => this.torChoice() };
+      if (camp.tor.skinned && d2(camp.tor) < 2.4) return { label: "Look at Tor", act: () => this._say([{ who: "", text: "You took Tor's skin for the pack. The face Lume spoke of is another: a hunter who crawled into Waterfall Hollow and never came out. He lies deep inside." }]) };
       for (const b of camp.bushes) if (b.ready && d2(b) < 2.2) return { label: b.kind === "berries" ? "Pick berries" : "Dig up roots", act: () => this.gather(b) };
       if (t.streamDist(f.x, f.z) < 2.1) return { label: "Drink from the stream", act: () => this.drinkWater() };
       for (const b of camp.bodies) if (d2(b) < 1.8) return { label: "The dead lie with their mouths open", act: () => env.ui.toast("Their mouths are frozen open. Something drank them out.") };
       return null;
+    }
+    // round 17: the story beats in the hollow come first (they used to lose to "Drink" / pickups)
+    if (this.active && env.caveKind() === "hollow") {
+      const h = this.hunter;
+      if (h && !fl.faceTaken && Math.hypot(h.x - f.x, h.z - f.z) < 3.0 && Math.abs(h.y - f.y) < 2.2) return { label: "Remove the dead hunter's face", big: "Remove face", act: () => this.takeFace() };
+      const m0 = env.monster();
+      if (m0 && !m0.alive && m0.kind === "rat" && !fl.ratHarvested && Math.hypot(m0.pos.x - f.x, m0.pos.z - f.z) < 2.6) return { label: "Collect the creature's blood and organ", big: "Collect blood", act: () => this.harvestRat() };
     }
     // round 16: flint / ochre / bone lying in the caves
     for (const k of this.pickups) if (!k.taken && Math.hypot(k.x - f.x, k.z - f.z) < 1.6 && Math.abs(k.y - f.y) < 2) return { label: `Pick up ${ITEMS[k.id].name.toLowerCase()}`, act: () => this.takePickup(k) };
@@ -505,6 +525,62 @@ export class Story {
     }, false);
   }
 
+  /** Round 17: a pale pulsing halo + ground ring so the hunter's body reads in the dark. */
+  _glow(spot, env) {
+    const g = new THREE.Group(); g.name = "hunter-glow";
+    const c = document.createElement("canvas"); c.width = c.height = 64;
+    const x = c.getContext("2d"), gr = x.createRadialGradient(32, 32, 2, 32, 32, 32);
+    gr.addColorStop(0, "rgba(255,226,160,0.9)"); gr.addColorStop(0.4, "rgba(255,190,110,0.35)"); gr.addColorStop(1, "rgba(255,170,90,0)");
+    x.fillStyle = gr; x.fillRect(0, 0, 64, 64);
+    const tex = new THREE.CanvasTexture(c);
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
+    halo.scale.set(2.2, 2.2, 1); halo.position.set(spot.x, spot.y + 0.55, spot.z); g.add(halo);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.75, 0.95, 32), new THREE.MeshBasicMaterial({ color: 0xffc070, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+    ring.rotation.x = -Math.PI / 2; ring.position.set(spot.x, spot.y + 0.04, spot.z); g.add(ring);
+    g.userData.tick = (t) => { const k = 0.75 + 0.25 * Math.sin(t * 3); halo.material.opacity = k; ring.material.opacity = 0.35 + 0.3 * k; ring.scale.setScalar(0.9 + 0.15 * k); };
+    env.addCaveObject(g);
+    return g;
+  }
+
+  /** Round 17: where to go next + a short line (the 💡 Hint button). Coordinates are in the current world. */
+  hint() {
+    const env = this.env, fl = this.flags, mode = env.mode(), camp = env.camp(), site = env.terrain()?.act1, f = env.feet();
+    const T = (x, z, label, text) => ({ x, z, label, text });
+    if (mode !== "overworld") {
+      const out = env.caveExit?.();
+      if (this.active && env.caveKind() === "hollow") {
+        const m = env.monster();
+        if (!fl.ratKilled) { const sp = env.caveSpot(0.55); return T(sp?.x ?? f.x, sp?.z ?? f.z, "The scraping", "Something scrapes deeper in. Follow the main passage down and keep your spear ready."); }
+        if (!fl.ratHarvested && m) return T(m.pos.x, m.pos.z, "The creature's body", "The creature lies where it fell. Kneel by it and collect its blood.");
+        if (!this.glyphs.length) return T(f.x, f.z, "Any wall", "Stand facing a cave wall with the blood and press Paint.");
+        if (!fl.faceTaken && this.hunter) return T(this.hunter.x, this.hunter.z, "The dead hunter", "The dead hunter lies deeper in, curled against the wall. Look for the pale glow, then remove his face.");
+        if (!fl.memory) return T(f.x, f.z, "Your pack", "Open your Pack and eat the creature's organ. Your blood will remember.");
+      }
+      return out ? T(out.x, out.z, "Way out", "Head back the way you came to the cave mouth, or use Exit cave.") : null;
+    }
+    if (!this.active) return null;
+    const st = this.currentStep();
+    if (st && !fl.actDone) {
+      const t = st.title;
+      if (t.startsWith("Find who")) return T(camp.lume.x, camp.lume.z, "Old Lume", "Someone is still breathing by the fire. Kneel by Old Lume.");
+      if (t === "Survive") {
+        if (!this.surv.stats.ate) { const b = camp.bushes.filter((x) => x.ready).sort((a, b2) => Math.hypot(a.x - f.x, a.z - f.z) - Math.hypot(b2.x - f.x, b2.z - f.z))[0]; if (b) return T(b.x, b.z, "Berry bush", "Pick berries or dig roots near the camp, then eat them from your Pack."); }
+        const q = site.stream[Math.floor(site.stream.length * 0.6)]; return T(q.x, q.z, "The stream", "Drink from the stream below the camp.");
+      }
+      if (t === "Hunt") {
+        const c = env.wildlife()?.nearestCarcass(f, 300); if (c && !c.harvested) return T(c.pos.x, c.pos.z, "Your kill", "Harvest the carcass with your knife.");
+        const kind = this.surv.stats.small ? "deer" : "rabbit", n = env.wildlife()?.nearest(f, kind) || env.wildlife()?.nearest(f, "bird");
+        if (n) return T(n.a.pos.x, n.a.pos.z, kind === "deer" ? "Deer" : "Small game", `Crouch and creep up on the ${kind === "deer" ? "deer" : "rabbit or bird"}, then stab.`);
+      }
+      if (t === "Fire" || t === "Home") return T(site.camp.x, site.camp.z, "Camp fire", t === "Home" ? "Go home and rest by the fire." : "Strike flint at the camp fire, then cook your meat there.");
+      if (t.startsWith("A pack")) return T(f.x, f.z, "Your pack", "Open the Pack, then Crafting: sew a backpack from a deer hide or Tor's skin.");
+      const e = site.caveEntrance; return T(e.x, e.z, "Waterfall Hollow", "The first throat is the small cave beside the falling water.");
+    }
+    const q = this.questTarget();
+    if (q) return T(q.x, q.z, q.label, q.label + ".");
+    return null;
+  }
+
   // ---------------- Waterfall Hollow ----------------
   /** Round 16: a few flint / ochre / bone finds along the main passage of every cave. */
   placePickups(key) {
@@ -526,14 +602,19 @@ export class Story {
     if (!this.active || kind !== "hollow") { this.hunter = null; return; }
     this.flags.enteredHollow = true;
     const env = this.env;
-    // the dead hunter lies deep in the cave
-    const spot = env.caveSpot(0.78);
+    // the dead hunter lies in the creature's den. Round 17: on the first roomy stretch past the
+    // halfway mark you can reach standing / crouching (it was at 78%, past two crawl-only squeezes
+    // in the dark, which is why it was so hard to find).
+    const spot = env.caveSpotRoomy?.(0.45, 0.62) || env.caveSpot(0.55);
     if (spot) {
       const b = makeBody({ pose: "curl", seed: 31 });
+      const fy = env.floorAt?.(spot.x, spot.y + 1.2, spot.z); // round 17: sit on the rendered floor (was sometimes sunk)
+      if (fy != null && Math.abs(fy - spot.y) < 2.5) spot.y = fy + 0.02;
       b.position.set(spot.x, spot.y, spot.z); b.rotation.y = spot.yaw;
       if (this.flags.faceTaken) markFaceTaken(b);
       env.addCaveObject(b);
-      this.hunter = { x: spot.x, z: spot.z, obj: b };
+      this.hunter = { x: spot.x, y: spot.y, z: spot.z, obj: b };
+      if (!this.flags.faceTaken) this.hunter.glow = this._glow(spot, env);
     }
     for (const g of this.glyphs) this._placeGlyph(g);
     if (!this.flags.ratKilled) env.ui.toast("Water drips somewhere ahead. Something scrapes on stone.");
@@ -560,6 +641,7 @@ export class Story {
     this.flags.faceTaken = true;
     s.faces += 1;
     markFaceTaken(this.hunter.obj);
+    if (this.hunter.glow) { this.hunter.glow.visible = false; this.hunter.glow = null; }
     this.env.applyStats();
     this.env.ui.toast("You cut away the hunter's face and tie it over your own. (+1 armour)", "skill");
     this.env.ui.titleCard("1 face", "The suit begins.", 2200);

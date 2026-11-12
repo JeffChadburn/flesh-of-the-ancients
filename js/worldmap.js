@@ -7,6 +7,7 @@
  * Fog + trail persist in localStorage per world (and per story / free play). Cheap: the terrain
  * image (160 x 160 cells of 16 m) is built once, the fog is a 160 x 160 alpha image scaled up.
  */
+import { mapFilters as F } from "./mapfilters.js";
 const N = 160, CELL = 16, HALF = (N * CELL) / 2; // covers +-1280 m
 const TRAIL_STEP = 8, TRAIL_MAX = 4000;
 
@@ -15,7 +16,7 @@ export class WorldMap {
     this.touch = touch;
     const el = (this.el = document.createElement("div"));
     el.className = "wmap hidden";
-    el.innerHTML = `<canvas></canvas><div class="wm-top"><b class="wm-title">Map</b><button class="wm-x" type="button" aria-label="Close map">✕</button></div>
+    el.innerHTML = `<canvas></canvas><div class="wm-top"><b class="wm-title">Map</b><span class="wm-btns"><button class="wm-hint" type="button" aria-label="Hint">💡 Hint</button><button class="wm-f" type="button" aria-label="Map filters">⚙</button><button class="wm-x" type="button" aria-label="Close map">✕</button></span></div>
       <div class="wm-ctl"><button data-z="1" type="button" aria-label="Zoom in">+</button><button data-z="-1" type="button" aria-label="Zoom out">−</button><button data-z="0" type="button" aria-label="Centre on Kra">◎</button></div>
       <div class="wm-legend"></div>`;
     root.appendChild(el);
@@ -24,6 +25,8 @@ export class WorldMap {
     this.view = { cx: 0, cz: 0, s: 1 }; this.isOpen = false; this.state = null;
     for (const e of ["pointerdown", "click", "pointerup", "touchstart", "wheel"]) el.addEventListener(e, (ev) => ev.stopPropagation(), { passive: e !== "wheel" });
     el.querySelector(".wm-x").addEventListener("click", () => this.close());
+    el.querySelector(".wm-f").addEventListener("click", () => this.onFilters?.());
+    el.querySelector(".wm-hint").addEventListener("click", () => this.onHint?.());
     el.querySelectorAll(".wm-ctl button").forEach((b) => b.addEventListener("click", () => {
       const z = +b.dataset.z;
       if (!z) this.center(); else this.zoomAt(this.cv.clientWidth / 2, this.cv.clientHeight / 2, z > 0 ? 1.6 : 1 / 1.6);
@@ -93,14 +96,16 @@ export class WorldMap {
   revealedCount() { let n = 0; for (const v of this.fog) n += v; return n; }
 
   // ---------------- open / close ----------------
-  open(state) {
+  open(state, focus = null) {
     this.state = state; this.isOpen = true;
     this.el.classList.remove("hidden");
     const s = state();
     this.resize(); this.center(s);
+    if (focus) { this.view.cx = (focus.x + s.player.x) / 2; this.view.cz = (focus.z + s.player.z) / 2; }
     this.view.s = s.mode === "overworld" ? Math.min(this.cv.clientWidth, this.cv.clientHeight) / 500 : Math.min(this.cv.clientWidth, this.cv.clientHeight) / 90;
+    if (focus) { const span = Math.max(Math.abs(focus.x - s.player.x), Math.abs(focus.z - s.player.z)) * 2 + (s.mode === "overworld" ? 80 : 16); this.view.s = Math.max(0.05, Math.min(this.view.s * 3, Math.min(this.cv.clientWidth, this.cv.clientHeight - 120) / span)); }
     this.draw();
-    clearInterval(this._iv); this._iv = setInterval(() => this.draw(), 300);
+    clearInterval(this._iv); this._iv = setInterval(() => this.draw(), 90);
   }
   close() { this.isOpen = false; this.el.classList.add("hidden"); clearInterval(this._iv); this.onClose?.(); }
   toggle(state) { if (this.isOpen) this.close(); else this.open(state); }
@@ -163,27 +168,27 @@ export class WorldMap {
       ctx.imageSmoothingEnabled = true;
       if (bg) ctx.drawImage(bg, X(-HALF), Y(-HALF), N * CELL * v.s, N * CELL * v.s);
       ctx.drawImage(this._fogCanvas(), X(-HALF), Y(-HALF), N * CELL * v.s, N * CELL * v.s);
-      if (s.stream) { ctx.strokeStyle = "rgba(110,190,220,0.8)"; ctx.lineWidth = 2; ctx.beginPath(); s.stream.forEach((p, i) => (i ? ctx.lineTo(X(p.x), Y(p.z)) : ctx.moveTo(X(p.x), Y(p.z)))); ctx.stroke(); }
+      if (s.stream && F.water) { ctx.strokeStyle = "rgba(110,190,220,0.8)"; ctx.lineWidth = 2; ctx.beginPath(); s.stream.forEach((p, i) => (i ? ctx.lineTo(X(p.x), Y(p.z)) : ctx.moveTo(X(p.x), Y(p.z)))); ctx.stroke(); }
       // trail
-      if (this.trail.length > 1) {
+      if (this.trail.length > 1 && F.trail) {
         ctx.strokeStyle = "rgba(255, 214, 140, 0.75)"; ctx.lineWidth = 2; ctx.setLineDash([4, 4]); ctx.beginPath();
         let prev = null;
         for (const p of this.trail) { const x = X(p[0]), y = Y(p[1]); if (prev && Math.hypot(p[0] - prev[0], p[1] - prev[1]) < 60) ctx.lineTo(x, y); else ctx.moveTo(x, y); prev = p; }
         ctx.stroke(); ctx.setLineDash([]);
       }
-      for (const t of s.towns || []) {
+      for (const t of F.towns ? s.towns || [] : []) {
         if (!this.seen(t.x, t.z) && !t.known) continue;
         ctx.fillStyle = t.color; ctx.beginPath(); ctx.arc(X(t.x), Y(t.z), t.kind === "city" ? 7 : t.kind === "village" ? 5.5 : 4, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = "#1a1208"; ctx.lineWidth = 1.5; ctx.stroke();
-        label(t.name, X(t.x), Y(t.z), "#ffe3a8", t.kind === "city" ? 14 : 12);
+        if (F.labels) label(t.name, X(t.x), Y(t.z), "#ffe3a8", t.kind === "city" ? 14 : 12);
       }
-      for (const e of s.entrances || []) {
+      for (const e of F.caves ? s.entrances || [] : []) {
         ctx.fillStyle = e.cave === "carlsbad" ? "#ffcf6a" : "#e8e0d0";
         ctx.beginPath(); ctx.arc(X(e.x), Y(e.z), 5, Math.PI, 0); ctx.closePath(); ctx.fill();
-        label(e.name, X(e.x), Y(e.z), "#e8e0d0", 11);
+        if (F.labels) label(e.name, X(e.x), Y(e.z), "#e8e0d0", 11);
       }
-      for (const m of s.marks || []) { ctx.fillStyle = m.color; ctx.beginPath(); ctx.arc(X(m.x), Y(m.z), 4.5, 0, Math.PI * 2); ctx.fill(); if (m.label) label(m.label, X(m.x), Y(m.z), m.color, 12); }
-      for (const n of s.npcs || []) { if (!n.mark) continue; ctx.font = "bold 16px Georgia, serif"; ctx.textAlign = "center"; ctx.lineWidth = 3; ctx.strokeStyle = "#000"; ctx.strokeText(n.mark, X(n.x), Y(n.z) - 6); ctx.fillStyle = n.mark === "?" ? "#9fe3a8" : "#ffd36a"; ctx.fillText(n.mark, X(n.x), Y(n.z) - 6); }
+      for (const m of F.places ? s.marks || [] : []) { ctx.fillStyle = m.color; ctx.beginPath(); ctx.arc(X(m.x), Y(m.z), 4.5, 0, Math.PI * 2); ctx.fill(); if (m.label) label(m.label, X(m.x), Y(m.z), m.color, 12); }
+      for (const n of F.people ? s.npcs || [] : []) { if (!n.mark) continue; ctx.font = "bold 16px Georgia, serif"; ctx.textAlign = "center"; ctx.lineWidth = 3; ctx.strokeStyle = "#000"; ctx.strokeText(n.mark, X(n.x), Y(n.z) - 6); ctx.fillStyle = n.mark === "?" ? "#9fe3a8" : "#ffd36a"; ctx.fillText(n.mark, X(n.x), Y(n.z) - 6); }
       legend.innerHTML = `<span class="lg-t">┄ your trail</span><span>● town</span><span>◓ cave</span><span style="color:#ffd36a">! quest</span><span style="color:#ff9a5a">◆ tracked</span>`;
     } else {
       title.textContent = s.title || "Cave";
@@ -192,7 +197,13 @@ export class WorldMap {
       if (s.entrance) { ctx.fillStyle = "#8fd0a8"; ctx.beginPath(); ctx.arc(X(s.entrance.x), Y(s.entrance.z), 6, 0, Math.PI * 2); ctx.fill(); label("Way out", X(s.entrance.x), Y(s.entrance.z), "#8fd0a8"); }
       legend.innerHTML = `<span>Explored passages only</span><span style="color:#8fd0a8">● way out</span>`;
     }
-    if (s.target) {
+    if (s.hint) { // round 17: pulsing hint marker
+      const x = X(s.hint.x), y = Y(s.hint.z), k = (performance.now() / 900) % 1;
+      ctx.strokeStyle = `rgba(255, 227, 106, ${1 - k})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(x, y, 8 + k * 30, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = "#ffe36a"; ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = "#1a0e04"; ctx.lineWidth = 2; ctx.stroke();
+      label("💡 " + s.hint.label, x, y - 18, "#ffe36a", 14);
+    }
+    if (s.target && F.quest && !(s.hint && Math.hypot(s.hint.x - s.target.x, s.hint.z - s.target.z) < 3)) {
       const x = X(s.target.x), y = Y(s.target.z), inV = x > 8 && y > 50 && x < W - 8 && y < Hh - 30;
       const cx2 = Math.max(14, Math.min(W - 14, x)), cy2 = Math.max(60, Math.min(Hh - 40, y));
       ctx.fillStyle = "#ff9a5a"; ctx.strokeStyle = "#1a0e04"; ctx.lineWidth = 2;

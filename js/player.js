@@ -292,14 +292,35 @@ export class Player {
    * 0.85..1.05 (at / past the edge) blends from walk into a run. Crouch / crawl stay capped.
    */
   static joySpeed(mag, st) {
-    if (mag < 0.12) return 0;
-    const w = Math.min(1, (mag - 0.12) / (0.85 - 0.12));
-    let v = st.speed * (0.18 + 0.82 * w * w * (3 - 2 * w));
-    if (mag > 0.85 && st.sprint > st.speed) {
-      const r = Math.min(1, (mag - 0.85) / 0.2);
-      v += (st.sprint - st.speed) * r * r * (3 - 2 * r);
-    }
-    return v;
+    // Round 17: one smooth analog curve over the whole ring. Deadzone 0.1; the inner ~half is a
+    // slow walk easing up to a normal walk, the outer half ramps from walk through jog to a full
+    // run at the edge (1.0+). Crouch / crawl have sprint == speed so they just scale 25%..100%.
+    if (mag < 0.1) return 0;
+    const u = Math.min(1, (mag - 0.1) / 0.9);
+    if (u <= 0.5) { const w = u / 0.5; return st.speed * (0.25 + 0.75 * w * w * (3 - 2 * w)); }
+    const r = (u - 0.5) / 0.5;
+    return st.speed + Math.max(0, st.sprint - st.speed) * Math.pow(r, 1.35);
+  }
+  /** Round 17: desktop pace (1 walk / 2 jog / 3 run) for WASD; Shift is always a full run. */
+  static paceSpeed(pace, st) {
+    const f = pace >= 3 ? 1 : pace === 2 ? 0.4 : 0;
+    return st.speed + Math.max(0, st.sprint - st.speed) * f;
+  }
+  setPace(p) {
+    this.pace = Math.max(1, Math.min(3, p | 0));
+    this.onPace?.(this.pace);
+    return this.pace;
+  }
+  /** Round 17: a connected gamepad's left stick moves (analog), right stick looks. */
+  _pollPad(dt) {
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const g = pads && [...pads].find((x) => x && x.connected);
+    if (!g) { this.pad = null; return; }
+    const dz = (v) => (Math.abs(v) < 0.12 ? 0 : v);
+    const lx = dz(g.axes[0] || 0), ly = dz(g.axes[1] || 0), rx = dz(g.axes[2] || 0), ry = dz(g.axes[3] || 0);
+    const run = !!(g.buttons[10]?.pressed || (g.buttons[7]?.value || 0) > 0.5);
+    this.pad = { dx: lx, dy: ly, mag: Math.min(1, Math.hypot(lx, ly)), run };
+    if (rx || ry) this.look(rx * 2.6 * dt, ry * 2.0 * dt);
   }
 
   update(dt, wishOverride = null) {
@@ -319,12 +340,17 @@ export class Player {
     const keyMove = wish.lengthSq() > 1e-4;
     const sprint = !wishOverride && (this.stance === "stand" || this.mounted) && (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight"));
     let target = 0;
+    if (!wishOverride) this._pollPad(dt);
     if (keyMove) {
       wish.normalize();
-      target = sprint ? st.sprint : st.speed;
-    } else if (!wishOverride && this.joy.active && this.joy.mag >= 0.12) {
+      target = sprint ? st.sprint : Player.paceSpeed(this.pace || 1, st);
+    } else if (!wishOverride && this.joy.active && this.joy.mag >= 0.1) {
       wish.set(this.joy.dx, 0, this.joy.dy).normalize();
       target = Player.joySpeed(this.joy.mag, st);
+    } else if (!wishOverride && this.pad && this.pad.mag > 0) {
+      wish.set(this.pad.dx, 0, this.pad.dy).normalize();
+      target = Player.joySpeed(0.1 + this.pad.mag * 0.9, st);
+      if (this.pad.run) target = Math.min(st.sprint, target * (st.sprint / st.speed)); // run button multiplies the analog speed
     }
     if (wishOverride) target = st.speed;
     if (this.sprintAllowed === false && !this.mounted && target > st.speed) target = st.speed; // exhausted: no running
@@ -404,6 +430,9 @@ export class Player {
         if (!this._anc || Math.hypot(from.x - this._anc.x, from.z - this._anc.z) > 0.4) { this._anc = { x: from.x, z: from.z }; this.stuckT = 0; }
         else this.stuckT = (this.stuckT || 0) + dt;
       } else { this.stuckT = 0; this._anc = null; }
+      // Round 17: crawling and snagged on a knee-high ramp for a moment: rise to a crouch if it fits
+      // (crouching steps over ramps that a crawling body catches on).
+      if (this.stuckT > 0.5 && this.stance === "crawl" && this.canUseStance("crouch")) { this.setStance("crouch"); this.stuckT = 0; this._anc = null; }
       let squeezed = false;
       if (this.stuckT <= 1) this._nudging = false;
       if (this.squeezeT > 0) this.squeezeT -= dt;
@@ -585,6 +614,7 @@ export class Player {
         e.preventDefault();
       }
       if (e.repeat) return;
+      if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3") { this.setPace(+e.code.slice(5)); return; }
       if (e.code === "KeyC") {
         e.preventDefault();
         this.setStance("crouch", { toggle: true });
@@ -603,6 +633,16 @@ export class Player {
       this.look(e.movementX * sens, e.movementY * sens);
     };
     document.addEventListener("mousemove", this._onMouseMove);
+    // Round 17: the mouse wheel steps the walking pace (up = faster), while playing (pointer locked).
+    this._onWheel = (e) => {
+      if (this.isTouch || document.pointerLockElement !== c) return;
+      e.preventDefault();
+      const now = performance.now();
+      if (now - (this._wheelT || 0) < 140) return;
+      this._wheelT = now;
+      this.setPace((this.pace || 1) + (e.deltaY < 0 ? 1 : -1));
+    };
+    c.addEventListener("wheel", this._onWheel, { passive: false });
 
     this._onClick = () => {
       if (this.isTouch) return;
@@ -663,7 +703,7 @@ export class Player {
       dx /= m;
       dy /= m;
     }
-    if (this.joyEl) this.joyEl.classList.toggle("run", this.joy.mag > 0.9);
+    if (this.joyEl) { this.joyEl.classList.toggle("run", this.joy.mag > 0.9); this.joyEl.classList.toggle("jog", this.joy.mag > 0.55 && this.joy.mag <= 0.9); }
     this.joy.dx = dx;
     this.joy.dy = dy;
     if (this.knobEl) {

@@ -5,6 +5,7 @@
  */
 import { ITEMS, SKILLS, RECIPES, TREE, GEAR } from "./survival.js";
 import { StoryVoice } from "./voice.js";
+import { Inspector } from "./inspect.js";
 
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 const ITEM_COLORS = { berries: "#7a1f3a", roots: "#8a6a3a", meat: "#9a3a34", cooked: "#8a5a2a", organ: "#6a1018", pelt: "#8a7a64", hide: "#7a5636", feather: "#4a4a54", skin: "#6a4a3c", blood: "#5a0808", morgan: "#3a0a2a",
@@ -39,6 +40,7 @@ export class StoryUI {
       ev.stopPropagation();
       const t = ev.target.closest?.("[data-track]");
       if (t) { this.onTrack?.(t.dataset.track); this._objKey = null; return; } // round 16: pick the tracked quest
+      if (ev.target.closest?.("[data-hint]")) { if (this.touch) this.toggleTasks(false); this.onHint?.(); return; } // round 17
       this.toggleTasks(false);
     });
     this.dialog = el("div", "dialog hidden", `<div class="who"></div><div class="line"></div><div class="more">${touch ? "Tap" : "E / click"} to continue</div>`); root.appendChild(this.dialog);
@@ -56,6 +58,7 @@ export class StoryUI {
     this.panel.querySelector(".close").addEventListener("click", () => this.closePanel());
     this.tab = null;
     this.onPanelAction = null; // (action, id) => void
+    this.inspector = new Inspector(root); this.onInspect = null; // round 17
     this.dialogQueue = []; this.onDialogDone = null;
     this.dialog.addEventListener("click", () => this.advance());
   }
@@ -108,15 +111,17 @@ export class StoryUI {
     this._objKey = key; this._objTitle = title;
     // a new task (or a ticked line): pop the panel open briefly on phones, badge the button
     if (changed && this.touch && !this.tasksOpen) { if (newStep) this.toggleTasks(true, 4.5); else this.tasksBtn.querySelector(".badge").classList.remove("hidden"); }
-    this.obj.innerHTML = `<div class="o-title">${title}</div>` + lines.map(([t, done]) => `<div class="o-line${done ? " done" : ""}">${done ? "✓" : "•"} ${t}</div>`).join("") + (extra ? `<div class="q-extra">${extra}</div>` : "");
+    this.obj.innerHTML = `<div class="o-title">${title}<button class="q-hint" type="button" data-hint="1" title="Show me where to go">💡 Hint</button></div>` + lines.map(([t, done]) => `<div class="o-line${done ? " done" : ""}">${done ? "✓" : "•"} ${t}</div>`).join("") + (extra ? `<div class="q-extra">${extra}</div>` : "");
   }
 
-  setPrompt(text) {
+  setPrompt(text, big = null) {
     if (!text) { this.prompt.classList.add("hidden"); this.actBtn.classList.add("hidden"); this._prompt = null; return; }
     if (text !== this._prompt) {
       this._prompt = text;
       this.prompt.innerHTML = this.touch ? text : `<kbd>E</kbd> ${text}`;
-      this.actBtn.textContent = text.split(" ")[0];
+      this.actBtn.textContent = big || text.split(" ")[0];
+      this.actBtn.classList.toggle("big", !!big); // round 17: story beats get a big, glowing button
+      this.prompt.classList.toggle("big", !!big);
     }
     this.prompt.classList.remove("hidden");
     this.actBtn.classList.toggle("hidden", !this.touch);
@@ -200,12 +205,16 @@ export class StoryUI {
         if (!it) { h += `<div class="slot empty"></div>`; continue; }
         const d = ITEMS[it.id];
         const act = d.food ? `<button data-a="eat" data-id="${it.id}">Eat</button>` : it.id === "morgan" ? `<button data-a="eatm" data-id="morgan">Eat</button>` : d.heal ? `<button data-a="use" data-id="${it.id}">Use</button>` : "";
-        h += `<div class="slot"><i style="background:${ITEM_COLORS[it.id] || "#555"}"></i><span>${d.name}</span><em>×${it.n}</em>${act}</div>`;
+        h += `<div class="slot" data-insp="${it.id}" data-n="${it.n}"><i style="background:${ITEM_COLORS[it.id] || "#555"}"></i><span>${d.name}</span><em>×${it.n}</em>${s.inspected?.has(it.id) ? "" : `<b class="new-dot" title="Not inspected yet">ⓘ</b>`}${act}</div>`;
       }
       h += "</div>";
+      // round 17: inspect what you carry that isn't a slot item
+      const extras = [s.faces ? ["facesuit", `🎭 Face suit (${s.faces})`] : null, s.tools.knife ? ["knife", "🔪 Stone knife"] : null, s.tools.spear ? ["spear", "🦴 Spear"] : null].filter(Boolean);
+      if (extras.length) h += `<div class="inv-head">Worn &amp; tools (tap to inspect)</div><div class="gear-row">` + extras.map(([id, l]) => `<button class="gear insp" data-insp="${id}">${l} ⓘ</button>`).join("") + "</div>";
+      h += `<div class="inv-tip">Tap an item to inspect it.</div>`;
       // round 16: clothing (Wear / Remove)
       const owned = Object.keys(GEAR).filter((g) => s.crafted.has(g));
-      if (owned.length) h += `<div class="inv-head">Clothing</div><div class="gear-row">` + owned.map((g) => `<button class="gear${s.wear.has(g) ? " on" : ""}" data-a="wear" data-id="${g}">${s.wear.has(g) ? "✓ " : ""}${GEAR[g]}</button>`).join("") + "</div>";
+      if (owned.length) h += `<div class="inv-head">Clothing</div><div class="gear-row">` + owned.map((g) => `<button class="gear${s.wear.has(g) ? " on" : ""}" data-a="wear" data-id="${g}">${s.wear.has(g) ? "✓ " : ""}${GEAR[g]}</button><button class="gear insp" data-insp="${g}" aria-label="Inspect ${GEAR[g]}">ⓘ</button>`).join("") + "</div>";
       body.innerHTML = h;
     } else if (this.tab === "craft") {
       const known = RECIPES.filter((r) => s.knows(r)), locked = RECIPES.filter((r) => !s.knows(r));
@@ -235,7 +244,16 @@ export class StoryUI {
       body.innerHTML = Object.entries(SKILLS).map(([id, k]) => `<div class="skill${s.skills.has(id) ? " on" : ""}"><strong>${k.name}</strong><small>${k.desc}</small><b>${s.skills.has(id) ? "Learned" : "Locked"}</b></div>`).join("")
         + `<div class="skill stats"><small>Strength +${s.str} · Health bonus +${s.hpBonus} · Faces ${s.faces}</small></div>`;
     }
-    body.querySelectorAll("button[data-a]").forEach((b) => b.addEventListener("click", () => { this.onPanelAction?.(b.dataset.a, b.dataset.id); this.renderPanel(); }));
+    body.querySelectorAll("button[data-a]").forEach((b) => b.addEventListener("click", (ev) => { ev.stopPropagation(); this.onPanelAction?.(b.dataset.a, b.dataset.id); this.renderPanel(); }));
+    body.querySelectorAll("[data-insp]").forEach((b) => b.addEventListener("click", () => this.inspect(b.dataset.insp, +(b.dataset.n || 1))));
+  }
+
+  /** Round 17: open the Inspect view (3D model + lore); the story gives the first-look XP. */
+  inspect(id, n = 1) {
+    const r = this.inspector.open(id, n);
+    this.onInspect?.(id, r);
+    setTimeout(() => this.renderPanel(), 0);
+    return r;
   }
 
   titleCard(title, sub, ms = 4200) {

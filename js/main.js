@@ -30,6 +30,7 @@ import { gfxQuality, setGfxQuality } from "./realism.js";
 import { readSave, clearSave } from "./act1/survival.js";
 import { planPlaces, makeNPC, NPCS } from "./act1/quests.js";
 import { WorldMap } from "./worldmap.js";
+import { mapFilters, toggleFilters } from "./mapfilters.js";
 
 const errors = [];
 window.addEventListener("error", (e) => errors.push(String(e.message || e.error || e)));
@@ -291,6 +292,15 @@ function caveWallMeshes() {
 }
 const walls = new WallCollider(caveWallMeshes);
 
+let savedPace = 1, paceEl = null, paceT = 0;
+/** Round 17: small HUD readout when the desktop pace changes (1/2/3 or the mouse wheel). */
+function showPace(pc) {
+  if (!paceEl) { paceEl = document.createElement("div"); paceEl.className = "pace-hud"; gameEl.appendChild(paceEl); }
+  paceEl.textContent = ["", "🚶 Walk", "🏃 Jog", "💨 Run"][pc] + "  ·  pace " + pc + "/3  (Shift = run)";
+  paceEl.classList.remove("fade");
+  clearTimeout(paceT); paceT = setTimeout(() => paceEl.classList.add("fade"), 1600);
+}
+window.addEventListener("gamepadconnected", () => { try { storyUI.toast("🎮 Gamepad: left stick moves (push further = faster), right stick looks."); } catch {} });
 function ensurePlayer(c) {
   player = new Player(camera, c, canvas);
   player.walls = walls;
@@ -302,6 +312,8 @@ function ensurePlayer(c) {
     hintEl.classList.add("hidden");
   };
   player.onStance = syncStance;
+  player.pace = savedPace; // round 17: desktop walk / jog / run pace
+  player.onPace = (pc) => { savedPace = pc; showPace(pc); };
   player.onLand = (amp) => (player.mounted ? audio.hoof?.(Math.max(0.7, amp)) : audio.step(Math.max(0.6, amp), "stand"));
   const knob = document.getElementById("joy-knob");
   const joy = document.getElementById("joystick");
@@ -742,6 +754,8 @@ const story = new Story({
   explored: () => explored.size,
   heal: (n) => { if (game.health >= game.maxHealth) return false; game.health = Math.min(game.maxHealth, game.health + n); renderStatus(); return true; },
   caveWater: () => (world.mode !== "overworld" ? waterHandle : null),
+  floorAt: (x, y, z) => { if (!player?.volume) return null; const q = queryVolume(player.volume, x, y, z, 0.05, 0); return q.inside ? q.floor : null; },
+  caveExit: () => { if (!cave) return null; const st = stationMap(cave).get(cave.entranceId); if (!st) return null; const w = stationWorld(st); return { x: w.x, z: w.z }; },
   volume: () => (player && !player.terrain ? player.volume : null),
   paused: () => storyUI.modal || game.dead,
   hurt: () => damagePlayer(),
@@ -749,6 +763,20 @@ const story = new Story({
   setArmed: (v) => { game.armed = !!v; caveman.setWeapon(game.weapon || "spear", !!v); },
   applyStats: () => applyStats(),
   addCaveObject: (o) => { if (caveGroup) caveGroup.add(o); else scene.add(o); },
+  caveSpotRoomy: (f0, f1) => {
+    if (!cave || !mainPath.length || !player?.volume) return null;
+    const sm = stationMap(cave), n = mainPath.length, rk = { stand: 0, crouch: 1, crawl: 2 };
+    // reachable without crawling from the entrance up to here
+    let best = null, worst = 0;
+    for (let i = 0; i < n; i++) {
+      const s0 = sm.get(mainPath[i]), w = stationWorld(s0), f = i / n;
+      const need = requiredStanceAt(player.volume, w.x, w.y - s0.down + STANCES.stand.eye, w.z);
+      if (f > f1) break;
+      if (f >= f0 && need === "stand" && worst < 2 && s0.up + s0.down < 8 && (!best || s0.up + s0.down > best.h)) best = { f, h: s0.up + s0.down };
+      worst = Math.max(worst, rk[need] ?? 0);
+    }
+    return best ? story.env.caveSpot(best.f + 0.5 / n) : null;
+  },
   caveSpot: (frac) => {
     if (!cave || !mainPath.length) return null;
     const sm = stationMap(cave), id = mainPath[Math.min(mainPath.length - 1, Math.floor(mainPath.length * frac))];
@@ -1351,6 +1379,13 @@ storyUI.invBtn.addEventListener("click", () => storyUI.togglePanel("inv", story.
 document.getElementById("menu-main-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); showMainMenu(); });
 document.getElementById("pack-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); if (story.active || story.sandbox) storyUI.openPanel("inv", story.surv); });
 
+/** Round 17: the hunter's body as an objective marker inside Waterfall Hollow. */
+function caveQuestTarget() {
+  if (!story.active || cave?.kind !== "hollow") return null;
+  const h = story.hunter, fl = story.flags;
+  if (h && !fl.faceTaken && fl.ratKilled) return { x: h.x, z: h.z, label: "Hunter" };
+  return null;
+}
 // ---------------- Round 16: full-screen map + cave exit ----------------
 const wmap = new WorldMap(gameEl, { touch: IS_TOUCH });
 function mapKey() { return `fota-map-${story.active ? "story" : "free"}-${world.terrain?.seed ?? 0}`; }
@@ -1358,6 +1393,8 @@ function mapState() {
   const p = camera.position, out = { mode: world.mode, player: { x: p.x, z: p.z, yaw: player?.yaw || 0 } };
   const tgt = story.active ? story.questTarget() : null;
   if (tgt) out.target = tgt;
+  const hm = world.mode === "overworld" ? "overworld" : "cave";
+  if (game.hint && game.hint.until > game.time && game.hint.mode === hm) out.hint = game.hint;
   if (world.mode === "overworld" && world.terrain) {
     const t = world.terrain, site = t.act1;
     out.title = "The Hills";
@@ -1377,14 +1414,36 @@ function mapState() {
     }
     const en = sm.get(cave.entranceId); if (en) { const w = stationWorld(en); out.entrance = { x: w.x, z: w.z }; }
     delete out.target;
+    const ct = caveQuestTarget(); if (ct) out.target = ct;
   }
   return out;
 }
-function openMap(toggle = false) {
+function openMap(toggle = false, focus = null) {
   if (!ready || !player) return;
   if (document.pointerLockElement) document.exitPointerLock();
-  if (toggle) wmap.toggle(mapState); else wmap.open(mapState);
+  if (toggle) wmap.toggle(mapState); else wmap.open(mapState, focus);
 }
+/** Round 17: 💡 Hint: map centred on the next objective (pulsing), a spoken / written line, and the
+ *  compass pointing there for 20 s. */
+function showObjectiveHint() {
+  const h = story.hint();
+  if (!h) { storyUI.toast("No hint right now. Explore freely."); return null; }
+  game.hint = { ...h, mode: world.mode === "overworld" ? "overworld" : "cave", until: game.time + 20 };
+  compassKey = "";
+  storyUI.toast("💡 " + h.text, "skill");
+  if (storyUI.voice.active) storyUI.voice.speak(h.text, "");
+  openMap(false, h);
+  glog({ e: "hint", label: h.label });
+  return game.hint;
+}
+wmap.onHint = () => showObjectiveHint();
+wmap.onFilters = () => toggleFilters(wmap.el, () => wmap.draw(), "big");
+storyUI.onHint = () => showObjectiveHint();
+const mapfBtn = document.createElement("button");
+mapfBtn.id = "mapf-btn"; mapfBtn.type = "button"; mapfBtn.textContent = "⚙"; mapfBtn.title = "What the map shows"; mapfBtn.setAttribute("aria-label", "Map filters");
+gameEl.appendChild(mapfBtn);
+mapfBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+mapfBtn.addEventListener("click", (e) => { e.stopPropagation(); toggleFilters(gameEl, null, "mini"); });
 minimapCanvas.addEventListener("click", (e) => { e.stopPropagation(); openMap(); });
 minimapCanvas.addEventListener("pointerdown", (e) => e.stopPropagation());
 const mapBtn = document.createElement("button");
@@ -1425,8 +1484,11 @@ let compassKey = "";
 function updateCompass(p, inside) {
   if (!compassEl) return;
   let n = world.settle?.nearest(p.x, p.z);
-  const qt = game.questTarget; // round 16: the tracked quest wins
-  if (qt) n = { s: { name: "◆ " + qt.label, x: qt.x, z: qt.z, kind: "quest" }, d: Math.hypot(qt.x - p.x, qt.z - p.z) };
+  const hint = game.hint && game.hint.until > game.time && game.hint.mode === world.mode ? game.hint : null;
+  const qt = hint ? { x: hint.x, z: hint.z, label: "💡 " + hint.label } : mapFilters.quest ? game.questTarget : null; // round 16: the tracked quest wins (round 17: a hint wins over it)
+  if (hint && Math.hypot(hint.x - p.x, hint.z - p.z) < 3) { game.hint = null; compassKey = ""; return updateCompass(p, inside); } // reached it
+  if (hint && !n) n = { s: {}, d: 0 };
+  if (qt) n = { s: { name: (hint ? "" : "◆ ") + qt.label, x: qt.x, z: qt.z, kind: "quest" }, d: Math.hypot(qt.x - p.x, qt.z - p.z) };
   if (!n || inside || game.camOverride) { if (compassKey !== "off") { compassKey = "off"; compassEl.classList.add("hidden"); } return; }
   const dx = n.s.x - p.x, dz = n.s.z - p.z;
   const rel = Math.atan2(-dx, -dz) - player.yaw;
@@ -1488,7 +1550,11 @@ function tick(now) {
     depthEl.textContent = `Depth ${fmt(Math.max(0, info.depth))} m`;
     distEl.textContent = `Travelled ${fmt(info.travelled)} m`;
     revealAround(camera.position);
-    minimap.draw(cave, camera.position, player.yaw, placeShown, explored);
+    const hc = game.hint && game.hint.until > game.time && game.hint.mode === "cave" ? game.hint : null;
+    const ct = hc || (mapFilters.quest ? caveQuestTarget() : null);
+    const mo = mapFilters.monsters && game.monster?.alive && game.monster.pos.distanceTo(camera.position) < 25 ? game.monster.pos : null;
+    minimap.draw(cave, camera.position, player.yaw, placeShown, explored, { target: ct, monster: mo, labels: mapFilters.labels, t: game.time });
+    if (hc) updateCompass(camera.position, false); else if (compassKey !== "off") { compassKey = "off"; compassEl.classList.add("hidden"); }
     updateLowHint(info);
     if (waterHandle && waterHandle.update) waterHandle.update(now, scene.fog.color, scene.fog.density);
     if (waterHandle && waterHandle.snap && (game.snapT = (game.snapT || 0) - dt) <= 0) { game.snapT = 0.25; waterHandle.snap(caveWallMeshes(), camera.position); }
@@ -1627,12 +1693,13 @@ function tickOverworld(dt, info, now) {
   const camp = world.camp, site = t.act1;
   let extra = null;
   if (site) {
-    const marks = [{ x: site.camp.x, z: site.camp.z, color: camp?.fireLit ? "#ffb050" : "#b08a60", label: story.active ? "Camp" : "" }];
-    if (story.active && story.flags.lumeDead) marks.push({ x: site.pool.x, z: site.pool.z, color: "#9fd4ff", label: "Falls" });
-    const dots = story.active && story.surv.skills.has("tracking") ? world.wildlife.list.filter((a) => a.alive && a.dist < 140).map((a) => ({ x: a.pos.x, z: a.pos.z, color: a.kind === "deer" || a.kind === "boar" || a.kind === "goat" ? "#e0a060" : "#d8d0c0" })) : [];
-    extra = { stream: site.stream, marks, dots };
+    const F = mapFilters; // round 17: ⚙ filters
+    const marks = F.places ? [{ x: site.camp.x, z: site.camp.z, color: camp?.fireLit ? "#ffb050" : "#b08a60", label: story.active ? "Camp" : "" }] : [];
+    if (F.places && story.active && story.flags.lumeDead) marks.push({ x: site.pool.x, z: site.pool.z, color: "#9fd4ff", label: "Falls" });
+    const dots = F.animals && story.active && story.surv.skills.has("tracking") ? world.wildlife.list.filter((a) => a.alive && a.dist < 140).map((a) => ({ x: a.pos.x, z: a.pos.z, color: a.kind === "deer" || a.kind === "boar" || a.kind === "goat" ? "#e0a060" : "#d8d0c0" })) : [];
+    extra = { stream: F.water ? site.stream : null, marks, dots };
   }
-  if (t.settlements?.length) {
+  if (t.settlements?.length && mapFilters.towns) {
     extra = extra || { marks: [], dots: [] };
     for (const s of t.settlements) {
       const K = SETTLE_KIND[s.kind], d = Math.hypot(s.x - p.x, s.z - p.z);
@@ -1652,14 +1719,17 @@ function tickOverworld(dt, info, now) {
         g.userData.setMark(g.visible && story.active ? story.npcMark(id) : "");
       }
     }
-    if (story.active) for (const [id, g] of Object.entries(world.npcs)) if (g.visible && g.userData.markCh) { const n = world.places.npc[id]; extra.marks.push({ x: n.x, z: n.z, color: g.userData.markCh === "?" ? "#9fe3a8" : "#ffd36a", r: 0.016 }); }
-    if (tgt) extra.marks.push({ x: tgt.x, z: tgt.z, color: "#ff9a5a", r: 0.024, edge: true, label: Math.hypot(tgt.x - p.x, tgt.z - p.z) < 140 ? "◆" : "" });
+    if (story.active && mapFilters.people) for (const [id, g] of Object.entries(world.npcs)) if (g.visible && g.userData.markCh) { const n = world.places.npc[id]; extra.marks.push({ x: n.x, z: n.z, color: g.userData.markCh === "?" ? "#9fe3a8" : "#ffd36a", r: 0.016 }); }
+    if (tgt && mapFilters.quest) extra.marks.push({ x: tgt.x, z: tgt.z, color: "#ff9a5a", r: 0.024, edge: true, label: Math.hypot(tgt.x - p.x, tgt.z - p.z) < 140 ? "◆" : "" });
   }
   game.questTarget = tgt;
   if (wmap.pendingClear) { wmap.pendingClear = false; wmap.clear(mapKey()); }
   wmap.setWorld(t, mapKey());
   wmap.record(p.x, p.z, dt, story.active && story.surv.skills.has("spirit2") ? 2 : 1);
-  minimap.drawOverworld(t, p, player.yaw, world.discovered, extra);
+  const hn = game.hint && game.hint.until > game.time && game.hint.mode === "overworld" ? game.hint : null;
+  if (hn) { extra = extra || { marks: [], dots: [] }; extra.marks.push({ x: hn.x, z: hn.z, color: "#ffe36a", r: 0.03 + 0.012 * Math.sin(game.time * 6), edge: true, label: "💡" }); }
+  if (extra) extra.noLabels = !mapFilters.labels;
+  minimap.drawOverworld(t, p, player.yaw, mapFilters.caves ? world.discovered : new Set(), extra);
   updateLowHint(info);
   const st = game.timeFrozen ? A.update(0, { eye: viewCam.position, elevation: elev, lights: { sun: moonLight, hemi: skyFill, ambient }, fog: scene.fog, renderer })
     : A.update(dt, { eye: viewCam.position, elevation: elev, lights: { sun: moonLight, hemi: skyFill, ambient }, fog: scene.fog, renderer });
@@ -2059,7 +2129,7 @@ window.__CAVE__ = {
     give: (id, n = 1) => story.surv.add(id, n),
     // round 16 test hooks
     quests: () => ({ st: { ...story.quests.st }, tracked: story.quests.tracked, target: story.questTarget(), xp: story.surv.xp, sp: story.surv.sp, level: story.surv.level, skills: [...story.surv.skills], recipes: [...story.surv.recipes], wear: [...story.surv.wear], crafted: [...story.surv.crafted], places: world.places && { town: world.places.town.name, hold: world.places.hold.name, camp: world.places.camp.name, cave: world.places.cave?.name, caveId: world.places.cave?.id } }),
-    skipAct1: () => { Object.assign(story.flags, { lumeTalked: true, lumeDead: true, fireLit: true, enteredHollow: true, ratKilled: true, ratHarvested: true, faceTaken: true, memory: true, exitedHollow: true, actDone: true }); story.surv.tools.knife = true; story.surv.tools.spear = true; story.surv.tools.spearDone = true; story.surv.slots = 12; story.surv.crafted.add("backpack"); game.armed = true; caveman.setWeapon("spear", true); story.lumeDies(); return true; },
+    skipAct1: () => { Object.assign(story.flags, { lumeTalked: true, lumeDead: true, fireLit: true, enteredHollow: true, ratKilled: true, ratHarvested: true, faceTaken: true, memory: true, exitedHollow: true, actDone: true }); story.surv.tools.knife = true; story.surv.faces = Math.max(1, story.surv.faces); story.surv.tools.spear = true; story.surv.tools.spearDone = true; story.surv.slots = 12; story.surv.crafted.add("backpack"); game.armed = true; caveman.setWeapon("spear", true); story.lumeDies(); return true; },
     npcs: () => world.places && Object.fromEntries(Object.entries(world.places.npc).map(([id, n]) => [id, { x: +n.x.toFixed(2), z: +n.z.toFixed(2), name: n.name, visible: world.npcs[id].visible, mark: world.npcs[id].userData.markCh || "" }])),
     toNPC: (id, d = 1.6) => { const n = world.places.npc[id]; const a = n.yaw; const x = n.x + Math.sin(a) * d, z = n.z + Math.cos(a) * d; player.setStance("stand"); player.setTerrain(world.terrain, x, z, Math.atan2(-(n.x - x), -(n.z - z))); player.pitch = -0.05; player.applyLook(); return { x, z }; },
     tp: (x, z, yaw = 0) => { player.setTerrain(world.terrain, x, z, yaw); return true; },
@@ -2067,6 +2137,10 @@ window.__CAVE__ = {
     craft: (id) => { story.panelAction("craft", id); return story.surv.crafted.has(id); },
     wear: (id) => { story.panelAction("wear", id); return story.surv.wear.has(id); },
     map: (on = true) => { if (on) openMap(); else wmap.close(); return { open: wmap.isOpen, revealed: wmap.revealedCount(), trail: wmap.trail.length }; },
+    hint: () => { const h = showObjectiveHint(); return h && { label: h.label, text: h.text, x: +h.x.toFixed(1), z: +h.z.toFixed(1), mode: h.mode, compass: !compassEl.classList.contains("hidden") ? compassEl.textContent : null }; },
+    filters: (o) => { if (o) { for (const [k, v] of Object.entries(o)) mapFilters[k] = v; localStorage.setItem("fota-mapfilters-v1", JSON.stringify(mapFilters)); } return { ...mapFilters }; },
+    hintState: () => game.hint && { ...game.hint, left: +(game.hint.until - game.time).toFixed(1), compass: compassEl.classList.contains("hidden") ? null : compassEl.textContent },
+    hunter: () => story.hunter && { x: +story.hunter.x.toFixed(2), y: +story.hunter.y.toFixed(2), z: +story.hunter.z.toFixed(2), glow: !!story.hunter.glow },
     mapView: (cx, cz, s) => { Object.assign(wmap.view, { cx, cz, s }); wmap.draw(); },
     exitCave: (confirm = true) => { askExitCave(); if (confirm) { const b = storyUI.choice.querySelector('.opt[data-id="go"]'); b?.click(); return !!b; } return true; },
     exitBtn: () => !exitBtn.classList.contains("hidden"),
@@ -2179,7 +2253,8 @@ window.__CAVE__ = {
       const t3 = performance.now();
       return { peopleMs: +((t1 - t0) / n).toFixed(3), settleMs: +((t2 - t1) / n).toFixed(3), wildlifeMs: +((t3 - t2) / n).toFixed(3), people: world.people.list.length, peopleVisible: world.people.visible, animals: world.wildlife.list.length };
     },
-    speeds: () => ({ walk: STANCES.stand.speed, sprint: STANCES.stand.sprint, now: +(player.speedNow || 0).toFixed(2) }),
+    speeds: () => ({ walk: STANCES.stand.speed, sprint: STANCES.stand.sprint, now: +(player.speedNow || 0).toFixed(2), pace: player.pace || 1, runFrac: +(player.runFrac || 0).toFixed(2) }),
+    joyCurve: () => [0, 0.1, 0.2, 0.35, 0.55, 0.7, 0.85, 1, 1.2].map((m) => [m, +Player.joySpeed(m, STANCES.stand).toFixed(2)]),
     site: () => world.terrain?.act1 && { camp: world.terrain.act1.camp, pool: world.terrain.act1.pool, hollow: { x: world.terrain.act1.caveEntrance.x, z: world.terrain.act1.caveEntrance.z, id: world.terrain.act1.caveEntrance.id }, stream: world.terrain.act1.stream, h: (x, z) => world.terrain.height(x, z), entrances: world.terrain.entrances },
     /** Teleport next to a named target outdoors, facing it. */
     goto: (what, dist = 1.6, side = 0) => {
@@ -2218,6 +2293,9 @@ window.__CAVE__ = {
       if (best) { player.yaw = best.yaw; player.pitch = 0; player.applyLook(); }
       return best;
     },
+    caveProfile: () => { const sm = stationMap(cave), n = mainPath.length; return mainPath.map((id, i) => { const s0 = sm.get(id), w = stationWorld(s0); return [+(i / n).toFixed(2), id, +(s0.up + s0.down).toFixed(2), +(s0.left + s0.right).toFixed(2), requiredStanceAt(player.volume, w.x, w.y - s0.down + STANCES.stand.eye, w.z)]; }); },
+    cavePts: (f0, f1) => { const sm = stationMap(cave), n = mainPath.length, i0 = Math.floor(n * f0), i1 = Math.min(n - 1, Math.floor(n * f1)), out = []; for (let i = i0; i <= i1; i++) { const w = stationWorld(sm.get(mainPath[i])); out.push({ x: +w.x.toFixed(2), z: +w.z.toFixed(2) }); } return out; },
+    steer: (x, z, off = 0) => { const c = camera.position, dx = x - c.x, dz = z - c.z, d = Math.hypot(dx, dz); if (d > 0.01) { player.yaw = Math.atan2(-dx / d, -dz / d) + off; player.applyLook(); } return { d: +d.toFixed(2), x: +c.x.toFixed(2), z: +c.z.toFixed(2), y: +c.y.toFixed(2), st: player.stance, sp: +(player.speedNow || 0).toFixed(2) }; },
     toHunter: () => { const h = story.hunter; if (!h) return false; const yawTo = Math.atan2(-(h.x - camera.position.x), -(h.z - camera.position.z)); const q = window.__CAVE__.queryFloor(h.x, h.obj.position.y + 1.6, h.z); player.placeWorld(h.x + Math.sin(yawTo) * 1.2, h.obj.position.y + 1.55, h.z + Math.cos(yawTo) * 1.2); player.yaw = yawTo; player.applyLook(); return q; },
     ratState: () => { const m = game.monster; return m ? { kind: m.kind, alive: m.alive, health: m.health, state: m.state, dist: +(m.distToPlayer ?? -1).toFixed(2) } : null; },
     kill: () => { game.god = false; game.invuln = 0; game.health = 1; damagePlayer(); return game.dead; },

@@ -52,7 +52,7 @@ export class WallCollider {
   constructor(getMeshes) { this.getMeshes = getMeshes; this.hits = 0; this.pushes = 0; }
 
   heights(st, room) {
-    const hs = st.id === "crawl" ? [0.3] : st.id === "crouch" ? [0.5, 0.78] : [0.6, 1.0, 1.4];
+    const hs = st.id === "crawl" ? [0.5] : /* round 17: was 0.3, under the step-up height, so crawling snagged on knee-high ramps you can climb */ st.id === "crouch" ? [0.5, 0.78] : [0.6, 1.0, 1.4];
     const out = hs.filter((h) => h < room - 0.1);
     return out.length ? out : [Math.max(0.12, room * 0.5)];
   }

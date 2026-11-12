@@ -239,6 +239,19 @@ Draw calls go up slightly because each cell is its own mesh. The triangle count 
 
 ## Changelog
 
+- **Round 17: the hunter's face, map filters, hints, inspecting items, analog speed.**
+  - *Face bug fixed:* the dead hunter lay 78% of the way into Waterfall Hollow, past two crawl-only squeezes in the dark, with no marker, a small reach, and other prompts (drink, pickups) that could take the Use button. Crawling also snagged on knee-high ramps. Now:
+    - the body lies in the creature's den (the first roomy chamber past halfway, reachable without crawling) and sits on the rendered floor;
+    - it has a pulsing pale glow and ring until the face is taken;
+    - a big glowing **Remove face** button (phone) and a highlighted prompt, a 3 m reach, and the face is checked before other cave prompts;
+    - an orange objective marker on the cave minimap and big map once the creature is dead;
+    - Tor at camp now says to look for the hunter in Waterfall Hollow;
+    - a crawling player who snags on a ramp rises to a crouch when there's room; the crawl wall probe sits at step height.
+  - *Map filters (⚙):* on the minimap and in the big map. Toggle towns, cave mouths, quest people, quest/hint marker, camp & falls, streams, trail, names, animals, cave creature. Saved in localStorage (`fota-mapfilters-v1`); animals and the creature are off by default.
+  - *💡 Hint:* in the Tasks panel and the big map. Opens the map centred on the next objective with a pulsing marker, shows/speaks a short hint, and points the compass there for 20 s (also inside caves).
+  - *Inspect:* tap any Pack item (or the face suit, knife, spear, clothing ⓘ) for a rotatable 3D model (drag / swipe), lore, uses, recipes and where it's found. First look gives +5 XP (+15 and a lore toast for story items), once per item, saved.
+  - *Analog speed:* the joystick scales smoothly from a slow walk (small push) through walk and jog to a full run at the edge (deadzone 0.1). Desktop: WASD walks at the chosen pace, 1 / 2 / 3 or the mouse wheel set walk / jog / run (small HUD readout), Shift is always a full run. Gamepad: left stick analog, right stick looks, R2 / L3 runs. Stride, bob and footsteps follow the speed.
+
 - **Round 16: quests, skills, crafting, a real map and a way out of caves.**
   - *Quest chain* (`js/act1/quests.js`): Act I ("The Empty Camp") is quest 1. Then come six more main quests into the start of Act II: travel to Tako, hunt for Elder Haska, find the open-mouth painting in the long hall, explore Ash Gallery for flint, carry a message stick to Warden Orrek at Dunrin Hold, and meet the Ash-Walker at Kanatu Rest. There are also three side quests: Neka's stew, Brannoc's fur cap and Mosi's feathers. The places are picked from the world, so other seeds work too.
   - *People:* six named quest givers stand by their fires, with a floating **!** (quest to give) or **?** (ready to hand in). They speak through the existing voices with subtitles, each with their own voice and pitch.
