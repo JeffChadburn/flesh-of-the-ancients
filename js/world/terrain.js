@@ -280,6 +280,7 @@ export class Terrain {
       for (const t of sc.trees) if (Math.abs(t.x - x) < r + 1 && Math.abs(t.z - z) < r + 1) out.push({ x: t.x, z: t.z, r: 0.22 * t.s + 0.08 });
       for (const k of sc.rocks) if (k.s > 0.7 && Math.abs(k.x - x) < r + 3 && Math.abs(k.z - z) < r + 3) out.push({ x: k.x, z: k.z, r: k.s * 0.85 });
     }
+    if (this.campColliders) for (const c of this.campColliders) if (Math.abs(c.x - x) < r + c.r && Math.abs(c.z - z) < r + c.r) out.push(c);
     const f = this.act1?.fall;
     if (f && Math.abs(f.x - x) < r + 6 && Math.abs(f.z - z) < r + 6) out.push({ x: f.x, z: f.z, r: 3.4 });
     for (const e of this.entrances) {

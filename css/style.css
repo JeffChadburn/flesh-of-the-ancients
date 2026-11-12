@@ -148,10 +148,23 @@ button:hover, .file-btn:hover { border-color: var(--accent); color: #fff; }
 }
 
 #hint {
-  font-size: 16px;
+  font-size: 15px;
   color: #f0e6d4;
   transition: opacity 0.6s ease;
+  /* Round 10: low on screen, clear of the title card and the centre of the view. */
+  top: auto;
+  bottom: 118px;
+  transform: translateX(-50%);
+  max-width: min(780px, 72vw);
+  padding: 8px 16px;
+  border-radius: 10px;
+  background: rgba(10, 8, 6, 0.55);
 }
+@media (max-width: 700px), (pointer: coarse) {
+  #hint { bottom: auto; top: 186px; font-size: 13px; max-width: 64vw; padding: 7px 12px; }
+}
+/* Round 10: story mode hides the prototype tools (new cave, seeds, survey, debug...); ?debug=1 shows them. */
+#game.story-mode:not(.debug-ui) #toolbar .proto { display: none !important; }
 
 #hint.dim { opacity: 0.15; }
 
@@ -204,9 +217,9 @@ button:hover, .file-btn:hover { border-color: var(--accent); color: #fff; }
 #about {
   position: absolute;
   inset: 8% 10%;
-  z-index: 8;
+  z-index: 30; /* round 11: above the main menu (19) and title cards, so it never reads through them */
   overflow: auto;
-  background: rgba(12, 10, 8, 0.94);
+  background: rgba(12, 10, 8, 0.98);
   border: 1px solid var(--line);
   border-radius: 16px;
   padding: 28px 32px 36px;

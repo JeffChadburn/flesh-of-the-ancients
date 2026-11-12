@@ -193,8 +193,11 @@ export class Camp {
         this.shamanHut = hut;
       }
       this.group.add(hut);
-      this.huts.push({ x, z });
+      this.huts.push({ x, z, torn });
     }
+    // Round 11: camp props are solid. The fire ring (stones + logs, r 0.8) and the hide huts block
+    // the player via the terrain's circle colliders (the torn shaman hut only at its centre poles).
+    terrain.campColliders = [{ x: C.x, z: C.z, r: 0.95 }, ...this.huts.map((h) => ({ x: h.x, z: h.z, r: h.torn ? 0.9 : 1.75 }))];
     // ---- dead tribe members ----
     this.bodies = [];
     const poses = ["sprawl", "reach", "curl", "sprawl"];

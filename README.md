@@ -225,6 +225,29 @@ Draw calls go up slightly because each cell is its own mesh. The triangle count 
 
 ## Changelog
 
+- **Round 11: Playtest round-2 fixes.**
+  - *No sky inside Carlsbad (the major):*
+    - The pale patch about 16 m down the Natural Entrance (`placeAt("NE1")`) was the entrance's daylight disc, seen from 36 m through the span.
+    - The disc now fades with distance from the viewer: full within 7 m, gone by 15 m. It is transparent and doesn't write depth.
+    - A dark rock cap now sits just outside every cave mouth, behind the disc, so past the mouth there is rock, never sky or void. The chase camera treats the cap as solid.
+    - `CAVE_BG` is darker (0x20160e → 0x0d0907) to match the black fog. A distant gap, such as an unstreamed cell far down the Natural Entrance (the "flat gray patch"), now reads as fogged dark instead of a gray slab.
+    - Checked at NE1 over 24 angles (third and first person, 6 yaws × 2 pitches): no sky pixels. Standing at the mouth and looking out still shows daylight, as intended.
+  - *About panel:* z-index 8 → 30 (above the main menu's 19), background 0.94 → 0.98 opacity. Credits and help are readable over the menu on desktop and phone.
+  - *Camp props are solid:* the Act I fire ring (stones and logs) and the hide huts are now circle colliders in the overworld. You stop about 1.2 m from the fire's centre, still inside its 2.6 m use range, and about 2 m from a hut. This fixes the tent clipping from round 1. The torn shaman hut blocks only at its centre poles.
+- **Round 10: Playtest round-1 fixes (licensing, camera, seams, first-minute polish).**
+  - *Licensing (blocker):* `vendor/three-mesh-bvh.module.js` is identified by SHA-256 as the unmodified npm build of three-mesh-bvh **0.8.3** (MIT, © 2018 Garrett Johnson, github.com/gkjohnson/three-mesh-bvh). It now has a licence header. `vendor/three.module.min.js` is byte-identical to three r170 (`three@0.170.0`, MIT). Added `THIRD_PARTY_NOTICES.md` and full licence texts in `licenses/`. The in-game About credits and the README Stack / Licence sections now name both libraries. They also say that art and audio are procedural and list the Carlsbad NPS map sources (the old "no real survey is bundled" line is gone).
+  - *Chase camera stays in the rock:* in caves the eye→camera segment is ray-cast against the rendered passage mesh (BVH, 5 parallel rays for the near-plane footprint, 0.35 m margin). The camera is pulled in front of any wall, the entrance's daylight disc, or the open cave mouth's plane. Cave starts now put Kra about 3 m inside the mouth instead of on its lip. Result: no sky or void behind Kra at `?seed=90210`, `?cave=carlsbad`, or when entering from the hills. If there's no room, the existing fallback switches to first person.
+  - *Seams and holes:*
+    - A tube that joins two halls no longer cuts their domes. Before, it removed ceiling that the tube itself never covered.
+    - Overlapping halls keep a margin of dome (0.92 → 0.78 for the roof).
+    - The daylight disc is now fogged, so it no longer shows as pale sky through gaps deep inside.
+    - Mud Vein big hall (S87/S53), 12 look directions: void pixels dropped from 61,435 to 3,580 (−94%).
+    - A soft short-range torch spill around the camera (cave only; 6, 8 m) lights rock lips that face away from the torch. These used to render as black triangles ("shards") at junctions.
+    - Seed-42 checks unchanged from round 9: walk routes 15/15; wall-poke matches the round-9 build exactly (same crossings).
+  - *Control hint:* now a small panel low on the screen (desktop) or under the HUD (phone), never over the title card. It appears after a game starts (after the Act I title card), hides on its own after about 8–9 s or about 2.5 s after the first move or click, and shows briefly again only when you leave mouse-look. The 15%-opacity "dim" state that lingered all session is gone.
+  - *Spawn framing:* fresh overworld spawns look down 0.2 rad (was −0.05), so the camp, the bodies and Lume (Act I) or the cave mouth (Free Play) fill a desktop frame instead of the sky.
+  - *Story-mode toolbar:* in Act I the toolbar shows only Main menu, Pack, Sound and Music. The prototype tools (Hills, New cave, Carlsbad, Seed/Load, Reset tally, Debug, Open survey) are hidden unless the URL has `?debug=1`. Free Play and direct cave starts keep the full toolbar.
+  - *Smaller:* `__CAVE__.queryFloor` no longer throws outdoors. A duplicate `look` test hook is renamed `setLook`. Free Play starts at dusk (19:24) by design.
 - **Round 9: Brighter torch, catchable game, a bow, cleaner junctions.**
   - *Torch about 5x:* PointLight intensity 12 → 26, decay 1.5 → 1.0, reach 24.5 → 45 m. That is about 5x the light at 8 m and about 7x at 16 m, but only about 1.9x at arm's length, so near walls don't wash out. Cave fog density 0.058 → 0.032. Cave ambient fill 0.5+1.1·hall → 1.5+1.0·hall (still dark brown). Hall lights reach torch + 20 m.
   - *Prey is easier:* flee speeds roughly halved (rabbit 6.2 → 3.2, bird 7.5 → 4.0, deer 8.2 → 4.2, boar 6.8 → 3.5, goat 7.4 → 3.8, fox 7.8 → 4.0 m/s). Alert radii are about 40% smaller, flee bursts last 2.5–3.5 s, and animals are "tired" for 3 s afterwards (no re-flee). Spear reach is 3.8–4.2 m (was 2.9–3.3) with a wider hit cone. Small prey and deer die in one hit; boar takes 2.
@@ -322,8 +345,8 @@ This build does not ship a real-world survey. Layouts are generated from a seed,
 
 ## Stack
 
-Plain HTML, CSS, and JavaScript with [Three.js](https://threejs.org/) r170 (MIT), vendored under `vendor/`. No build step.
+Plain HTML, CSS, and JavaScript with [Three.js](https://threejs.org/) r170 (MIT) and [three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh) 0.8.3 (MIT, Garrett Johnson), both vendored unmodified under `vendor/`. No build step.
 
 ## Licence
 
-Game code in this folder is written for this prototype. Three.js remains under its MIT licence (see the header in `vendor/three.module.min.js`).
+Game code in this folder is © 2026 Jeff Chadburn, released under the MIT License (see [LICENSE](LICENSE)). Third-party code: three.js r170 (MIT, © 2010-2024 three.js authors) and three-mesh-bvh 0.8.3 (MIT, © 2018 Garrett Johnson). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the full licence texts in `licenses/`. Textures, sound and music are procedural and original to this game; the Carlsbad layout is traced approximately from public NPS maps (sources in `data/carlsbad.json`), reference only, not affiliated with the NPS.

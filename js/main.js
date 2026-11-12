@@ -69,6 +69,11 @@ const camera = new THREE.PerspectiveCamera(72, 1, 0.08, 220);
 const viewCam = new THREE.PerspectiveCamera(70, 1, 0.06, 160);
 scene.add(camera);
 scene.add(viewCam);
+// Round 10: soft spill from the torch around the chase camera. Rock that faces the camera but
+// away from the torch (rims, junction lips, passage necks) otherwise renders pitch black and reads
+// as a hole / black shard. Short range, cave only (intensity set in setCaveLighting / overworld).
+const camFill = new THREE.PointLight(0xffa868, 0, 8, 1.0);
+viewCam.add(camFill);
 // No electric light, no headlamp: only the torch. A near-black floor so silhouettes barely read.
 const ambient = new THREE.AmbientLight(0x0d0b10, 0.5);
 scene.add(ambient);
@@ -119,7 +124,7 @@ const TORCH_BASE = 26; // round 9: was 14 with decay 1.5; now decay 1.0 -> ~5x a
 const TORCH_REACH = 45; // m (was 24.5)
 // Cave background: only ever seen through a seam/hole in the rock mesh; dark rock-brown instead
 // of black so any remaining sliver reads as shadowed rock rather than a void.
-const CAVE_BG = 0x20160e;
+const CAVE_BG = 0x0d0907; // round 11: darker, so a distant gap reads like fogged rock (fog is black)
 let placeShown = "";
 const lastPos = new THREE.Vector3();
 let speedSmooth = 0;
@@ -151,6 +156,7 @@ function setCaveLighting() {
   ambient.intensity = 0.5;
   ambient.color.set(0x0d0b10);
   caveman.baseIntensity = TORCH_BASE;
+  camFill.intensity = 6;
   if (world.camp) world.camp.fireLight.intensity = 0;
   if (world.wildlife) world.wildlife.setVisible(false);
   storyUI.setClock("Underground");
@@ -211,6 +217,7 @@ function loadCave(nextCave, { fromEntrance = null } = {}) {
   renderer.setClearColor(CAVE_BG, 1);
   camera.updateProjectionMatrix();
   labeled = cave.stations.filter((st) => st.label);
+  world.mouth = caveMouthPlane(cave);
   scene.add(caveGroup);
   mainPath = longestPathIds(cave, cave.entranceId).path;
   const span = depthRange(cave);
@@ -344,6 +351,7 @@ function campSpawn() {
 function enterOverworld(entrance = null, opts = {}) {
   unloadCaveContent();
   world.mode = "overworld";
+  camFill.intensity = 0;
   world.entrance = null;
   cave = null;
   ensureWorld();
@@ -365,6 +373,9 @@ function enterOverworld(entrance = null, opts = {}) {
   }
   if (!player) ensurePlayer(null);
   player.setTerrain(t, x, z, yaw);
+  // Round 10: a fresh spawn looks a little down so the camp / Lume / the cave mouth fill the frame
+  // on a wide desktop view instead of the sky (the chase camera aims at a point ahead of the eye).
+  if (!entrance && !opts.at) { player.pitch = -0.2; player.applyLook(); }
   explored.clear();
   if (!story.active) game.health = game.maxHealth;
   game.dead = false;
@@ -571,15 +582,34 @@ if (fileInput) {
 function armAudio() {
   audio.resume();
 }
+// Round 10: the control hint shows for a few seconds after a game starts (after any title card),
+// then hides for good; first movement / look input hides it sooner. It never sits under the title.
+let hintTimer = 0;
+function showHint(ms = 9000, delay = 0) {
+  clearTimeout(hintTimer);
+  hintEl.classList.add("hidden");
+  hintTimer = setTimeout(() => {
+    if (document.pointerLockElement === canvas || player?.foundExit) return;
+    hintEl.classList.remove("hidden", "dim");
+    hintTimer = setTimeout(() => hintEl.classList.add("hidden"), ms);
+  }, delay);
+}
+function hideHintSoon(ms = 2500) {
+  if (hintEl.classList.contains("hidden")) return;
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => hintEl.classList.add("hidden"), ms);
+}
 canvas.addEventListener("click", () => {
-  hintEl.classList.add("dim");
+  hideHintSoon(2500);
   armAudio();
 });
+document.addEventListener("keydown", (e) => { if (/^(Key[WASD]|Arrow)/.test(e.code)) hideHintSoon(2500); });
+document.getElementById("joystick")?.addEventListener("pointerdown", () => hideHintSoon(2500));
 document.addEventListener("pointerdown", armAudio, { once: false });
 document.addEventListener("keydown", armAudio, { once: true });
 document.addEventListener("pointerlockchange", () => {
-  if (document.pointerLockElement === canvas) hintEl.classList.add("hidden");
-  else if (!player?.foundExit) hintEl.classList.remove("hidden");
+  if (document.pointerLockElement === canvas) { clearTimeout(hintTimer); hintEl.classList.add("hidden"); }
+  else if (!player?.foundExit && world.mode) showHint(4000, 0);
 });
 
 function fmt(n) {
@@ -701,6 +731,7 @@ function startNewGame() {
   enterOverworld();
   storyUI.setStoryVisible(true);
   storyUI.titleCard("Flesh of the Ancients", "Act I &mdash; The Empty Camp", 4200);
+  showHint(8000, 5000); // after the title card
   setTimeout(() => storyUI.toast("Dawn. The fire is cold. Nobody is singing."), 4800);
   story.save("auto");
 }
@@ -709,6 +740,7 @@ function continueGame() {
   story.load(snap);
   restoreFromSave(snap);
   storyUI.toast("Welcome back, Kra.");
+  showHint(8000, 600);
 }
 function startFreePlay() {
   story.active = false;
@@ -718,6 +750,7 @@ function startFreePlay() {
   ensureWorld();
   world.atmo.setTime(19.4);
   enterOverworld();
+  showHint(9000, 600);
 }
 function showMainMenu() {
   if (document.pointerLockElement) document.exitPointerLock();
@@ -941,6 +974,62 @@ function camSpotFit(p) {
   return p;
 }
 const _camOut = new THREE.Vector3();
+/** Entrance station + outward direction: the chase camera never backs out through the open mouth. */
+/** Round 11: the entrance's daylight disc is only drawn near the mouth (full < 7 m, gone by 15 m). */
+function updateDaylight() {
+  const p = viewCam.position;
+  for (const r of [world.caveLayer?.resident, caveGroup]) if (r) for (const o of r.children) {
+    if (o.name !== "daylight" || !o.userData.mouth) continue;
+    const m = o.userData.mouth, d = Math.hypot(p.x - m.x, p.y - m.y, p.z - m.z);
+    const a = Math.min(1, Math.max(0, (15 - d) / 8));
+    o.material.opacity = a;
+    o.visible = a > 0.01;
+  }
+}
+function caveMouthPlane(c) {
+  const sm = stationMap(c), s = sm.get(c.entranceId);
+  if (!s) return null;
+  const leg = c.legs.find((l) => l.from === s.id || l.to === s.id);
+  const o = leg && sm.get(leg.from === s.id ? leg.to : leg.from);
+  if (!o) return null;
+  const p = stationWorld(s), q = stationWorld(o);
+  const n = new THREE.Vector3(p.x - q.x, 0, p.z - q.z);
+  if (n.lengthSq() < 1e-6) return null;
+  return { p: new THREE.Vector3(p.x, p.y, p.z), n: n.normalize() };
+}
+const _camRC = new THREE.Raycaster(), _camDir = new THREE.Vector3(), _camO = new THREE.Vector3();
+_camRC.firstHitOnly = true;
+/** Max chase distance (along _back) before the eye->camera segment meets rendered rock. Several
+ *  parallel rays (near-plane footprint) so the frustum corners don't poke through either. */
+function camWallLimit(eye, sx, sy, want) {
+  const meshes = caveWallMeshes().slice();
+  // The entrance's daylight disc stands just outside the mouth: never let the camera back through it.
+  for (const r of [world.caveLayer?.resident, caveGroup]) if (r) for (const o of r.children) if (o.name === "daylight" || o.name === "mouth-cap") meshes.push(o);
+  if (!meshes.length) return want;
+  _camDir.copy(_right).multiplyScalar(sx).addScaledVector(_back, want);
+  _camDir.y += sy;
+  const len = _camDir.length();
+  _camDir.divideScalar(len);
+  let best = want;
+  for (const [ox, oy] of [[0, 0], [0.16, 0], [-0.16, 0], [0, 0.14], [0, -0.14]]) {
+    _camO.copy(eye).addScaledVector(_right, ox);
+    _camO.y += oy;
+    _camRC.set(_camO, _camDir);
+    _camRC.near = 0; _camRC.far = len + 0.35;
+    const h = _camRC.intersectObjects(meshes, false)[0];
+    if (h) best = Math.min(best, want * Math.max(0, h.distance - 0.35) / len);
+  }
+  // Open cave mouth: stop 0.4 m inside the entrance station's plane.
+  const M = world.mouth;
+  if (M) {
+    const den = _camDir.x * M.n.x + _camDir.z * M.n.z;
+    if (den > 1e-3) {
+      const dist = ((M.p.x - eye.x) * M.n.x + (M.p.z - eye.z) * M.n.z - 0.4) / den;
+      best = Math.min(best, want * Math.max(0, dist) / len);
+    }
+  }
+  return Math.max(0.2, best);
+}
 function updateView(dt) {
   const eye = camera.position;
   camera.updateMatrixWorld();
@@ -958,6 +1047,9 @@ function updateView(dt) {
       _tmp.y += sy * t;
       if (!camSpotFit(_tmp)) { allowed = Math.max(0.2, want * (i - 1) / 12 - 0.12); break; }
     }
+    // Round 10: the analytic volume is wider than the lumpy rendered rock, so also ray-cast the
+    // eye->camera segment against the passage mesh (BVH) and pull the camera in front of any wall.
+    if (world.mode === "cave") allowed = Math.min(allowed, camWallLimit(eye, sx, sy, want));
     camDist += (allowed - camDist) * Math.min(1, dt * (allowed < camDist ? 20 : 2.5));
     const k = Math.min(1, camDist / want);
     _camOut.copy(eye).addScaledVector(_right, sx * k).addScaledVector(_back, camDist);
@@ -1113,7 +1205,11 @@ function revealAround(p) {
   }
 }
 
+const DEBUG_UI = new URLSearchParams(location.search).has("debug");
+if (DEBUG_UI) document.getElementById("game")?.classList.add("debug-ui");
+let storyModeUI = null;
 function tick(now) {
+  if (storyModeUI !== !!story.active) { storyModeUI = !!story.active; document.getElementById("game")?.classList.toggle("story-mode", storyModeUI); }
   const rawMs = now - last;
   // Frame-rate independent: up to 0.1 s per frame, simulated in <= 1/40 s substeps.
   const dt = Math.min(0.1, rawMs / 1000);
@@ -1225,6 +1321,7 @@ function tick(now) {
     const low = !game.dead && game.health === 1 ? 0.28 + 0.12 * Math.sin(game.time * 4) : 0;
     if (vignetteEl) vignetteEl.style.opacity = String(Math.min(1, Math.max(game.vignette, low)));
     updateView(dt);
+    if (world.mode === "cave") updateDaylight();
     if (game.camOverride) { const o = game.camOverride; viewCam.position.set(o[0], o[1], o[2]); viewCam.up.set(0, 1, 0); viewCam.lookAt(o[3], o[4], o[5]); }
   } else {
     viewCam.position.copy(camera.position);
@@ -1722,10 +1819,11 @@ window.__CAVE__ = {
   enterEntrance: (i, instant = true) => enterEntrance(world.terrain.entrances[i], instant),
   returnToOverworld: (instant = true) => returnToOverworld(instant),
   enterOverworld: () => enterOverworld(),
+  campColliders: () => world.terrain?.campColliders || null,
   terrainHeight: (x, z) => world.terrain?.height(x, z),
   streamCtx: () => streamCtx(),
   get mainPath() { return mainPath.slice(); },
-  queryFloor: (x, y, z) => { const q = queryVolume(player.volume, x, y, z, STANCES.stand.radius, 0.1); return { inside: q.inside, floor: +q.floor.toFixed(2), ceil: +q.ceil.toFixed(2) }; },
+  queryFloor: (x, y, z) => { if (!player?.volume) return { inside: false, floor: null, ceil: null, overworld: true }; const q = queryVolume(player.volume, x, y, z, STANCES.stand.radius, 0.1); return { inside: q.inside, floor: +q.floor.toFixed(2), ceil: +q.ceil.toFixed(2) }; },
   /** Overworld: walk a heading for `dist` m with streaming on; reports ground-following + chunk churn. */
   walkOverworld: (dist = 400, yaw = 0, opts = {}) => {
     const dt = opts.dt || 1 / 60, P = player, cam = P.camera, t = world.terrain;
@@ -1762,7 +1860,7 @@ window.__CAVE__ = {
   info: null,
   generate: (s) => newCave(s),
   place: (t) => player?.placeAlongMainPath(Number(t), mainPath),
-  look: (yaw, pitch) => {
+  setLook: (yaw, pitch) => {
     if (!player) return;
     if (yaw != null) player.yaw = yaw;
     if (pitch != null) player.pitch = pitch;
@@ -1947,6 +2045,10 @@ window.__CAVE__ = {
     const r = P._constrain(to, from, st.radius, st);
     return { from: [from.x, from.y, from.z].map((v) => +v.toFixed(2)), to: [r.x, r.z].map((v) => +v.toFixed(3)), moved: +Math.hypot(r.x - from.x, r.z - from.z).toFixed(3), floorEye: +(r._floor + r._eye).toFixed(2), groundEye: +(P.groundEye ?? 0).toFixed(2), inside: r._inside, blockedLow: r._blockedLow, need: r._needStance };
   },
+  rayDir: (nx, ny) => { const rc = new THREE.Raycaster(); rc.setFromCamera(new THREE.Vector2(nx, ny), viewCam); return rc.ray.direction.toArray(); },
+  stationInfo: (id) => { const s = stationMap(cave).get(id); return { up: s.up, down: s.down, left: s.left, right: s.right, kind: s.kind }; },
+  near: (v) => { viewCam.near = v; viewCam.updateProjectionMatrix(); },
+  bg: (hex) => { scene.background.set(hex); renderer.setClearColor(hex, 1); },
   debugAmbient: (v) => { ambient.color.set(0xffffff); ambient.intensity = v; scene.fog.density = 0.004; game.fogLock = true; },
   hallCenter: (id) => { const s = stationMap(cave).get(id); const p = stationWorld(s); return { x: p.x, y: p.y, z: p.z, floor: p.y - s.down, R: Math.max(s.left, s.right) }; },
   halls: () => { const nb = neighborsOf(cave); return cave.stations.filter((s) => s.kind === "cavern").map((s) => ({ id: s.id, w: +(s.left + s.right).toFixed(1), h: +(s.up + s.down).toFixed(1), nb: nb.get(s.id) })); },
@@ -1954,6 +2056,8 @@ window.__CAVE__ = {
   /** Debug: hide scene objects whose name matches a regex (e.g. formations) for screenshots. */
   hideNamed: (re) => { const r = new RegExp(re); let n = 0; scene.traverse((o) => { if (o.name && r.test(o.name)) { o.visible = false; n++; } }); return n; },
   names: () => { const m = {}; scene.traverse((o) => { if (o.isMesh || o.isInstancedMesh) m[o.name || "?"] = (m[o.name || "?"] || 0) + 1; }); return m; },
+  onlyNamed: (re) => { const r = new RegExp(re); let n = 0; scene.traverse((o) => { if ((o.isMesh || o.isInstancedMesh) && !r.test(o.name || "?")) { o.visible = false; n++; } }); return n; },
+  pickView: (nx, ny, dbl) => { const rc = new THREE.Raycaster(); rc.setFromCamera(new THREE.Vector2(nx, ny), viewCam); const out = []; const saved = []; if (dbl === 1) scene.traverse((o) => { if (o.isMesh && o.material && !Array.isArray(o.material)) { saved.push([o.material, o.material.side]); o.material.side = THREE.DoubleSide; } }); const hs = rc.intersectObjects(scene.children, true).filter((h) => h.object.visible && (h.object.isMesh || h.object.isInstancedMesh) && (dbl === 2 || h.object.name !== "")); for (const [m, sd] of saved) m.side = sd; for (const h of hs.slice(0, 4)) { const n = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld) : null; out.push({ name: h.object.name, d: +h.distance.toFixed(2), dot: n ? +n.dot(rc.ray.direction).toFixed(2) : null, side: h.object.material?.side, fi: h.faceIndex, vn: h.face && h.object.geometry.attributes.normal ? [h.face.a, h.face.b, h.face.c].map((i) => +new THREE.Vector3().fromBufferAttribute(h.object.geometry.attributes.normal, i).transformDirection(h.object.matrixWorld).dot(rc.ray.direction).toFixed(2)) : null, col: h.object.geometry.attributes.color ? [0,1,2].map((k) => +h.object.geometry.attributes.color.getX(h.face.a) .toFixed(2)) : null }); } return { cam: viewCam.position.toArray().map((v) => +v.toFixed(2)), out }; },
   setWeapon: (w) => setWeapon(w),
   /** Test: put the monster d m in front of the player (frozen) and return its health. */
   monsterAhead: (d = 8) => { const m = game.monster; if (!m) return null; const f = feetPos(); m.pos.set(f.x - Math.sin(player.yaw) * d, f.y, f.z - Math.cos(player.yaw) * d); m.frozen = true; m.state = "roam"; return { health: m.health, alive: m.alive }; },
@@ -2046,6 +2150,7 @@ const startSeed = params.has("seed") ? parseSeed(params.get("seed")) : 184726531
 // Default start: outside, in the hills. ?seed=, ?cave=carlsbad (and test ?shot=) start in a cave.
 const directCave = params.has("seed") || params.has("cave") || params.has("shot") || params.get("start") === "cave" || params.get("demo") === "1";
 if (directCave) {
+  showHint(9000, 800);
   newCave(startSeed);
   if (params.get("cave") === "carlsbad") loadCarlsbad();
 } else {

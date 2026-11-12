@@ -467,7 +467,7 @@ export function prepareCavePieces(cave) {
   }
 
   /** Is a world point inside a leg tube (smooth LRUD ellipse, no noise)? */
-  function insideLeg(L, x, y, z, shrink) {
+  function insideLeg(L, x, y, z, shrink, noBulge = false) {
     const dx = x - L.va.x, dy = y - L.va.y, dz = z - L.va.z;
     const along = dx * L.dir.x + dy * L.dir.y + dz * L.dir.z;
     const t = along / L.len;
@@ -478,7 +478,7 @@ export function prepareCavePieces(cave) {
     const dm = legDims(L, t);
     // Hall walls only bulge outward (up to ~50%), so test hall tubes generously.
     // Over-dropping hub triangles inside a tube's length is safe: the tube wall hides them.
-    const sh = shrink * (1 + 0.3 * dm.hall);
+    const sh = shrink * (noBulge ? 1 : 1 + 0.3 * dm.hall);
     const rx = (lx >= 0 ? dm.right : dm.left) * sh;
     const ry = (ly >= 0 ? dm.up : dm.down) * sh;
     const e = 2 / (1 - 0.32 * dm.hall);
@@ -540,8 +540,16 @@ export function prepareCavePieces(cave) {
           if (dy > 0) y *= k;
           const X = p.x + hx, Y = p.y + y, Z = p.z + hz;
           let inAny = false;
-          for (const L of near) if (insideLeg(L, X, Y, Z, 0.9)) { inAny = true; break; }
-          if (!inAny && halls.length && insideHall(X, Y, Z, st.id)) inAny = true;
+          // Round 10: a hall's ceiling is only dropped where it is well inside a tube (no generous
+          // hall-bulge allowance): the bulge test cut ceiling the tube never covered -> red/void holes.
+          const roof = cavern && dy > 0.15;
+          for (const L of (roof ? Ls : near)) {
+            // A tube between two halls is swallowed by them (its own wall is dropped), so it must not cut
+            // their domes either; the overlap of the two halls is handled by insideHall below.
+            if (roof && L.a.kind === "cavern" && L.b.kind === "cavern") continue;
+            if (insideLeg(L, X, Y, Z, roof ? 0.82 : 0.9, roof)) { inAny = true; break; }
+          }
+          if (!inAny && halls.length && insideHall(X, Y, Z, st.id, roof ? 0.78 : 0.92)) inAny = true; // round 10: overlapping halls keep a margin of rock (no jagged ceiling holes)
           if (cavern && dy < -0.25) inAny = false; // a hall's floor is always solid rock
           outside.push(!inAny);
           buf.vertex(X, Y, Z, 0, 0, vertColor(X, Y, Z, st.kind));
@@ -647,11 +655,28 @@ export function portalObjects(cave, { daylight = true } = {}) {
     // A pale disc of "daylight" just outside the mouth.
     const disc = new THREE.Mesh(
       new THREE.CircleGeometry(Math.max(s.left, s.right) * 1.4, 20),
-      new THREE.MeshBasicMaterial({ map: skyTexture(), side: THREE.DoubleSide, fog: false }),
+      // Round 10: fogged, so from deep inside it fades to black instead of showing as pale sky through seams.
+      new THREE.MeshBasicMaterial({ map: skyTexture(), side: THREE.DoubleSide, fog: true }),
     );
+    disc.name = "daylight";
     disc.position.set(p.x + out.x * 2.2, p.y + 0.4, p.z + out.z * 2.2);
     disc.lookAt(p.x, p.y, p.z);
+    // Round 11: the disc fades out with distance (main.js updateDaylight) so it can never show
+    // through a gap deep inside, e.g. Carlsbad's Natural Entrance span seen from 16 m down.
+    disc.material.transparent = true;
+    disc.material.depthWrite = false;
+    disc.userData.mouth = { x: p.x, y: p.y, z: p.z };
     group.add(disc);
+    // ...and behind it a rock cap closes the mouth, so past the disc there is rock, never sky / void.
+    const capR = Math.max(s.left, s.right, s.up) * 2.4 + 2;
+    const cap = new THREE.Mesh(
+      new THREE.CircleGeometry(capR, 24),
+      new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 1, metalness: 0, side: THREE.DoubleSide }),
+    );
+    cap.position.set(p.x + out.x * 3.4, p.y + 0.4, p.z + out.z * 3.4);
+    cap.lookAt(p.x, p.y + 0.4, p.z);
+    cap.name = "mouth-cap";
+    group.add(cap);
   }
   if (cave.exitId && smap.has(cave.exitId)) {
     const s = smap.get(cave.exitId);

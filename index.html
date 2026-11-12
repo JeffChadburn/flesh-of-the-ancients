@@ -27,16 +27,16 @@
     <div id="toolbar">
       <button id="menu-main-btn" type="button" title="Continue / New Game / Free Play">Main menu</button>
       <button id="pack-btn" type="button" title="Inventory, crafting, skills (I / Tab / K)">Pack</button>
-      <button id="hills-btn" type="button" title="Back outside to the hills">Hills</button>
-      <button id="new-cave" type="button">New cave</button>
-      <button id="carlsbad-btn" type="button" title="Real layout traced from NPS maps">Carlsbad</button>
-      <label>Seed <input id="seed-input" inputmode="numeric" autocomplete="off" spellcheck="false" /></label>
-      <button id="go-seed" type="button">Load</button>
+      <button id="hills-btn" class="proto" type="button" title="Back outside to the hills">Hills</button>
+      <button id="new-cave" class="proto" type="button">New cave</button>
+      <button id="carlsbad-btn" class="proto" type="button" title="Real layout traced from NPS maps">Carlsbad</button>
+      <label class="proto">Seed <input id="seed-input" inputmode="numeric" autocomplete="off" spellcheck="false" /></label>
+      <button id="go-seed" class="proto" type="button">Load</button>
       <button id="mute-btn" type="button">Sound on</button>
       <button id="music-btn" type="button" title="Creepy music (M)">Music on</button>
-      <button id="reset-tally" type="button" title="Reset kills and deaths">Reset tally</button>
-      <button id="debug-btn" type="button" title="Chunk / memory overlay (G)">Debug</button>
-      <label class="file-btn">Open survey<input id="survey-file" type="file" accept=".json,.csv,application/json,text/csv" hidden /></label>
+      <button id="reset-tally" class="proto" type="button" title="Reset kills and deaths">Reset tally</button>
+      <button id="debug-btn" class="proto" type="button" title="Chunk / memory overlay (G)">Debug</button>
+      <label class="file-btn proto">Open survey<input id="survey-file" type="file" accept=".json,.csv,application/json,text/csv" hidden /></label>
     </div>
     <div id="touch" class="hidden">
       <div id="joystick" aria-label="Move"><div id="joy-knob"></div></div>
@@ -55,7 +55,7 @@
     <div id="fade"></div>
     <pre id="debug" class="hidden"></pre>
     <div id="low-hint" class="hidden">Low passage — Crouch (C)</div>
-    <div id="hint">Click to look around · WASD to walk</div>
+    <div id="hint" class="hidden">Click to look around · WASD to walk</div>
     <div id="found" class="hidden">
       <h2>You found the way out</h2>
       <button id="again" type="button">New cave</button>
@@ -87,7 +87,9 @@
 }</pre>
       <p>CSV can list <code>id,x,y,z,left,right,up,down,kind</code> rows, then a <code>from,to</code> header and the legs. If legs are omitted, stations are connected in order.</p>
       <h3>Credits</h3>
-      <p>Rendered with <a href="https://threejs.org/" style="color:#e0b56a">Three.js</a> (MIT licence). Cave layouts in this build are generated in the browser; no real survey is bundled yet.</p>
+      <p>Flesh of the Ancients game code &copy; 2026 Jeff Chadburn, MIT licence (see <code>LICENSE</code>).</p>
+      <p>Rendered with <a href="https://threejs.org/" style="color:#e0b56a">three.js</a> r170 &copy; 2010-2024 three.js authors (MIT licence). Cave wall collision uses <a href="https://github.com/gkjohnson/three-mesh-bvh" style="color:#e0b56a">three-mesh-bvh</a> 0.8.3 &copy; 2018 Garrett Johnson (MIT licence). Full licence texts: <code>THIRD_PARTY_NOTICES.md</code> and <code>licenses/</code>.</p>
+      <p>Textures, sound and music are procedural, made in the browser by this game; no third-party art or audio is bundled. Random caves are generated from a seed. Carlsbad mode is an approximate layout traced from public National Park Service maps (reference only, not survey data; sources listed in <code>data/carlsbad.json</code> and <code>THIRD_PARTY_NOTICES.md</code>). Not affiliated with or endorsed by the NPS.</p>
     </div>
   </div>
   <script type="importmap">

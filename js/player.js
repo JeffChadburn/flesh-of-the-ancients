@@ -152,7 +152,18 @@ export class Player {
     }
     this.stance = "stand";
     const eye = STANCES.stand.eye;
-    this.camera.position.set(p.x, p.y - s.down + eye, p.z);
+    // Round 10: start a few metres inside the mouth (not on its lip), so the chase camera has rock
+    // behind it instead of the open entrance and the void beyond.
+    let sx = p.x, sy = p.y - s.down, sz = p.z;
+    if (leg) {
+      const other = this.smap.get(leg.from === id ? leg.to : leg.from);
+      const q = stationWorld(other);
+      const L = Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z) || 1;
+      const t = Math.min(3.2, L * 0.4) / L;
+      sx = p.x + (q.x - p.x) * t; sz = p.z + (q.z - p.z) * t;
+      sy = (p.y - s.down) + ((q.y - other.down) - (p.y - s.down)) * t;
+    }
+    this.camera.position.set(sx, sy + eye, sz);
     this.travelling = 0;
     this.lastValid.copy(this.camera.position);
     this.groundEye = null;
