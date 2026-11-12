@@ -24,6 +24,8 @@ const PROFILES = {
   town3: { prefer: ["Samantha", "Microsoft Zira", "Google US English", "Allison"], pitch: 1.2, rate: 1.06, slot: 12 },
   town4: { prefer: ["Microsoft Mark", "Tom", "Evan", "Nathan"], pitch: 0.95, rate: 1.04, slot: 13 },
   town5: { prefer: ["Moira", "Fiona", "Tessa", "Karen", "Microsoft Hazel"], pitch: 0.9, rate: 0.9, slot: 14 },
+  // round 23: the Ancestor in the spirit visions: slow, low, distant
+  "The Ancestor": { prefer: ["Moira", "Google UK English Female", "Microsoft Hazel", "Fiona", "Karen", "Tessa"], pitch: 0.55, rate: 0.78, slot: 15 },
   Mosi: { prefer: ["Tom", "Evan", "Google US English", "Microsoft Mark", "Nathan"], pitch: 1.12, rate: 1.08, slot: 8 },
 };
 const LS = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v === "1"; } catch { return d; } };
@@ -83,7 +85,7 @@ export class StoryVoice {
     const u = new SpeechSynthesisUtterance(text);
     const v = this.voiceFor(who);
     if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "en-GB";
-    u.pitch = prof.pitch; u.rate = prof.rate; u.volume = 1;
+    u.pitch = prof.pitch; u.rate = prof.rate; u.volume = Math.max(0, Math.min(1, this.getVolume ? this.getVolume() : 1)); // round 23: Voices slider
     let done = false;
     const token = (this._token = (this._token || 0) + 1);
     const finish = (why) => {

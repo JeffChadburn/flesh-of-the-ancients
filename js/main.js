@@ -32,7 +32,9 @@ import { planPlaces, makeNPC, NPCS } from "./act1/quests.js";
 import { WorldMap } from "./worldmap.js";
 import { mapFilters, toggleFilters } from "./mapfilters.js";
 import { Boats } from "./world/boats.js";
-import { Colony, AGES as COL_AGES } from "./world/colony.js"; // round 20
+import { Colony, AGES as COL_AGES, INSIGHTS } from "./world/colony.js"; // round 20
+import { SpiritVision } from "./act1/spirit.js"; // round 23
+import { VISIONS, echo as visionEcho } from "./act1/spirit-texts.js";
 import { TownTalk } from "./act1/talk.js";
 import { ColonyUI } from "./act1/colony-ui.js";
 import { Trip, MELT } from "./trip.js"; // round 21
@@ -40,7 +42,10 @@ const trip_MELT = () => MELT.value.x;
 import { Visions } from "./world/visions.js";
 import { TripMusic } from "./tripmusic.js";
 import { Shrooms } from "./world/shrooms.js";
+import { WildBerries, BERRY_KINDS } from "./world/berries.js";
 import { Multiplayer } from "./mp/mp.js"; // round 22
+import { AudioPanel } from "./audio-ui.js"; // round 23
+import { Beacon } from "./beacon.js"; // round 23
 
 const errors = [];
 window.addEventListener("error", (e) => errors.push(String(e.message || e.error || e)));
@@ -395,6 +400,7 @@ function ensureWorld() {
     markHint: (x, z, label) => { game.hint = { x, z, label, text: label, mode: "overworld", until: game.time + 40 }; compassKey = ""; } });
   world.people.skip = (k) => world.talk.joined(k);
   world.shrooms = new Shrooms(world.terrain, world.settleRoot); // round 21
+  world.berries = new WildBerries(world.terrain, world.settleRoot); // round 23
   colonyUI = new ColonyUI({ root: gameEl, stanceBar: document.getElementById("stance-bar"), colony: world.colony, feet: () => feetPos(), yaw: () => player.yaw,
     surv: () => (pack() ? story.surv : null), toast: (m, k) => storyUI.toast(m, k), debug: URLP.has("debug") || URLP.has("play"),
     mode: () => world.mode, busy: () => world.mode !== "overworld" || !!game.boat || !!player?.mounted || !!storyUI.modal || game.dead,
@@ -449,20 +455,96 @@ function startTrip() {
   storyUI.toast("It tastes of earth and copper. The ground begins to breathe…", "skill");
   glog({ e: "trip", on: true });
 }
+// ---------------- Round 23: spirit visions + insights ----------------
+let spirit = null, spiritCam = null, visionPending = 0;
+const getSpirit = () => spirit || (spirit = new SpiritVision({ root: gameEl, voice: storyUI.voice, touch: IS_TOUCH }));
+function visionContext() {
+  const C = world.colony, s = story.surv, st = s.stats || {}, list = C?.list || [];
+  const big = list.slice().sort((a, b) => b.vill.length - a.vill.length)[0], mem = Object.values(world.talk?.mem || {}), age = C ? C.maxAge() : 0;
+  return { faces: s.faces || 0, glyphs: story.glyphs?.length || 0, kills: (st.small || 0) + (st.deer || 0), towns: list.length, biggest: big?.name || "", pop: list.reduce((a, c) => a + c.vill.length, 0),
+    age, ageName: COL_AGES[age].name, helped: mem.filter((m) => (m.rel || 0) >= 1).length, joined: mem.filter((m) => m.joined).length };
+}
+function pickInsights(k) {
+  const C = world.colony, age = C.maxAge(), unk = Object.keys(INSIGHTS).filter((i) => !C.knows(i));
+  let pool = unk.filter((i) => INSIGHTS[i].age <= age).sort(() => Math.random() - 0.5);
+  if (pool.length < k) pool = pool.concat(unk.filter((i) => INSIGHTS[i].age > age).sort((a, b) => INSIGHTS[a].age - INSIGHTS[b].age));
+  return pool.slice(0, k);
+}
+function beginSpirit(lines, opts) {
+  const S = getSpirit(); if (S.on) return false;
+  storyUI.closePanel(); storyUI.closeChoice?.(); storyUI.visionOn = true;
+  spiritCam = { yaw0: bestVisionAngle(), t: 0, fp: caveman.fp };
+  gameEl.classList.add("spirit-on");
+  S.run(lines, { ...opts, onDone: (sk) => { storyUI.visionOn = false; gameEl.classList.remove("spirit-on"); spiritCam = null; glog({ e: "vision", n: opts.n, skipped: sk }); opts.onDone?.(sk); } });
+  return true;
+}
+/** Start the next vision (or replay journal entry n). */
+function startVision(replay = null) {
+  const C = world.colony; if (!C || getSpirit().on) return false;
+  if (replay != null) { const e = C.know.journal.find((j) => j.n === replay); return e ? beginSpirit(e.lines, { n: e.n, title: e.title, replay: true }) : false; }
+  const n = C.know.seen, V = VISIONS[n] || null, ctx = visionContext();
+  const lines = V ? V.lines(ctx) : visionEcho(ctx, n);
+  const title = V ? V.title : "An Echo";
+  const choices = pickInsights(V?.choice ? 2 : 1).map((id) => ({ id, ...INSIGHTS[id] }));
+  if (choices.length === 1) lines.push({ who: "Kra", text: choices[0].idea });
+  const entry = { n: n + 1, id: V?.id || "echo", title, lines, ins: null, at: Date.now() };
+  return beginSpirit(lines, { n: n + 1, title, choices, onPick: (id) => {
+    if (!C.learn(id)) return;
+    entry.ins = INSIGHTS[id].name; applyInsight(id);
+    storyUI.toast(`💡 Insight: ${INSIGHTS[id].icon} ${INSIGHTS[id].name}${INSIGHTS[id].policy ? (C.know.policies.includes(id) ? " (policy, adopted)" : " (policy: adopt it in the Town panel)") : ""}`, "skill");
+  }, onDone: () => { C.know.seen = n + 1; C.know.journal.push(entry); C.save(); if (colonyUI?.isOpen()) colonyUI.render(); } });
+}
+function applyInsight(id) { if (id === "scouting") scoutReveal(); }
+function scoutReveal() {
+  const C = world.colony; if (!C?.knows("scouting") || !world.terrain) return 0;
+  let n = 0;
+  for (const c of C.list) { n += wmap.revealAt(c.x, c.z, 400); for (const e of world.terrain.entrances) if (Math.hypot(e.x - c.x, e.z - c.z) < 400) world.discovered.add(e.id); }
+  return n;
+}
+/** The camera direction (around Kra) with the clearest view: fewest trees / rocks along the pull-back. */
+function bestVisionAngle() {
+  if (!player || world.mode !== "overworld" || !world.terrain) return player?.yaw || 0;
+  const f = feetPos(), T = world.terrain, near = T.collidersNear(f.x, f.z, 14);
+  let best = player.yaw, bs = Infinity;
+  for (let i = 0; i < 24; i++) {
+    const a = (i / 24) * Math.PI * 2; let s = 0;
+    for (let r = 1.5; r <= 11; r += 0.75) for (const da of [-0.18, 0, 0.18]) {
+      const x = f.x + Math.sin(a + da) * r, z = f.z + Math.cos(a + da) * r;
+      for (const k of near) { const q = colCore(k, x, z); if (Math.hypot(q.x - x, q.z - z) < (q.t || k.r || 0.5) + 2.4) s += k.top != null ? 1 : 3; }
+      if (T.height(x, z) > f.y + 0.6 + r * 0.35) s += 2; // a hill in the way
+    }
+    s += Math.abs(Math.atan2(Math.sin(a - player.yaw), Math.cos(a - player.yaw))) * 0.01; // prefer in front
+    if (s < bs) { bs = s; best = a; }
+  }
+  return best;
+}
+function spiritTick(dt) {
+  if (visionPending > 0 && (visionPending -= dt) <= 0) { if (game.dead || storyUI.modal || !player) visionPending = 1; else startVision(); }
+  spirit?.update(dt);
+  trip.dream += ((spirit?.on ? 1 : 0) - trip.dream) * Math.min(1, dt * 0.9); if (trip.dream < 0.003) trip.dream = 0;
+  if (spiritCam && player) {
+    const c = spiritCam; c.t += dt; const f = feetPos(), ow = world.mode === "overworld";
+    const ang = c.yaw0 + 0.18 * Math.sin(c.t * 0.05), r = ow ? Math.min(10, 3.4 + c.t * 0.15) : 2.3, h = ow ? Math.min(4.5, 0.8 + c.t * 0.07) : 0.5; // slow pull-back and rise
+    viewCam.position.set(f.x + Math.sin(ang) * r, f.y + 1.2 + h, f.z + Math.cos(ang) * r);
+    if (ow) { const g = world.terrain.height(viewCam.position.x, viewCam.position.z); if (viewCam.position.y < g + 1.2) viewCam.position.y = g + 1.2; }
+    viewCam.lookAt(f.x, f.y + 1.25 + (ow ? Math.min(1.2, c.t * 0.03) : 0), f.z);
+  }
+}
 function endTrip() { if (!trip.on) return; trip.endSoon(5); storyUI.toast("You breathe slowly. The colours drain away."); }
 function tripTick(dt) {
   const was = trip.on, L = trip.update(dt);
   if (was && !trip.on) {
     tripMusic.stop(); audio.duckMusic(false);
-    if (audio.master) audio.master.gain.value = audio.muted ? 0 : 0.7;
+    audio.setDuck(1);
     storyUI.toast("The vision fades. The world is only the world again.");
+    if ((story.active || story.sandbox) && world.colony) visionPending = 1.6; // round 23: the spirits speak
     glog({ e: "trip", on: false });
     if (storyUI.tab === "inv") storyUI.renderPanel();
   }
   if (trip.on && !tripMusic.on && audio.ctx) tripMusic.start();
   if (trip.on || visions.list.length) { const f = player ? feetPos() : viewCam.position; visions.update(dt, L, viewCam.position, f, world.mode !== "overworld", trip.t, trip.phase === "peak"); }
   if (tripMusic.on) tripMusic.update(L, trip.phase === "peak" ? L : 0, audio.muted);
-  if (trip.on && audio.master) audio.master.gain.value = audio.muted ? 0 : 0.7 * (1 - 0.55 * L);
+  if (trip.on && audio.ctx) { const k = 1 - 0.55 * L; if (Math.abs(k - audio.duck) > 0.01) audio.setDuck(k); }
   if (trip.on && world.mode === "overworld") trip.tintSky(scene);
   if (tripBtn._on !== trip.on) { tripBtn._on = trip.on; tripBtn.classList.toggle("hidden", !trip.on); }
 }
@@ -833,7 +915,9 @@ storyUI.voice.onDuck = (on) => audio.duckMusic(on);
 storyUI.voice.onBroken = () => syncVoice();
 syncVoice();
 window.__VOICE__ = storyUI.voice;
+storyUI.voice.getVolume = () => audio.speechVol; // round 23: speech follows the Voices slider
 storyUI.tripOn = () => trip.on; // round 21
+storyUI.visionJournal = () => world.colony?.know.journal || []; storyUI.onVisionReplay = (n) => startVision(n); // round 23
 // Round 22: multiplayer (rooms, avatars, chat, voice). Idle until you open ☰ → Multiplayer.
 // the room to join: from an invite link, or this tab's room after a reload (the address bar is tidied on load)
 const MP_ROOM = URLP.get("room") || (performance.getEntriesByType?.("navigation")[0]?.type === "reload" ? sessionStorage.getItem("fota-mp-room") : null);
@@ -856,7 +940,7 @@ const mp = new Multiplayer({
   colony: () => world.colony,
   makeGuestColony: () => { const c = new Colony({ terrain: world.terrain, parent: world.settleRoot, people: world.people, toast: () => {}, skills: () => new Set(), key: () => "fota-guest-colony-unsaved" }); c.save = () => {}; c._colliders = () => {}; return c; },
   groundAt: (p) => (world.mode === "overworld" && world.terrain ? world.terrain.height(p.x, p.z) : null),
-  audioCtx: () => audio.ctx, armAudio: () => armAudio(),
+  audioCtx: () => audio.ctx, armAudio: () => armAudio(), voiceOut: () => audio.voiceBus || null,
   pxH: () => renderer.domElement.height, torchBase: () => caveman.baseIntensity,
   exitLock: () => { if (document.pointerLockElement) document.exitPointerLock(); },
   changed: () => { try { storyUI.renderPanel?.(); } catch {} },
@@ -876,6 +960,13 @@ const story = new Story({
   monster: () => game.monster,
   caveKind: () => cave?.kind || null,
   get talk() { return world.talk || null; }, // round 20
+  berryNear: (f) => (world.mode === "overworld" ? world.berries?.near(f) || null : null), // round 23: wild berry bushes
+  pickBerry: (b) => {
+    const got = story.surv.add("berries", 3);
+    if (!got) { storyUI.toast("No room in your pack", "bad"); return; }
+    world.berries.take(b); const herb = story.surv.skills.has("surv1") && Math.random() < 0.4 ? story.surv.add("herbs", 1) : 0;
+    storyUI.toast(`+${got} Berries (${BERRY_KINDS[b.kind].name.toLowerCase()})` + (herb ? ", +1 Healing herbs" : ""), "good");
+  },
   shroomNear: (f) => (world.mode === "overworld" ? world.shrooms?.near(f) || null : null), // round 21
   pickShroom: (sp) => { if (!story.surv.add("shroom", 2)) { storyUI.toast("No room in your pack", "bad"); return; } world.shrooms.take(sp); storyUI.toast("+2 Glowing mushroom. They pulse faintly in your hand.", "good"); },
   eatShroom: () => eatShroom(),
@@ -1344,6 +1435,7 @@ function updateView(dt) {
       viewCam.lookAt(_tmp);
     }
   }
+  if (spiritCam) fp = false; // round 23: the vision camera shows Kra
   caveman.setFirstPerson(fp);
   if (fp) {
     viewCam.position.copy(eye);
@@ -1560,6 +1652,7 @@ function mapState() {
     if (world.boats) out.boats = world.boats.list.map((b) => ({ x: b.x, z: b.z, yaw: b.yaw, kind: b.kind, mine: b === game.boat || b === game.myBoat, riding: b === game.boat }));
     if (world.shrooms) for (const q of world.shrooms.marks()) out.marks.push({ x: q.x, z: q.z, color: "#ff6af0", label: "🍄" }); // round 21
     for (const m of mp.marks()) (m.town ? out.towns.push({ x: m.x, z: m.z, name: m.label, kind: "village", color: m.color, known: true }) : out.marks.push({ x: m.x, z: m.z, color: m.color, label: "👤 " + m.label })); // round 22
+    if (beacon.pos) out.beacon = { x: beacon.pos.x, z: beacon.pos.z, dist: Beacon.fmt(beacon.dist(p)) }; // round 23
     out.npcs = world.places ? Object.entries(world.places.npc).map(([id, n]) => ({ x: n.x, z: n.z, mark: story.npcMark(id) })) : [];
   } else if (cave) {
     out.title = nameEl?.textContent || "Cave";
@@ -1596,6 +1689,78 @@ function showObjectiveHint() {
 }
 wmap.onHint = () => showObjectiveHint();
 wmap.onFilters = () => toggleFilters(wmap.el, () => wmap.draw(), "big");
+
+// ---------------- Round 23: map beacon + fast travel ----------------
+const beacon = new Beacon(scene, gameEl);
+const beaconKey = () => `fota-beacon-${story.active ? "story" : "free"}-${world.terrain?.seed ?? 0}`;
+const ftFade = document.createElement("div"); ftFade.id = "ft-fade"; gameEl.appendChild(ftFade);
+let travelling = false;
+/** Places you can fast-travel to: towns you've found, your settlements, discovered cave mouths, camp, an explored beacon. */
+function travelTargets() {
+  const t = world.terrain; if (!t) return [];
+  const out = [], site = t.act1;
+  for (const s of t.settlements || []) if (wmap.seen(s.x, s.z)) out.push({ kind: "town", x: s.x, z: s.z, r: s.R + 6, name: s.name });
+  if (world.colony) for (const c of world.colony.list) out.push({ kind: "home", x: c.x, z: c.z, r: 9, name: c.name });
+  for (const e of t.entrances) if (world.discovered.has(e.id)) out.push({ kind: "cave", x: e.x + (e.fx || 0) * 6, z: e.z + (e.fz || 0) * 6, look: { x: e.x, z: e.z }, r: 0, name: e.name || "Cave mouth" });
+  if (site) out.push({ kind: "camp", x: site.camp.x, z: site.camp.z, r: 5, name: story.active ? "River-Tooth camp" : "Camp" });
+  if (beacon.pos && wmap.seen(beacon.pos.x, beacon.pos.z)) out.push({ kind: "beacon", x: beacon.pos.x, z: beacon.pos.z, r: 0, name: "your beacon" });
+  return out;
+}
+/** Why you can't travel right now ("" = you can). */
+function travelBlock() {
+  if (!ready || !player || game.dead) return "You can't travel right now.";
+  if (world.mode !== "overworld") return "Can't fast travel from inside a cave. Walk out first.";
+  if (travelling || world.busy || spiritCam || storyUI.visionOn) return "Not now.";
+  if (game.lastDamage > 0 && game.time - game.lastDamage < 10) return "You're in a fight. Get clear first (10 s without being hurt).";
+  const m = game.monster; if (m && m.alive && (m.state === "chase" || m.state === "lunge")) return "Something is hunting you. Shake it off first.";
+  if (trip.on) return "The world is still swimming. Wait for the mushrooms to wear off.";
+  return "";
+}
+/** A dry, clear spot near (x, z), r m out (spiral search). */
+function landingNear(x, z, r0) {
+  const t = world.terrain, f = feetPos(), a0 = Math.atan2(f.z - z, f.x - x);
+  const ok = (px, pz) => t.waterDepth(px, pz) < -0.4 && t.slope(px, pz).m < 0.45 && t.collidersNear(px, pz, 0.8).every((c) => { const q = colCore(c, px, pz); return Math.hypot(q.x - px, q.z - pz) > q.t + 0.6; });
+  for (let r = r0; r < r0 + 40; r += 3) for (let k = 0; k < 16; k++) { const a = a0 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.39, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r; if (ok(px, pz)) return { x: px, z: pz }; }
+  return null;
+}
+function fastTravel(dst) {
+  const why = travelBlock(); if (why) { storyUI.toast(why, "bad"); return false; }
+  const L = landingNear(dst.x, dst.z, dst.r); if (!L) { storyUI.toast("No safe ground to arrive on there.", "bad"); return false; }
+  travelling = true; wmap.close();
+  const horse = game.horse;
+  if (game.boat) leaveBoat(true); // the boat stays where it is (it's on the map)
+  ftFade.textContent = `Travelling to ${dst.name}…`; ftFade.classList.add("on");
+  glog({ e: "fastTravel", to: dst.name, kind: dst.kind });
+  setTimeout(() => {
+    const lk = dst.look || dst, yaw = Math.hypot(lk.x - L.x, lk.z - L.z) > 0.5 ? Math.atan2(-(lk.x - L.x), -(lk.z - L.z)) : player.yaw; // face the place
+    if (horse && player.mounted) { player.placeWorld(L.x, 0, L.z); world.wildlife.ride(horse, feetPos(), player.yaw, 0, 0.016, 0); } // the horse comes too
+    else player.placeWorld(L.x, 0, L.z);
+    player.yaw = yaw; player.applyLook?.();
+    wmap.revealAt?.(L.x, L.z, 120);
+    for (const e of world.terrain.entrances) if (Math.hypot(e.x - L.x, e.z - L.z) < 70) world.discovered.add(e.id);
+    // stamina / hunger cost of the journey (a little: you walked it, in a blink)
+    const d = Math.hypot(dst.x - L.x, dst.z - L.z);
+    if (story.surv && (story.active || story.sandbox)) { const s = story.surv; s.hunger = Math.max(5, s.hunger - Math.min(12, d / 400)); s.thirst = Math.max(5, s.thirst - Math.min(12, d / 350)); }
+    mp.travelled?.(dst.name);
+    setTimeout(() => { ftFade.classList.remove("on"); travelling = false; storyUI.toast(`🧭 You arrive at ${dst.name}.`, "good"); }, 650);
+  }, 480);
+  return true;
+}
+wmap.onTap = (q) => {
+  if (q.mode !== "overworld" || !world.terrain) return [];
+  const items = [], reach = Math.max(14, 26 / q.scale), f = feetPos();
+  const near = travelTargets().map((d) => ({ ...d, d: Math.hypot(d.x - q.x, d.z - q.z) })).filter((d) => d.d < reach + (d.kind === "town" ? d.r : 0)).sort((a, b) => a.d - b.d)[0];
+  if (near) {
+    const why = travelBlock(), far = Math.hypot(near.x - f.x, near.z - f.z);
+    if (far < 25) items.push({ note: true, label: `You're at ${near.name}.` });
+    else items.push({ label: `🧭 Travel to ${near.name} (${Beacon.fmt(far)})`, cls: "go", disabled: !!why, why, act: () => fastTravel(near) });
+    if (why && far >= 25) items.push({ note: true, label: why });
+  }
+  const onB = beacon.pos && Math.hypot(beacon.pos.x - q.x, beacon.pos.z - q.z) < reach;
+  if (!onB) items.push({ label: beacon.pos ? "📍 Move beacon here" : "📍 Set beacon here", cls: "bc", act: () => { beacon.set(q.x, q.z); storyUI.toast(`📍 Beacon set, ${Beacon.fmt(beacon.dist(feetPos()))} away. Look for the pillar of light.`); } });
+  if (beacon.pos) items.push({ label: "✕ Clear beacon", act: () => { beacon.clear(); storyUI.toast("Beacon cleared."); } });
+  return items;
+};
 storyUI.onHint = () => showObjectiveHint();
 const mapfBtn = document.createElement("button");
 mapfBtn.id = "mapf-btn"; mapfBtn.type = "button"; mapfBtn.textContent = "⚙"; mapfBtn.title = "What the map shows"; mapfBtn.setAttribute("aria-label", "Map filters");
@@ -1713,7 +1878,7 @@ function tick(now) {
     const hc = game.hint && game.hint.until > game.time && game.hint.mode === "cave" ? game.hint : null;
     const ct = hc || (mapFilters.quest ? caveQuestTarget() : null);
     const mo = mapFilters.monsters && game.monster?.alive && game.monster.pos.distanceTo(camera.position) < 25 ? game.monster.pos : null;
-    minimap.draw(cave, camera.position, player.yaw, placeShown, explored, { target: ct, monster: mo, labels: mapFilters.labels, t: game.time });
+    minimap.draw(cave, camera.position, player.yaw, placeShown, explored, { target: ct, monster: mo, labels: mapFilters.labels, t: game.time, others: mp.on ? mp.marks().filter((m) => m.player) : null });
     if (hc) updateCompass(camera.position, false); else if (compassKey !== "off") { compassKey = "off"; compassEl.classList.add("hidden"); }
     updateLowHint(info);
     if (waterHandle && waterHandle.update) waterHandle.update(now, scene.fog.color, scene.fog.density);
@@ -1815,7 +1980,10 @@ function tick(now) {
   }
   caveman.setPixelHeight(renderer.domElement.height);
   tripTick(dt); // round 21
-  if (trip.on && trip.level > 0.002) trip.render(renderer, scene, viewCam); else renderer.render(scene, viewCam);
+  spiritTick(dt); // round 23
+  if (world.terrain && beacon.key !== beaconKey()) beacon.bind(beaconKey());
+  if (player) beacon.update(viewCam, feetPos(), (x, z) => world.terrain.height(x, z), ready && world.mode === "overworld" && !spiritCam && !!world.terrain, now / 1000, gameEl.clientWidth, gameEl.clientHeight);
+  if ((trip.on && trip.level > 0.002) || trip.dream > 0) trip.render(renderer, scene, viewCam); else renderer.render(scene, viewCam);
   if (debugOn && now - debugLast > 250) { debugLast = now; renderDebug(); }
   requestAnimationFrame(tick);
 }
@@ -2044,6 +2212,7 @@ function tickOverworld(dt, info, now) {
   if (world.shrooms && mapFilters.places) { // round 21: mushroom patches you have seen
     const sm = world.shrooms.marks(); if (sm.length) { extra = extra || { marks: [], dots: [] }; for (const q of sm) if (Math.abs(q.x - p.x) < 500 && Math.abs(q.z - p.z) < 500) extra.marks.push({ x: q.x, z: q.z, color: "#ff6af0", r: 0.013, label: "🍄" }); }
   }
+  if (beacon.pos) { extra = extra || { marks: [], dots: [] }; extra.marks.push({ x: beacon.pos.x, z: beacon.pos.z, color: "#7ff6ff", r: 0.024, edge: true, label: "📍" }); } // round 23
   if (mp.on) { const pm = mp.marks(); if (pm.length) { extra = extra || { marks: [], dots: [] }; for (const m of pm) extra.marks.push({ x: m.x, z: m.z, color: m.color, r: m.town ? 0.024 : 0.019, edge: true, label: m.label }); } } // round 22: other players
   if (extra) extra.noLabels = !mapFilters.labels;
   minimap.drawOverworld(t, p, player.yaw, mapFilters.caves ? world.discovered : new Set(), extra);
@@ -2086,8 +2255,14 @@ function tickOverworld(dt, info, now) {
     world.settle.update(dt, p);
     world.people.update(dt, p);
     world.shrooms?.update(dt, p, now / 1000); // round 21
+    world.berries?.update(dt, p); // round 23
     const f20 = feetPos(); // round 20: Kra's settlements + talkative townsfolk
     world.colony?.update(dt, f20);
+    if (world.colony?.has("defense") && world.wildlife) for (const c of world.colony.list) if (world.colony.count(c, "palisade")) { // round 23: beasts keep out of walled settlements
+      const R = world.colony.radius(c) * 0.6;
+      for (const a of world.wildlife.list) if (a.alive && !a.ridden && a.kind !== "horse" && a.kind !== "bird") { const dx = a.pos.x - c.x, dz = a.pos.z - c.z, d = Math.hypot(dx, dz); if (d < R && d > 0.01) { a.pos.x = c.x + (dx / d) * R; a.pos.z = c.z + (dz / d) * R; } }
+    }
+    if (world.colony?.knows("scouting") && (game.scoutT = (game.scoutT || 0) - dt) <= 0) { game.scoutT = 20; scoutReveal(); }
     if (!storyUI.modal && !game.dead) world.talk?.update(dt, f20);
     colonyUI?.update();
     town = world.settle.at(p.x, p.z);
@@ -2582,8 +2757,26 @@ window.__CAVE__ = {
     talkNear: () => { const n = world.people.nearest(feetPos().x, feetPos().z); if (!n) return null; world.talk.talk(n.p); return { name: n.p.ident.name, voice: n.p.ident.voice, trait: n.p.ident.trait, ext: !!n.p.ident.ext, d: +n.d.toFixed(1) }; },
     peopleNear: (n = 8) => { const f = feetPos(); return world.people.list.filter((p) => p.ident).map((p) => ({ name: p.ident.name, voice: p.ident.voice, ext: !!p.ident.ext, x: +p.x.toFixed(1), z: +p.z.toFixed(1), d: +Math.hypot(p.x - f.x, p.z - f.z).toFixed(1) })).sort((a, b) => a.d - b.d).slice(0, n); },
     trip: () => ({ on: trip.on, t: +trip.t.toFixed(1), level: +trip.level.toFixed(2), phase: trip.phase, melt: +trip_MELT().toFixed(2), visions: visions.list.map((v) => v.kind), spawned: visions.n, music: tripMusic.on, calm: calmOn, btn: !tripBtn.classList.contains("hidden") }),
+    /** Round 23 QoL test hooks: beacon, fast travel, audio mixer. */
+    qol: {
+      beacon: () => beacon.pos, setBeacon: (x, z) => beacon.set(x, z), clearBeacon: () => beacon.clear(),
+      beaconHud: () => ({ shown: !beacon.el.classList.contains("hidden"), text: beacon.el.textContent, left: beacon.el.style.left, top: beacon.el.style.top, pillar: beacon.group.visible, k: +beacon.group.scale.x.toFixed(3) }),
+      targets: () => travelTargets().map((d) => ({ kind: d.kind, name: d.name, x: Math.round(d.x), z: Math.round(d.z) })),
+      block: () => travelBlock(), travel: (i) => fastTravel(travelTargets()[i]), travelling: () => travelling,
+      tapItems: (x, z, scale = 1) => (wmap.onTap({ x, z, scale, mode: world.mode }) || []).map((i) => ({ label: i.label, disabled: !!i.disabled, note: !!i.note })),
+      tapAt: (x, z) => { const v = wmap.view, px = (x - v.cx) * v.s + wmap.cv.clientWidth / 2, py = (z - v.cz) * v.s + wmap.cv.clientHeight / 2; wmap._tap(px, py); return [...(wmap._pop?.querySelectorAll("button, .wm-note") || [])].map((b) => b.textContent); },
+      mapView: () => ({ ...wmap.view }),
+      openMap: () => openMap(), closeMap: () => wmap.close(),
+      feet: () => { const f = feetPos(); return { x: +f.x.toFixed(1), z: +f.z.toFixed(1), mounted: !!player.mounted, mode: world.mode }; },
+      audio: () => ({ vol: { ...audio.vol }, out: audio.out?.gain.value, fx: audio.master?.gain.value, music: audio.musicBus?.gain.value, amb: audio.ambBus?.gain.value, voice: audio.voiceBus?.gain.value, speech: audio.speechVol, ctx: audio.ctx?.state, comp: !!audio.comp, lim: !!audio.limiter }),
+      surv: () => { const s = story.surv; return { hunger: +s.hunger.toFixed(2), thirst: +s.thirst.toFixed(2), stamina: +s.stamina.toFixed(2) }; },
+    },
+    vision: { start: (n) => startVision(n), on: () => !!spirit?.on, line: () => spirit?.on ? { i: spirit.i, who: spirit.current?.who, text: spirit.current?.text, card: !spirit.el.querySelector(".sp-card").classList.contains("hidden") } : null, skip: () => spirit?.skip(), pending: () => visionPending,
+      know: () => JSON.parse(JSON.stringify(world.colony?.know || null)), learn: (id) => { const ok = world.colony.learn(id); if (ok) applyInsight(id); return ok; }, policy: (id, on) => world.colony.setPolicy(id, on), rates: (i = 0) => world.colony.list[i] ? world.colony.rates(world.colony.list[i]) : null, scout: () => scoutReveal(), dream: () => trip.dream, col: () => world.colony, revealed: () => wmap.revealedCount() }, // round 23
     tripStart: () => startTrip(), tripSkip: (t) => { trip.t = t; return trip.phase; }, tripEnd: () => endTrip(), setCalm: (v) => setCalm(v),
     eatShroom: () => eatShroom(),
+    berries: () => ({ n: world.berries.spots.length, kinds: world.berries.spots.reduce((o, q) => ((o[q.kind] = (o[q.kind] || 0) + 1), o), {}), live: world.berries.live.size, camp: world.terrain.act1?.bushes.length, creeks: world.terrain.bio.creekCount, rivers: world.terrain.bio.rivers.length }),
+    nearestBerry: () => { const f = feetPos(); return world.berries.spots.filter((q) => !q.bad && world.berries.available(q)).map((q) => ({ ...q, d: Math.hypot(q.x - f.x, q.z - f.z) })).sort((a, b) => a.d - b.d)[0]; },
     shrooms: () => (world.shrooms ? { n: world.shrooms.spots.length, kinds: world.shrooms.spots.reduce((o, q) => ((o[q.kind] = (o[q.kind] || 0) + 1), o), {}), seen: world.shrooms.marks().length, live: world.shrooms.live.size, near: world.shrooms.spots.find((q) => q.near) || null } : null),
     nearestShroom: () => { const f = feetPos(); return world.shrooms.spots.filter((q) => world.shrooms.available(q)).map((q) => ({ ...q, d: Math.hypot(q.x - f.x, q.z - f.z) })).sort((a, b) => a.d - b.d)[0]; },
     pickups: () => story.pickups.map((k) => ({ id: k.id, ore: !!k.ore, taken: k.taken, x: +k.x.toFixed(1), y: +k.y.toFixed(1), z: +k.z.toFixed(1) })),
@@ -3099,6 +3292,9 @@ if (directCave) {
 // Round 22: invite links (?room=ABCDE) join straight away (or ask for a name first).
 if (MP_ROOM && !directCave) mp.autoJoin(MP_ROOM);
 window.addEventListener("keyup", (e) => { if (!(e.target instanceof HTMLInputElement)) mp.key(e, false); });
+// Round 23: ☰ → Audio (volume mixer)
+const audioPanel = new AudioPanel(gameEl, audio, { onTestVoice: () => storyUI.voice.speak?.("The fire is lit. The night is long. Stay close, Kra.", "Old Lume") });
+document.getElementById("audio-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); armAudio(); audioPanel.open(); });
 document.getElementById("mp-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); mp.open(); });
 window.__CAVE__.mp = mp;
 const shot = params.get("shot");

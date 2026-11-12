@@ -4,7 +4,7 @@
  * green = OK / red = blocked, with the reason) and the Settlement panel (stores, people and
  * their jobs, the next age, know-how, deposit Kra's pack, build, a debug fast-forward).
  */
-import { AGES, BUILD, RES, TECH, JOBS, MAX_SETTLEMENTS } from "../world/colony.js";
+import { AGES, BUILD, RES, TECH, JOBS, MAX_SETTLEMENTS, INSIGHTS } from "../world/colony.js";
 
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 const costTxt = (cost) => Object.entries(cost).map(([r, n]) => `${RES[r][1]}${n}`).join(" ") || "free";
@@ -58,7 +58,7 @@ export class ColonyUI {
     if (this.mode === "found") { box.innerHTML = `<div class="bb-tip">Walk to flat, dry open ground away from towns and caves. The stone shows where your new hearth goes.</div>`; return; }
     const c = this.c;
     box.innerHTML = Object.entries(BUILD).filter(([id, K]) => id !== "stone").map(([id, K]) => {
-      const lock = K.age > c.age, cost = this.col.cost(id), ok = !lock && this.col.afford(c, cost);
+      const lock = this.col.bAge(id) > c.age, cost = this.col.cost(id), ok = !lock && this.col.afford(c, cost);
       return `<button type="button" class="bb-card${this.type === id ? " on" : ""}${ok ? "" : " poor"}" data-t="${id}" ${lock ? "disabled" : ""}><b>${K.name}</b><span>${lock ? "🔒 " + AGES[K.age].name : costTxt(cost)}</span></button>`;
     }).join("");
     box.querySelector(".on")?.scrollIntoView?.({ inline: "center", block: "nearest" });
@@ -118,7 +118,7 @@ export class ColonyUI {
     const c = this.c, col = this.col; if (!c) return;
     const A = AGES[c.age], chk = col.ageCheck(c);
     const res = Object.entries(RES).filter(([r]) => (c.res[r] || 0) > 0.5 || ["wood", "stone", "food", "hide"].includes(r)).map(([r, [n, ic]]) => `<span class="cp-res" title="${n}">${ic} ${Math.floor(c.res[r] || 0)}</span>`).join("");
-    const opts = (j) => Object.entries(JOBS).map(([id, J]) => `<option value="${id}"${id === j ? " selected" : ""}>${J.name}</option>`).join("");
+    const opts = (j) => Object.entries(JOBS).filter(([id]) => id === j || col.jobAllowed(id)).map(([id, J]) => `<option value="${id}"${id === j ? " selected" : ""}>${J.name}</option>`).join("");
     const vill = c.vill.length ? c.vill.map((v) => `<div class="cp-v"><span>${v.name}</span><select data-vid="${v.vid}" data-name="${v.name}">${opts(v.job)}</select></div>`).join("") : `<div class="cp-tip">No one lives here yet. Talk to people in the towns and ask them to join, or build huts and keep food in store: newcomers arrive on their own.</div>`;
     const sites = c.blds.filter((b) => b.built < 1).map((b) => `${BUILD[b.type].name} ${Math.round(b.built * 100)}%`).join(", ");
     const blds = Object.entries(BUILD).filter(([id]) => id !== "stone").map(([id, K]) => [K.name, col.count(c, id)]).filter((x) => x[1]).map(([n, k]) => `${n}${k > 1 ? " ×" + k : ""}`).join(", ");
@@ -136,8 +136,21 @@ export class ColonyUI {
       ${chk.lines.map(([t, ok]) => `<div class="cp-need ${ok ? "ok" : ""}">${ok ? "✓" : "○"} ${t}</div>`).join("")}
       ${next && !chk.stub ? `<button type="button" data-a="age" class="cp-go" ${chk.ok ? "" : "disabled"}>Advance to the ${next.name} age</button>` : ""}
       <h4>Know-how</h4>${tech}
+      ${this._insights(c)}
       ${this.o.surv?.()?.tools && !this.o.surv().tools.pick && col.count(c, "workshop") ? `<button type="button" data-a="pick">⛏ Take a stone pick from the workshop (3 stone)</button>` : ""}
     </div>`;
+  }
+  /** Round 23: insights from the visions, the policy slots, and the Tally ledger. */
+  _insights(c) {
+    const col = this.col, k = col.know; if (!k.insights.length) return `<h4>Insights</h4><div class="cp-tip">Visions teach new ideas for your people. (Glowing mushrooms grow in dark forests, marsh and caves.)</div>`;
+    const pas = k.insights.filter((i) => !INSIGHTS[i].policy), pol = k.insights.filter((i) => INSIGHTS[i].policy), used = k.policies.length, n = col.slots();
+    let h = `<h4>Insights</h4>` + pas.map((i) => `<div class="cp-ins"><b>${INSIGHTS[i].icon} ${INSIGHTS[i].name}</b><small>${INSIGHTS[i].desc}</small></div>`).join("");
+    if (pol.length) h += `<h4>Policies <small>(${used}/${n} slots${k.insights.includes("council") ? ", +1 Council" : ""}; more slots in later ages)</small></h4>` + pol.map((i) => { const on = k.policies.includes(i); return `<div class="cp-ins pol${on ? " on" : ""}"><b>${INSIGHTS[i].icon} ${INSIGHTS[i].name}</b><small>${INSIGHTS[i].desc}</small><button type="button" data-a="pol" data-id="${i}" ${!on && used >= n ? "disabled" : ""}>${on ? "✓ In force · remove" : used >= n ? "No free slot" : "Adopt"}</button></div>`; }).join("");
+    if (col.knows("tally")) {
+      const r = col.rates(c), fmt = (v) => (v >= 0 ? "+" : "") + v.toFixed(1);
+      h += `<h4>🧮 Ledger <small>(per minute)</small></h4><div class="cp-small">${Object.entries(r).filter(([, v]) => Math.abs(v) > 0.05).map(([res, v]) => `${RES[res][1]} ${fmt(v)}`).join(" · ") || "Nothing coming in yet"}${(c.res.food || 0) > 0 && r.food < 0 ? ` · food lasts ~${Math.floor((c.res.food || 0) / -r.food)} min` : ""}</div>`;
+    }
+    return h;
   }
   deposit(c) {
     const s = this.o.surv?.(); if (!s) return "";
@@ -158,6 +171,7 @@ export class ColonyUI {
     else if (a === "deposit") { const t = this.deposit(c); this.o.toast(t ? `Stored: ${t}` : "Nothing in your pack the settlement can use (logs, flint, hides, food, sinew, ore)", t ? "good" : ""); this.render(); }
     else if (a === "ff") { col.ff(600); this.o.toast("⏩ 10 minutes pass…"); this.render(); }
     else if (a === "age") { if (col.advance(c)) { this.o.toast(`🏛 ${c.name} enters the ${AGES[c.age].name} age! ${AGES[c.age].lore}`, "good"); this.o.onChange?.("age", c); } this.render(); }
+    else if (a === "pol") { const id = b.dataset.id, on = !col.know.policies.includes(id), why = col.setPolicy(id, on); this.o.toast(why || `${INSIGHTS[id].name}: ${on ? "adopted" : "set aside"}`, why ? "bad" : "good"); this.render(); }
     else if (a === "tech") { if (col.learnTech(c, b.dataset.id)) this.o.toast(`Your people learn ${TECH[b.dataset.id].name.toLowerCase()}.`, "good"); this.render(); }
     else if (a === "pick") { if ((c.res.stone || 0) >= 3) { c.res.stone -= 3; this.o.surv().tools.pick = true; this.o.toast("You take a stone pick. Strike the ore veins in the caves.", "good"); } else this.o.toast("Not enough stone", "bad"); this.render(); }
   }

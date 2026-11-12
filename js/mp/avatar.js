@@ -85,6 +85,7 @@ export class Avatar {
   doEmote(k) { this.emote = k; this.emoteT = k === "dance" ? 4 : 2.2; }
   push(s) {
     this.lastRx = performance.now();
+    const L = this.buf[this.buf.length - 1]?.s; if (L && Math.hypot(s.x - L.x, s.z - L.z) > 40) this.buf.length = 0; // round 23: fast travel / teleport: snap, don't glide
     this.buf.push({ t: performance.now() / 1000, s });
     if (this.buf.length > 12) this.buf.shift();
     if (!this.s) { this.s = s; this.pos.set(s.x, s.y, s.z); this.yaw = s.yaw; }

@@ -144,6 +144,7 @@ export class Minimap {
       ctx.fillStyle = "#ff9a5a"; ctx.strokeStyle = "#1a0e04"; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(q.x, q.y - r); ctx.lineTo(q.x + r * 0.8, q.y); ctx.lineTo(q.x, q.y + r); ctx.lineTo(q.x - r * 0.8, q.y); ctx.closePath(); ctx.fill(); ctx.stroke();
     }
+    if (opts.others) for (const o of opts.others) { const q = toMap(o.x, o.z); if (q.x < 0 || q.y < 0 || q.x > w || q.y > w) continue; ctx.fillStyle = o.color; ctx.strokeStyle = "#000"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(q.x, q.y, Math.max(3.5, w * 0.024), 0, Math.PI * 2); ctx.fill(); ctx.stroke(); if (opts.labels !== false) { ctx.font = `${Math.max(9, Math.round(w * 0.06))}px sans-serif`; ctx.fillStyle = "#fff"; ctx.fillText(o.label, q.x + 5, q.y - 4); } } // round 23: other players in the same cave
     if (opts.monster) { const q = toMap(opts.monster.x, opts.monster.z); ctx.fillStyle = "#ff4030"; ctx.beginPath(); ctx.arc(q.x, q.y, Math.max(3, w * 0.022), 0, Math.PI * 2); ctx.fill(); }
     if (playerPos) {
       const p = toMap(playerPos.x, playerPos.z);
@@ -221,6 +222,7 @@ export class Minimap {
       const Pm = (x, z) => [w / 2 + (x - playerPos.x) * scale, h / 2 + (z - playerPos.z) * scale];
       ctx.strokeStyle = "rgba(110, 190, 230, 0.85)"; ctx.lineWidth = Math.max(2, w * 0.016);
       for (const r of terrain.bio.rivers) {
+        ctx.lineWidth = Math.max(r.creek ? 1.2 : 2, w * (r.creek ? 0.008 : 0.016));
         ctx.beginPath(); let on = false;
         for (const q of r.pts) { if (Math.abs(q.x - playerPos.x) > R * 1.5 || Math.abs(q.z - playerPos.z) > R * 1.5) { on = false; continue; } const [x, y] = Pm(q.x, q.z); on ? ctx.lineTo(x, y) : ctx.moveTo(x, y); on = true; }
         ctx.stroke();

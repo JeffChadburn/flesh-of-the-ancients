@@ -121,6 +121,7 @@ export class Multiplayer {
       em: (m, from, P) => { if (!EMOTES[m?.k]) return; P.av?.doEmote(m.k); this._chat(P.name, EMOTES[m.k] + " " + m.k + "s", P.color, true); },
       fx: (m, from, P) => { if (P.area !== this.area) return; if (m?.k === "thrust") P.av?.cm.thrust(); if (m?.k === "arrow" && Array.isArray(m.o) && Array.isArray(m.d)) { P.av?.cm.thrust(); this._arrow(m.o, m.d); } },
       vo: (m, from, P) => { P.talk = !!m?.on; },
+      ft: (m, from, P) => { const to = cleanChat(m?.to); if (!to) return; this._sys(`${P.name} fast-travelled to ${to}.`); this.toast(`🧭 ${P.name} travelled to ${to}`); }, // round 23
       co: (m, from, P) => this._guestColony(P, m),
       tr: (m, from, P) => this._offerIn(m, P),
       ta: (m, from, P) => this._offerReply(m, P),
@@ -179,6 +180,8 @@ export class Multiplayer {
     }
   }
   /** Hooks from the game: Kra stabbed / shot. */
+  /** Round 23: tell the room you fast-travelled. */
+  travelled(to) { if (!this.on) return; this.send("ft", { to: String(to).slice(0, 40) }); this._sys(`You travelled to ${to}.`); }
   fx(k, o, d) { if (!this.on) return; this.send("fx", k === "arrow" ? { k, o: o.toArray().map(r2), d: d.toArray().map(r2) } : { k }); }
 
   // ---------------- chat / emotes ----------------

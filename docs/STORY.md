@@ -125,3 +125,75 @@ The overworld is now 6.4 km across (±3.2 km). North is −z.
 - **Lore:** the old ones call the glowing caps *the First Mouth's teeth*. They grow where the breath of the deep reaches the surface: dark forest floors, the marsh, the edge of the ice, and the caves themselves. Eating one "opens the eyes": the spirits show Kra the world as they see it, breathing, melting and singing, full of creatures no one else can see. Shamans (and Old Lume in his youth) ate them to talk to the dead. The giant face that rises at the height of the vision is the closest the tribe has to a picture of the First Mouth: it watches, it opens, it is gone.
 - **Design:** visions are harmless and purely visual (no damage, no colliders). They last about 3½ minutes (come-up, peak, fade) and can be ended from the Pack or the 🍄 End vision button. A flashing-lights warning shows the first time, and ☰ → Calm visuals tones everything down. Not saved: a vision ends on reload.
 - **Future hooks (not built):** a Spirit-branch quest where a vision reveals a hidden cave or a glyph; townsfolk reacting if Kra walks in mid-vision.
+
+## Spirit visions & insights (round 23, 2026-11-12)
+
+As a mushroom vision fades, Kra sits in a calm, dreamlike version of the world and speaks with **the Ancestor**: every fire that went out before his, and at the end his own old self. Nine visions unfold in order across trips; some lines change with his life (shown here for: 2 faces, 3 paintings, 12 kills, one Timber-age settlement of 6, 2 townsfolk who trust him, 1 who joined). Each vision gives an **Insight**, an idea for his people (see README, Round 23).
+
+### 1. The Hunger
+- **Kra:** The colours are going out of the world like a tide. And under them, something is still.
+- **The Ancestor:** Sit, child of the River-Tooth. We are every fire that went out before yours.
+- **Kra:** The Mouth took my people. Why? What did we ever take from it?
+- **The Ancestor:** It is not a beast that hates. It is a hunger that has forgotten it was ever fed. Long ago the first people fed it their fear, and fear is a meal that leaves you emptier.
+- **The Ancestor:** It calls the dead because the dead cannot say no.
+- **Kra:** Then I will not feed it fear.
+- **The Ancestor:** Good. Remember that when you are afraid. Feed the fire instead.
+
+### 2. The Faces You Wear
+- **Kra:** I wear 2 faces. Some nights I hear them breathing with me.
+- **The Ancestor:** A face is not a trophy. It is a debt. Each one was a life that laughed, and was afraid, and wanted one more morning.
+- **Kra:** What do I owe them?
+- **The Ancestor:** To live the part of their lives they could not. Hunt as they hunted. Build what they meant to build. Sing their names where the children can hear.
+- **The Ancestor:** Wear only what you can carry with honour. The Mouth listens through borrowed skin.
+- **Kra:** Then I will carry them lightly, and set them down when the debt is paid.
+
+### 3. The Painted Wall (choice of two insights)
+- **Kra:** In the caves I paint with blood. 3 marks so far. I thought it was to calm the spirits.
+- **The Ancestor:** The walls remember what the living forget. A painting is a promise made where the dark can see it.
+- **The Ancestor:** The old ones shut the Mouth once with blood on stone. Not because blood is strong, but because many hands painted together.
+- **Kra:** Then the paintings are not spells. They are agreements.
+- **The Ancestor:** Yes. And an agreement made by one hand alone is only a wish.
+
+### 4. The Circle
+- **Kra:** I have killed 12 animals since the camp went quiet.
+- **The Ancestor:** The deer does not belong to you. You belong to the same circle as the deer.
+- **The Ancestor:** Take what you need. Give back what you can: the bones to the earth, the first meat to the fire, thanks to the herd that stays.
+- **Kra:** And if I take more than I need?
+- **The Ancestor:** Then the circle closes into a mouth. That is how the First Mouth began: a people that only ever took.
+
+### 5. The People to Come (choice of two insights)
+- **Kra:** Kra’s Hearth has 6 souls now. They look at me as if I know the way.
+- **The Ancestor:** A tribe is not blood. It is whoever sits at the same fire when the night is long.
+- **The Ancestor:** Look, a hundred winters from now: children who never heard the words River-Tooth, singing the old songs anyway.
+- **Kra:** Then the tribe does not end with me.
+- **The Ancestor:** It never ended. It was only waiting for someone to light a fire and stay.
+
+### 6. What an Empire Should Be
+- **Kra:** From hide and hut to Timber. I could build walls to the mountains. I could make every town bow.
+- **The Ancestor:** Walls keep things out. They also keep things in. Ask which you are building.
+- **The Ancestor:** An empire that only takes is a mouth with many teeth. One that shelters and feeds is a hearth with many rooms.
+- **Kra:** A hearth with many rooms.
+- **The Ancestor:** Build that, and the dark will have nowhere to stand.
+
+### 7. What You Have Done (choice of two insights)
+- **Kra:** Show me what I have done.
+- **The Ancestor:** 2 persons in the towns trust you. 1 person left their own fires for yours. That is not a small thing.
+- **The Ancestor:** The herds do not fear your name. That is a kind of wealth.
+- **Kra:** I want them to remember me as the one who brought the fire back.
+- **The Ancestor:** Then be that one again tomorrow, and the day after. A name is only what you do most.
+
+### 8. The Deep Breath
+- **Kra:** Sometimes I feel the caves breathing, even out here under the open sky.
+- **The Ancestor:** The Mouth is closer to the surface than it has been for a thousand winters. It smells your fires, and it is curious.
+- **The Ancestor:** When you go down to it at last, do not go as a hunter. Go as the keeper of a people.
+- **Kra:** Will that be enough?
+- **The Ancestor:** Nothing is ever enough. That is why we do it together.
+
+### 9. The Ancestor's Face (choice of two insights)
+- **Kra:** Who are you, really?
+- **The Ancestor:** Turn around and look.
+- **Kra:** It is me. Old. Grey. Sitting by a fire that never went out.
+- **The Ancestor:** What you see depends on what you build when the colours fade.
+- **The Ancestor:** Go back now. The world is only the world again. That is enough. That was always enough.
+
+After the ninth: short echoes ("The Mouth was quiet tonight." / "Quiet is not sleep. Keep the watch, and keep the fire.").

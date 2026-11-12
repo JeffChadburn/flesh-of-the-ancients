@@ -62,7 +62,7 @@ function skipTree(objs) { const s = new Set(); for (const o of objs) o?.traverse
 // ---- the post pass
 const VERT = `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 const FRAG = `
-uniform sampler2D tScene, tPrev; uniform float amt, time, calm, kale, aspect; varying vec2 vUv;
+uniform sampler2D tScene, tPrev; uniform float amt, time, calm, kale, aspect, dream; varying vec2 vUv;
 vec3 hue(vec3 c, float a) { const vec3 k = vec3(0.57735); float ca = cos(a); return c * ca + cross(k, c) * sin(a) + k * dot(k, c) * (1.0 - ca); }
 void main() {
   vec2 c = vUv - 0.5;
@@ -86,6 +86,15 @@ void main() {
   float tr = amt * (0.86 - 0.36 * calm);
   col = mix(col, max(col, prev * 0.97), tr);
   col = mix(col, prev, tr * 0.35);
+  if (dream > 0.001) {                                            // round 23: the spirit vision's soft, warm dream light
+    vec3 g = vec3(0.0);
+    for (int i = 0; i < 8; i++) { float a = float(i) * 0.785 + 0.3; g += texture2D(tScene, uv + vec2(cos(a) / aspect, sin(a)) * 0.014).rgb; }
+    g *= 0.125;
+    vec3 warm = col * vec3(1.07, 1.0, 0.88) + max(g - 0.3, 0.0) * vec3(1.1, 0.9, 0.65);
+    float v = smoothstep(0.95, 0.3, length((vUv - 0.5) * vec2(aspect * 0.75, 1.0)));
+    warm = mix(warm * 0.62, warm * 1.08, v) + vec3(0.03, 0.022, 0.045);
+    col = mix(col, warm, dream);
+  }
   gl_FragColor = vec4(col, 1.0);
 }`;
 const COPY = `uniform sampler2D tMap; varying vec2 vUv; void main() { gl_FragColor = texture2D(tMap, vUv);
@@ -96,11 +105,11 @@ const COPY = `uniform sampler2D tMap; varying vec2 vUv; void main() { gl_FragCol
 export class Trip {
   /** o: { renderer, scene, lite() -> bool (low graphics / phone), calm() -> bool, skip: [objects never melted] } */
   constructor(o) {
-    this.o = o; this.t = -1; this.on = false; this.level = 0; this.time = 0; this.force = null;
+    this.o = o; this.t = -1; this.on = false; this.level = 0; this.time = 0; this.force = null; this.dream = 0;
     this.cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     const quad = (mat) => { const s = new THREE.Scene(); const m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); m.frustumCulled = false; s.add(m); return s; };
     this.fx = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, depthTest: false, depthWrite: false,
-      uniforms: { tScene: { value: null }, tPrev: { value: null }, amt: { value: 0 }, time: { value: 0 }, calm: { value: 0 }, kale: { value: 0 }, aspect: { value: 1 } } });
+      uniforms: { tScene: { value: null }, tPrev: { value: null }, amt: { value: 0 }, time: { value: 0 }, calm: { value: 0 }, kale: { value: 0 }, aspect: { value: 1 }, dream: { value: 0 } } });
     this.copy = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: COPY, depthTest: false, depthWrite: false, toneMapped: true, uniforms: { tMap: { value: null } } });
     this.fxScene = quad(this.fx); this.copyScene = quad(this.copy);
     this.rt = null; this.acc = [null, null]; this.meltT = 0;
@@ -146,11 +155,13 @@ export class Trip {
   /** Render the frame through the trip pass. */
   render(renderer, scene, camera) {
     this._size(renderer);
-    const L = this.level, calm = this.o.calm(), peak = this.t > 45 && this.t < 120;
+    if (!this.on) this.time += 1 / 60;
+    const L = Math.max(this.on ? this.level : 0, 0.14 * this.dream), calm = this.o.calm() || this.dream > 0.3, peak = this.on && this.t > 45 && this.t < 120;
     renderer.setRenderTarget(this.rt); renderer.render(scene, camera);
     if (this.clear) { for (const a of this.acc) { renderer.setRenderTarget(a); renderer.clear(); } this.clear = false; }
     const U = this.fx.uniforms;
     U.tScene.value = this.rt.texture; U.tPrev.value = this.acc[0].texture; U.amt.value = L; U.time.value = this.time;
+    U.dream.value = this.dream;
     U.calm.value = calm ? 1 : 0; U.aspect.value = this.rt.width / this.rt.height;
     // kaleidoscope pulses: a few seconds in every ~14 s at the peak (gentler / rarer with calm visuals)
     const ph = (this.time % 14) / 14, pulse = peak ? Math.max(0, Math.sin(Math.min(1, ph / 0.3) * Math.PI)) : 0;

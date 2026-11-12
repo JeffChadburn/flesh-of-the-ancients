@@ -288,6 +288,8 @@ export class Story {
       // round 21: glowing mushrooms
       const sh = (this.active || this.sandbox) && env.shroomNear?.(f);
       if (sh) return { label: "Pick the glowing mushrooms", act: () => env.pickShroom(sh) };
+      const wb = (this.active || this.sandbox) && env.berryNear?.(f); // round 23: wild berry bushes
+      if (wb) return { label: "Pick berries", act: () => env.pickBerry(wb) };
       // round 20: anyone in a town (or Kra's own villagers) can be talked to
       const P0 = this.P;
       const named = this.active && P0 && Object.entries(P0.npc).some(([id, n]) => this.npcVisible(id) && d2(n) < 2.4);

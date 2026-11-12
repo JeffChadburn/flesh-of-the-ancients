@@ -195,6 +195,7 @@ export class Boats {
     // lakes (one each), river mouths and a canoe partway down each river
     for (const l of B.lakes) for (let a = 0; a < 16; a++) { const an = a * 0.3927, s = this.shoreSpot(l.x + Math.cos(an) * l.r * 0.8, l.z + Math.sin(an) * l.r * 0.8); if (s && this.dock(s, null, "lake")) break; }
     for (const r of B.rivers) {
+      if (r.creek) continue; // round 23: creeks are too narrow for boats
       const P = r.pts;
       for (const f of [0.45, 0.97]) for (let k = 0; k < 20; k++) {
         const i = Math.max(0, Math.min(P.length - 1, Math.floor(P.length * f) - k * 3)), p = P[i], q = P[Math.min(P.length - 1, i + 1)];

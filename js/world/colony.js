@@ -55,7 +55,25 @@ export const JOBS = {
   fisher: { name: "Fisher", node: "water", t: 8, anim: "carry", y: { food: 3 } },
   builder: { name: "Builder", node: "site", t: 6, anim: "chop", y: {} },
   farmer: { name: "Farmer", node: "farm", t: 9, anim: "dig", y: { food: 5, fibre: 1 } },
+  scribe: { name: "Scribe", node: "home", t: 10, anim: "dig", y: {}, needs: "tally" }, // round 23
 };
+/** Round 23: Insights from Kra's spirit visions. Passive ones work as soon as he knows them;
+ *  policies have to be slotted in the Town panel (slots grow with the ages and the Council). */
+export const INSIGHTS = {
+  granary: { name: "Granaries", icon: "🏺", age: 0, idea: "Raise the food off the wet ground, out of reach of rot and rats. A store that keeps is worth two that spoil.", desc: "Your people eat 35% less from the stores (less spoils)." },
+  fire: { name: "Sacred Fire", icon: "🔥", age: 0, policy: true, idea: "One fire that is never allowed to die, kept by everyone in turn. People work harder beside a fire they share.", desc: "Settlements with a fire pit: +15% output, newcomers come 40% sooner." },
+  scouting: { name: "Scouting", icon: "🧭", age: 0, idea: "Send the quick young ones out to walk the land and come back with what they saw. A people that knows its land is not surprised by it.", desc: "The map is revealed 400 m around every settlement, cave mouths included." },
+  labour: { name: "Division of Labour", icon: "⚒", age: 0, policy: true, idea: "Not everyone should do everything. Let the cutter cut and the hunter hunt, and each grows skilled.", desc: "All workers +20% output." },
+  diplomacy: { name: "Diplomacy", icon: "🤝", age: 0, policy: true, idea: "Speak before the spear. Share food with strangers and they stop being strangers.", desc: "Townsfolk agree to join at half the trust; newcomers come 30% sooner." },
+  tally: { name: "Tally Marks", icon: "🧮", age: 0, idea: "Notches on a bone: one for each basket, one for each mouth. What is counted can be planned.", desc: "The Town panel shows a ledger (output per minute, food trend) and the Scribe job (+5% to everyone's output per scribe, up to 3)." },
+  irrigation: { name: "Farming & Irrigation", icon: "🌾", age: 0, idea: "Dig channels from the stream to the seed beds, and the ground will feed us without the hunt.", desc: "Farm plots from the first age, and farmers bring +60%." },
+  trade: { name: "Trade Routes", icon: "🐂", age: 1, policy: true, idea: "Paths between our fires and the towns, walked by carriers with full baskets both ways. What one place lacks another has.", desc: "Caravans bring each settlement a steady flow of food, wood, hide and clay (more with towns within 700 m and with more settlements)." },
+  pottery: { name: "Kilns & Pottery", icon: "⚱️", age: 1, idea: "Clay fired hard holds water, grain and fat through a winter. Pots are stores you can carry.", desc: "+50% storage in every settlement, quarry workers dig +1 clay a trip." },
+  council: { name: "Council of Elders", icon: "🪶", age: 1, idea: "Let the old ones sit together and speak before I choose. One mind is a torch; many are a fire.", desc: "+1 policy slot." },
+  defense: { name: "Defence", icon: "🛡", age: 1, policy: true, idea: "Walls are not enough; walls need watchers. A people that keeps watch sleeps.", desc: "Watched walls: each palisade section houses +1 person (up to +6), wild beasts stay outside walled settlements, palisades cost a third less wood." },
+  wheel: { name: "The Wheel", icon: "🛞", age: 2, idea: "A log rolls more easily than it drags. Give it an axle and one carrier does the work of three.", desc: "Carts: +30% output for woodcutters, quarry workers, miners and hunters." },
+};
+export const POLICY_SLOTS = [1, 2, 2, 3, 3, 4];
 const BONUS = { lumber: ["woodcutter", 0.5], rack: ["hunter", 0.3], dock: ["fisher", 0.5], quarry: ["quarry", 0.5], mine: ["miner", 0.3] };
 const WALK = 2.1; // villagers' walking speed (m/s)
 const NAMES = ["Kra's Hearth", "Second Fire", "Redstone Hold", "Eastwater", "Highcamp", "Ochre Rest"];
@@ -136,11 +154,49 @@ export class Colony {
     this.mat = new THREE.MeshLambertMaterial({ vertexColors: true });
     this.ghostMat = new THREE.MeshBasicMaterial({ color: 0x40ff60, transparent: true, opacity: 0.45, depthWrite: false });
     this.simT = 0; this.agents = []; this.log = [];
+    this.know = Colony.freshKnow();
+  }
+  // ---------------- round 23: insights & policies ----------------
+  static freshKnow() { return { seen: 0, insights: [], policies: [], journal: [] }; }
+  knows(id) { return this.know.insights.includes(id); }
+  has(id) { return this.knows(id) && (!INSIGHTS[id]?.policy || this.know.policies.includes(id)); }
+  maxAge() { return this.list.reduce((m, c) => Math.max(m, c.age), 0); }
+  slots() { return POLICY_SLOTS[Math.min(POLICY_SLOTS.length - 1, this.maxAge())] + (this.knows("council") ? 1 : 0); }
+  learn(id) { if (!INSIGHTS[id] || this.knows(id)) return false; this.know.insights.push(id); if (INSIGHTS[id].policy && this.know.policies.length < this.slots()) this.know.policies.push(id); this.save(); this.log.push({ e: "insight", id }); return true; }
+  setPolicy(id, on) {
+    const k = this.know; if (!INSIGHTS[id]?.policy || !this.knows(id)) return "Unknown";
+    if (!on) { k.policies = k.policies.filter((x) => x !== id); this.save(); return null; }
+    if (k.policies.includes(id)) return null;
+    if (k.policies.length >= this.slots()) return "No free policy slot";
+    k.policies.push(id); this.save(); return null;
+  }
+  bAge(type) { return type === "farm" && this.knows("irrigation") ? 0 : BUILD[type].age; }
+  jobAllowed(j) { return !JOBS[j]?.needs || this.knows(JOBS[j].needs); }
+  /** Estimated per-minute flows (the Tally ledger, and the tests). */
+  rates(c) {
+    const out = {}, add = (r, n) => (out[r] = (out[r] || 0) + n);
+    for (const v of c.vill) {
+      const J = JOBS[v.job]; if (!J || J.node === "site") continue;
+      const node = this._node(c, v.job, () => 0.5); if (!node) continue;
+      const cyc = J.t + 2 * Math.hypot(node.x - c.x, node.z - c.z) / WALK + 2;
+      for (const [r, n] of Object.entries(this.yieldOf(c, v.job))) add(r, (n * 60) / cyc);
+    }
+    for (const [r, n] of Object.entries(this.tradeRate(c))) add(r, n * 60);
+    add("food", -this.pop(c) * 60 / 90 * this.eatK());
+    return out;
+  }
+  eatK() { return this.has("granary") ? 0.65 : 1; }
+  tradeRate(c) {
+    if (!this.has("trade")) return {};
+    const towns = Math.min(3, (this.t.settlements || []).filter((s) => Math.hypot(s.x - c.x, s.z - c.z) < 700).length);
+    const k = 0.03 + 0.02 * towns + 0.01 * Math.min(3, this.list.length - 1);
+    return { food: 2 * k, wood: 2 * k, hide: 0.6 * k, clay: 0.6 * k };
   }
   // ---------------- persistence ----------------
-  toJSON() { return { v: 1, savedAt: Date.now(), list: this.list.map((c) => ({ id: c.id, name: c.name, x: c.x, z: c.z, age: c.age, res: c.res, blds: c.blds.map((b) => ({ type: b.type, x: b.x, z: b.z, rot: b.rot, built: b.built })), vill: c.vill, techs: c.techs, arriveT: c.arriveT, t: c.t, seed: c.seed })) }; }
+  toJSON() { return { v: 1, savedAt: Date.now(), list: this.list.map((c) => ({ id: c.id, name: c.name, x: c.x, z: c.z, age: c.age, res: c.res, blds: c.blds.map((b) => ({ type: b.type, x: b.x, z: b.z, rot: b.rot, built: b.built })), vill: c.vill, techs: c.techs, arriveT: c.arriveT, t: c.t, seed: c.seed })), know: this.know }; }
   load(o, catchUp = true) {
     this.clear();
+    const k = o?.know; this.know = k && Array.isArray(k.insights) ? { seen: k.seen | 0, insights: k.insights.filter((i) => INSIGHTS[i]), policies: (k.policies || []).filter((i) => INSIGHTS[i]?.policy), journal: Array.isArray(k.journal) ? k.journal.slice(-40) : [] } : Colony.freshKnow();
     if (!o || !Array.isArray(o.list)) return;
     for (const d of o.list) { const c = { ...d, res: { ...d.res }, blds: d.blds.map((b) => ({ ...b })), vill: d.vill.map((v) => ({ ...v })), techs: d.techs || [] }; this.list.push(c); this._nodes(c); this.rebuild(c); }
     this._colliders();
@@ -155,15 +211,15 @@ export class Colony {
   radius(c) { return 40 + 8 * c.age; }
   pop(c) { return c.vill.length; }
   count(c, type) { return c.blds.filter((b) => b.type === type && b.built >= 1).length; }
-  housing(c) { return 2 + this.count(c, "hut") * (c.age >= 4 ? 4 : c.age >= 2 ? 3 : 2); }
-  cap(c) { return 60 + 150 * this.count(c, "storage"); }
+  housing(c) { return 2 + this.count(c, "hut") * (c.age >= 4 ? 4 : c.age >= 2 ? 3 : 2) + (this.has("defense") ? Math.min(6, this.count(c, "palisade")) : 0); }
+  cap(c) { return Math.round((60 + 150 * this.count(c, "storage")) * (this.knows("pottery") ? 1.5 : 1)); }
   hasRoom(c) { return this.pop(c) < this.housing(c); }
   homeFor(p) { return this.list.length ? this.list.slice().sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0] : null; }
-  cost(type) { const k = BUILD[type], sk = this.env.skills(), out = {}; for (const [r, n] of Object.entries(k.cost)) out[r] = r === "stone" && sk.has("mason") ? Math.ceil(n * 0.8) : n; return out; }
+  cost(type) { const k = BUILD[type], sk = this.env.skills(), out = {}; for (const [r, n] of Object.entries(k.cost)) out[r] = r === "stone" && sk.has("mason") ? Math.ceil(n * 0.8) : type === "palisade" && r === "wood" && this.has("defense") ? Math.ceil(n * 0.67) : n; return out; }
   afford(c, cost) { return Object.entries(cost).every(([r, n]) => (c.res[r] || 0) >= n); }
   pay(c, cost) { for (const [r, n] of Object.entries(cost)) c.res[r] = (c.res[r] || 0) - n; }
   jobName(j) { return JOBS[j]?.name || j; }
-  jobOptions() { return Object.entries(JOBS).map(([id, j]) => ({ id, label: j.name })); }
+  jobOptions() { return Object.entries(JOBS).filter(([id]) => this.jobAllowed(id)).map(([id, j]) => ({ id, label: j.name })); }
 
   // ---------------- founding / building ----------------
   flatDry(x, z, r) {
@@ -207,7 +263,7 @@ export class Colony {
   }
   canPlace(c, type, x, z, rot) {
     const K = BUILD[type];
-    if (!K || K.age > c.age) return "Not yet (a later age)";
+    if (!K || this.bAge(type) > c.age) return "Not yet (a later age)";
     if (Math.hypot(x - c.x, z - c.z) > this.radius(c)) return "Too far from the Founding Stone";
     for (const b of c.blds) { const R = BUILD[b.type].r; if (Math.hypot(b.x - x, b.z - z) < R + K.r + 0.4) return "Overlaps " + BUILD[b.type].name.toLowerCase(); }
     if (K.water) {
@@ -240,7 +296,7 @@ export class Colony {
     this.log.push({ e: "recruit", name: v.name, c: c.name });
     return v;
   }
-  setJob(vid, job) { for (const c of this.list) for (const v of c.vill) if (v.vid === vid && JOBS[job]) { v.job = job; const a = this.agents.find((x) => x.v === v); if (a) this._plan(a); this.save(); return true; } return false; }
+  setJob(vid, job) { if (!this.jobAllowed(job)) return false; for (const c of this.list) for (const v of c.vill) if (v.vid === vid && JOBS[job]) { v.job = job; const a = this.agents.find((x) => x.v === v); if (a) this._plan(a); this.save(); return true; } return false; }
   report(I) {
     const c = this.list.find((x) => x.vill.some((v) => v.vid === I.vid)); if (!c) return null;
     const v = c.vill.find((x) => x.vid === I.vid), node = this._node(c, v.job, Math.random);
@@ -252,8 +308,15 @@ export class Colony {
     let y = J.y;
     if (job === "miner") y = c.age <= 1 ? { stone: 2, clay: 1 } : c.age === 2 ? { stone: 1, copper: 1, tin: 1 } : { copper: 1, tin: 0.5, iron: 1, coal: 1 };
     if (job === "quarry" && c.age >= 1) y = { stone: 3, clay: 1 };
+    if (job === "quarry" && this.knows("pottery")) y = { ...y, clay: (y.clay || 0) + 1 };
     let m = 1 + 0.25 * c.age; // tools improve each age
     for (const [b, [j, k]] of Object.entries(BONUS)) if (j === job && this.count(c, b)) m += k;
+    // round 23: insights / policies
+    if (this.has("labour")) m += 0.2;
+    if (job === "farmer" && this.knows("irrigation")) m += 0.6;
+    if (this.knows("wheel") && ["woodcutter", "quarry", "miner", "hunter"].includes(job)) m += 0.3;
+    if (this.has("fire") && this.count(c, "fire")) m += 0.15;
+    if (this.knows("tally")) m += 0.05 * Math.min(3, c.vill.filter((v) => v.job === "scribe").length);
     if ((job === "woodcutter" && sk.has("wood1")) || ((job === "miner" || job === "quarry") && sk.has("mine1"))) m += 0.25;
     if ((c.res.food || 0) <= 0 && job !== "hunter" && job !== "fisher" && job !== "gatherer" && job !== "farmer") m *= 0.5;
     const out = {}; for (const [r, n] of Object.entries(y || {})) out[r] = n * m; return out;
@@ -329,9 +392,10 @@ export class Colony {
     let changed = false;
     for (const b of c.blds) if (b.built < 1) { b.built = Math.min(1, b.built + dt / this.buildTime(b.type) * 0.35); if (b.built >= 1) { changed = true; this._say(`${BUILD[b.type].name} finished at ${c.name}`); } }
     // food
-    c.res.food = Math.max(0, (c.res.food || 0) - this.pop(c) * dt / 90);
+    c.res.food = Math.max(0, (c.res.food || 0) - this.pop(c) * dt / 90 * this.eatK());
+    const tr = this.tradeRate(c); for (const r in tr) tr[r] *= dt; if (tr.food) this.deposit(c, tr); // round 23: caravans
     // newcomers
-    if (this.hasRoom(c) && (c.res.food || 0) >= 5) { c.arriveT -= dt; if (c.arriveT <= 0) { c.arriveT = 150; const I = identity((c.seed + c.vill.length * 104729) >>> 0); const v = this.recruit(c, I, true); this._say(`${v.name} arrives at ${c.name}, drawn by the fire (${this.jobName(v.job).toLowerCase()})`); changed = true; } }
+    if (this.hasRoom(c) && (c.res.food || 0) >= 5) { c.arriveT -= dt; if (c.arriveT <= 0) { c.arriveT = 150 * (this.has("fire") && this.count(c, "fire") ? 0.6 : 1) * (this.has("diplomacy") ? 0.7 : 1); const I = identity((c.seed + c.vill.length * 104729) >>> 0); const v = this.recruit(c, I, true); this._say(`${v.name} arrives at ${c.name}, drawn by the fire (${this.jobName(v.job).toLowerCase()})`); changed = true; } }
     return changed;
   }
   _say(m) { if (this._quiet) this._quiet.push(m); else this.env.toast?.(m, "good"); }

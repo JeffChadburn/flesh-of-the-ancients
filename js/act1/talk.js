@@ -186,7 +186,7 @@ export class TownTalk {
   join(p) {
     const env = this.env, col = env.colony(), m = this.m(p), I = p.ident, home = col.homeFor(p);
     if (!home) return this.say(p, ["Join you where? You have no hearth of your own."], () => this.menu(p));
-    if (m.rel < 1.2) return this.say(p, [pick(["I hardly know you. Help us first, bring us something, and ask again.", "Leave my people for a stranger? Not yet."])], () => this.menu(p));
+    if (m.rel < (col.has?.("diplomacy") ? 0.6 : 1.2)) return this.say(p, [pick(["I hardly know you. Help us first, bring us something, and ask again.", "Leave my people for a stranger? Not yet."])], () => this.menu(p));
     if (!col.hasRoom(home)) return this.say(p, [`Where would I sleep? Build more huts at ${home.name} and ask again.`], () => this.menu(p));
     this.say(p, [pick([`${home.name}... yes. A new fire. I'll come.`, "My mother would say I'm a fool. I'll come anyway.", "Give me till sunset to say my goodbyes. Then I'm yours."])], () => {
       m.joined = 1; this.save();

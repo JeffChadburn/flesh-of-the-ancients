@@ -53,7 +53,8 @@ export class Voice {
       p.src = ctx.createMediaStreamSource(stream); p.an = ctx.createAnalyser(); p.an.fftSize = 512;
       p.gain = ctx.createGain(); p.gain.gain.value = 0; p.pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
       p.src.connect(p.an); p.src.connect(p.gain);
-      if (p.pan) { p.gain.connect(p.pan); p.pan.connect(ctx.destination); } else p.gain.connect(ctx.destination);
+      const dest = this.mp.env.voiceOut?.() || ctx.destination; // round 23: through the mixer's Voices bus
+      if (p.pan) { p.gain.connect(p.pan); p.pan.connect(dest); } else p.gain.connect(dest);
     }
     el.play?.().catch(() => {});
     this.peers.set(id, p);

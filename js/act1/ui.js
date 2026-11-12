@@ -44,7 +44,7 @@ export class StoryUI {
       this.toggleTasks(false);
     });
     this.dialog = el("div", "dialog hidden", `<div class="who"></div><div class="line"></div><div class="more">${touch ? "Tap" : "E / click"} to continue</div>`); root.appendChild(this.dialog);
-    this.panel = el("div", "panel hidden", `<div class="tabs"><button data-t="inv">Inventory <kbd>I</kbd></button><button data-t="craft">Crafting <kbd>Tab</kbd></button><button data-t="skills">Skills <kbd>K</kbd></button><button class="close">✕</button></div><div class="body"></div>`);
+    this.panel = el("div", "panel hidden", `<div class="tabs"><button data-t="inv">Inventory <kbd>I</kbd></button><button data-t="craft">Crafting <kbd>Tab</kbd></button><button data-t="skills">Skills <kbd>K</kbd></button><button data-t="visions">Visions</button><button class="close">✕</button></div><div class="body"></div>`);
     root.appendChild(this.panel);
     this.choice = el("div", "choice hidden"); root.appendChild(this.choice);
     this.card = el("div", "title-card hidden"); root.appendChild(this.card);
@@ -63,7 +63,7 @@ export class StoryUI {
     this.dialog.addEventListener("click", () => this.advance());
   }
 
-  get modal() { return !this.panel.classList.contains("hidden") || !this.choice.classList.contains("hidden") || !this.dialog.classList.contains("hidden") || !this.menu.classList.contains("hidden"); }
+  get modal() { return !!this.visionOn || !this.panel.classList.contains("hidden") || !this.choice.classList.contains("hidden") || !this.dialog.classList.contains("hidden") || !this.menu.classList.contains("hidden"); }
 
   setStoryVisible(on) {
     this.meters.classList.toggle("hidden", !on);
@@ -225,6 +225,13 @@ export class StoryUI {
         return `<div class="recipe${done ? " done" : ""}"><strong>${r.name}</strong><small>${r.desc}</small><small>Needs: ${need}${s.tools.knife ? "" : " · a knife"}</small>${done ? "<b>Made</b>" : `<button data-a="craft" data-id="${r.id}" ${can ? "" : "disabled"}>Craft</button>`}</div>`;
       }).join("") + (locked.length ? `<div class="inv-head">Not learned yet (skills or quests teach these)</div>` + locked.map((r) => `<div class="recipe locked"><strong>${r.name}</strong><small>${r.desc}</small><b>🔒</b></div>`).join("") : "")
         + `<div class="inv-head">Materials: animals (bone, sinew, hide, pelt), storage baskets in towns, flint / ochre in caves.</div>`;
+    } else if (this.tab === "visions") { // round 23: the spirit-vision journal
+      const J = this.visionJournal?.() || [];
+      const e = (t) => String(t).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+      body.innerHTML = (J.length ? J.slice().reverse().map((v) => `<details class="vj"><summary>${v.n}. ${e(v.title)}</summary>${v.lines.map((l) => `<p class="${l.who === "Kra" ? "" : "anc"}"><b>${l.who === "Kra" ? "Kra" : e(l.who)}:</b> ${e(l.text)}</p>`).join("")}${v.ins ? `<div class="vj-ins">Insight: ${e(v.ins)}</div>` : ""}<button type="button" class="vj-play" data-vn="${v.n}">▶ Replay</button></details>`).join("")
+        : `<div class="inv-tip">No visions yet. Eat a glowing mushroom: as the colours fade, the spirits speak.</div>`);
+      body.querySelectorAll("[data-vn]").forEach((b) => b.addEventListener("click", (ev) => { ev.stopPropagation(); this.onVisionReplay?.(+b.dataset.vn); }));
+      return;
     } else if (this.tab === "skills" && this.questDone) {
       // round 16: skill tree (4 branches x 3 tiers)
       const lvl = s.level, into = s.xp % 100;

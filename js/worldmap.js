@@ -34,7 +34,8 @@ export class WorldMap {
     }));
     // pan / pinch
     const pts = new Map(); let last = null;
-    this.cv.addEventListener("pointerdown", (e) => { this.cv.setPointerCapture?.(e.pointerId); pts.set(e.pointerId, { x: e.offsetX, y: e.offsetY }); last = null; });
+    let tap = null; // round 23: a tap (not a drag / pinch) opens the beacon / fast-travel menu
+    this.cv.addEventListener("pointerdown", (e) => { this.cv.setPointerCapture?.(e.pointerId); pts.set(e.pointerId, { x: e.offsetX, y: e.offsetY }); last = null; tap = pts.size === 1 ? { x: e.offsetX, y: e.offsetY, t: performance.now(), id: e.pointerId } : null; });
     this.cv.addEventListener("pointermove", (e) => {
       if (!pts.has(e.pointerId)) return;
       pts.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
@@ -52,10 +53,37 @@ export class WorldMap {
         last = { n: 2, x: mx, y: my, d };
       }
     });
-    const up = (e) => { pts.delete(e.pointerId); last = null; };
+    const up = (e) => {
+      if (e.type === "pointerup" && tap && tap.id === e.pointerId && pts.size === 1 && Math.hypot(e.offsetX - tap.x, e.offsetY - tap.y) < 9 && performance.now() - tap.t < 600) this._tap(tap.x, tap.y);
+      else if (tap && (pts.size > 1 || Math.hypot(e.offsetX - tap.x, e.offsetY - tap.y) >= 9)) this._closePop();
+      tap = null; pts.delete(e.pointerId); last = null;
+    };
     this.cv.addEventListener("pointerup", up); this.cv.addEventListener("pointercancel", up);
     this.cv.addEventListener("wheel", (e) => { e.preventDefault(); this.zoomAt(e.offsetX, e.offsetY, e.deltaY < 0 ? 1.25 : 0.8); this.draw(); }, { passive: false });
   }
+
+  // ---------------- round 23: tap menu (beacon / fast travel) ----------------
+  /** Screen point (CSS px in the canvas) -> world x, z. */
+  toWorld(px, py) { const v = this.view; return { x: v.cx + (px - this.cv.clientWidth / 2) / v.s, z: v.cz + (py - this.cv.clientHeight / 2) / v.s }; }
+  _tap(px, py) {
+    const s = this.state?.(); if (!s || !this.onTap) return;
+    const w = this.toWorld(px, py), items = this.onTap({ ...w, px, py, scale: this.view.s, mode: s.mode }) || [];
+    this._closePop(); if (!items.length) return;
+    this.sel = w;
+    const pop = (this._pop = document.createElement("div")); pop.className = "wm-pop";
+    for (const it of items) {
+      const b = document.createElement(it.note ? "div" : "button");
+      if (it.note) { b.className = "wm-note"; b.textContent = it.label; } else { b.type = "button"; b.textContent = it.label; if (it.cls) b.className = it.cls; if (it.disabled) { b.disabled = true; b.title = it.why || ""; } b.addEventListener("click", (e) => { e.stopPropagation(); this._closePop(); it.act?.(); this.draw(); }); }
+      pop.appendChild(b);
+    }
+    this.el.appendChild(pop);
+    const W = this.el.clientWidth, H = this.el.clientHeight, r = pop.getBoundingClientRect(), cr = this.cv.getBoundingClientRect(), er = this.el.getBoundingClientRect();
+    let x = px + (cr.left - er.left) + 12, y = py + (cr.top - er.top) - r.height / 2;
+    if (x + r.width > W - 6) x = px + (cr.left - er.left) - r.width - 12;
+    pop.style.left = Math.max(6, x) + "px"; pop.style.top = Math.max(50, Math.min(H - r.height - 8, y)) + "px";
+    this.draw();
+  }
+  _closePop() { if (this._pop) { this._pop.remove(); this._pop = null; } if (this.sel) { this.sel = null; this.draw(); } }
 
   // ---------------- exploration record ----------------
   setWorld(terrain, key) {
@@ -92,6 +120,16 @@ export class WorldMap {
     }
     if ((this.saveT += dt) > 10) { this.saveT = 0; this.flush(); }
   }
+  /** Round 23 (Scouting): reveal a disc of radius R around (x, z). */
+  revealAt(x, z, R) {
+    const ci = Math.floor((x + HALF) / CELL), cj = Math.floor((z + HALF) / CELL), k = Math.ceil(R / CELL); let n = 0;
+    for (let j = cj - k; j <= cj + k; j++) for (let i = ci - k; i <= ci + k; i++) {
+      if (i < 0 || j < 0 || i >= N || j >= N) continue;
+      if (Math.hypot((i + 0.5) * CELL - HALF - x, (j + 0.5) * CELL - HALF - z) < R && !this.fog[j * N + i]) { this.fog[j * N + i] = 1; n++; }
+    }
+    if (n) { this.dirty = true; this._fogImg = null; this.flush(); }
+    return n;
+  }
   seen(x, z) { const i = Math.floor((x + HALF) / CELL), j = Math.floor((z + HALF) / CELL); return i >= 0 && j >= 0 && i < N && j < N && !!this.fog[j * N + i]; }
   revealedCount() { let n = 0; for (const v of this.fog) n += v; return n; }
 
@@ -107,7 +145,7 @@ export class WorldMap {
     this.draw();
     clearInterval(this._iv); this._iv = setInterval(() => this.draw(), 90);
   }
-  close() { this.isOpen = false; this.el.classList.add("hidden"); clearInterval(this._iv); this.onClose?.(); }
+  close() { this._closePop(); this.isOpen = false; this.el.classList.add("hidden"); clearInterval(this._iv); this.onClose?.(); }
   toggle(state) { if (this.isOpen) this.close(); else this.open(state); }
   resize() {
     const dpr = Math.min(2, window.devicePixelRatio || 1), w = this.cv.clientWidth || window.innerWidth, h = this.cv.clientHeight || window.innerHeight;
@@ -167,7 +205,7 @@ export class WorldMap {
       ctx.drawImage(this._fogCanvas(), X(-HALF), Y(-HALF), N * CELL * v.s, N * CELL * v.s);
       if (F.water && this.terrain?.bio) { // round 18: rivers
         ctx.strokeStyle = "rgba(110,190,230,0.85)"; ctx.lineWidth = Math.max(1.5, 5 * v.s);
-        for (const r of this.terrain.bio.rivers) { ctx.beginPath(); let on = false; for (const p of r.pts) { if (!this.seen(p.x, p.z)) { on = false; continue; } on ? ctx.lineTo(X(p.x), Y(p.z)) : ctx.moveTo(X(p.x), Y(p.z)); on = true; } ctx.stroke(); } // only what you've explored
+        for (const r of this.terrain.bio.rivers) { ctx.lineWidth = Math.max(r.creek ? 1 : 1.5, (r.creek ? 2.5 : 5) * v.s); ctx.beginPath(); let on = false; for (const p of r.pts) { if (!this.seen(p.x, p.z)) { on = false; continue; } on ? ctx.lineTo(X(p.x), Y(p.z)) : ctx.moveTo(X(p.x), Y(p.z)); on = true; } ctx.stroke(); } // only what you've explored
       }
       if (s.stream && F.water) { ctx.strokeStyle = "rgba(110,190,220,0.8)"; ctx.lineWidth = 2; ctx.beginPath(); s.stream.forEach((p, i) => (i ? ctx.lineTo(X(p.x), Y(p.z)) : ctx.moveTo(X(p.x), Y(p.z)))); ctx.stroke(); }
       // trail
@@ -197,8 +235,16 @@ export class WorldMap {
         ctx.beginPath(); ctx.ellipse(0, 0, b.kind === "raft" ? 3.2 : 2.4, L, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.restore();
         if (b.mine && !b.riding && F.labels) label("Your boat", x, y, "#ffe0a0", 11);
       }
+      if (s.beacon) { // round 23: your beacon
+        const x = X(s.beacon.x), y = Y(s.beacon.z);
+        ctx.strokeStyle = "#7ff6ff"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - 22); ctx.stroke();
+        ctx.fillStyle = "#7ff6ff"; ctx.beginPath(); ctx.moveTo(x, y - 30); ctx.lineTo(x + 6, y - 22); ctx.lineTo(x, y - 14); ctx.lineTo(x - 6, y - 22); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill();
+        label(`Beacon · ${s.beacon.dist}`, x, y - 22, "#aaf8ff", 12);
+      }
+      if (this.sel) { const x = X(this.sel.x), y = Y(this.sel.z); ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.moveTo(x - 14, y); ctx.lineTo(x - 5, y); ctx.moveTo(x + 5, y); ctx.lineTo(x + 14, y); ctx.moveTo(x, y - 14); ctx.lineTo(x, y - 5); ctx.moveTo(x, y + 5); ctx.lineTo(x, y + 14); ctx.stroke(); }
       for (const n of F.people ? s.npcs || [] : []) { if (!n.mark) continue; ctx.font = "bold 16px Georgia, serif"; ctx.textAlign = "center"; ctx.lineWidth = 3; ctx.strokeStyle = "#000"; ctx.strokeText(n.mark, X(n.x), Y(n.z) - 6); ctx.fillStyle = n.mark === "?" ? "#9fe3a8" : "#ffd36a"; ctx.fillText(n.mark, X(n.x), Y(n.z) - 6); }
-      legend.innerHTML = `<span class="lg-t">┄ your trail</span><span>● town</span><span>◓ cave</span><span style="color:#c8955a">⬮ boat</span><span style="color:#ffd36a">! quest</span><span style="color:#ff9a5a">◆ tracked</span>`;
+      legend.innerHTML = `<span class="lg-t">┄ your trail</span><span>● town</span><span>◓ cave</span><span style="color:#c8955a">⬮ boat</span><span style="color:#ffd36a">! quest</span><span style="color:#ff9a5a">◆ tracked</span><span style="color:#7ff6ff">◆ beacon</span><span class="lg-tip">Tap the map: set a beacon / fast travel</span>`;
     } else {
       title.textContent = s.title || "Cave";
       ctx.strokeStyle = "rgba(196,174,140,0.75)"; ctx.lineCap = "round";

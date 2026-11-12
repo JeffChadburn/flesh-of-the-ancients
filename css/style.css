@@ -725,3 +725,68 @@ button:hover, .file-btn:hover { border-color: var(--accent); color: #fff; }
   #mp-log { bottom: 230px; }
 }
 .mp-warn { color: #ffb08a; }
+/* round 23: insights & policies in the Town panel */
+.cp-ins { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; margin: 4px 0; border-radius: 8px; background: rgba(255, 220, 150, 0.06); border: 1px solid rgba(224, 181, 106, 0.2); }
+.cp-ins small { opacity: 0.8; }
+.cp-ins.pol.on { border-color: rgba(120, 220, 140, 0.6); background: rgba(80, 160, 90, 0.12); }
+.cp-ins button { align-self: flex-start; margin-top: 3px; }
+/* ---------- Round 23: spirit visions ---------- */
+#spirit { position: absolute; inset: 0; z-index: 60; pointer-events: none; font-family: Georgia, "Times New Roman", serif; }
+#spirit.hidden { display: none; }
+#spirit > * { pointer-events: auto; }
+#spirit .sp-bar, #spirit .sp-motes { pointer-events: none; }
+#spirit .sp-bar { position: absolute; left: 0; right: 0; height: 11vh; background: #000; transition: transform 1.4s ease; }
+#spirit .sp-bar.top { top: 0; transform: translateY(-100%); } #spirit .sp-bar.bot { bottom: 0; transform: translateY(100%); }
+#spirit.in .sp-bar { transform: none; }
+#spirit::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 45%, rgba(255, 228, 170, 0.16), rgba(40, 20, 60, 0.0) 55%, rgba(10, 4, 20, 0.55) 100%); opacity: 0; transition: opacity 2s; }
+#spirit.in::before { opacity: 1; }
+#spirit .sp-motes i { position: absolute; bottom: -10px; width: 6px; height: 6px; border-radius: 50%; background: radial-gradient(circle, #fff6d8, rgba(255, 210, 140, 0)); box-shadow: 0 0 12px 4px rgba(255, 220, 160, 0.35); animation: sp-rise linear infinite; opacity: 0; }
+#spirit.in .sp-motes i { opacity: 1; }
+@keyframes sp-rise { 0% { transform: translate(0, 0); opacity: 0; } 15% { opacity: 0.9; } 100% { transform: translate(40px, -95vh); opacity: 0; } }
+#spirit .sp-title { position: absolute; top: 24%; left: 0; right: 0; text-align: center; color: #fff1d4; text-shadow: 0 2px 16px #000, 0 0 30px rgba(255, 200, 120, 0.5); opacity: 0; transition: opacity 1.4s; pointer-events: none; }
+#spirit .sp-title.show { opacity: 1; }
+#spirit .sp-title small { display: block; letter-spacing: 6px; font-size: 13px; text-transform: uppercase; opacity: 0.8; }
+#spirit .sp-title b { font-size: clamp(26px, 5vw, 46px); font-weight: 400; font-style: italic; }
+#spirit .sp-sub { position: absolute; left: 50%; bottom: calc(11vh + 18px); transform: translateX(-50%); width: min(760px, 92vw); text-align: center; color: #fff6e6; font-size: clamp(17px, 2.3vw, 23px); line-height: 1.4; text-shadow: 0 2px 8px #000, 0 0 2px #000; opacity: 0; transition: opacity 0.9s; cursor: pointer; }
+#spirit .sp-sub.show { opacity: 1; }
+#spirit .sp-sub .who { display: block; font-size: 12px; letter-spacing: 3px; text-transform: uppercase; color: #ffcf8a; margin-bottom: 4px; }
+#spirit .sp-sub.anc .who { color: #b9d8ff; } #spirit .sp-sub.anc .line { font-style: italic; color: #e8f1ff; }
+#spirit .sp-skip { position: absolute; right: 14px; top: calc(11vh + 10px); padding: 7px 14px; border-radius: 18px; border: 1px solid rgba(255, 230, 190, 0.5); background: rgba(10, 6, 2, 0.6); color: #fff1d4; font: 600 13px ui-sans-serif, system-ui, sans-serif; }
+#spirit .sp-skip.hidden, #spirit .sp-card.hidden { display: none; }
+#spirit .sp-card { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(560px, 92vw); max-height: 76vh; overflow: auto; padding: 16px; border-radius: 16px; background: rgba(18, 12, 26, 0.92); border: 1px solid rgba(255, 220, 160, 0.5); box-shadow: 0 0 60px rgba(255, 200, 120, 0.25); color: #fff1d4; animation: sp-card 0.9s ease; }
+@keyframes sp-card { from { opacity: 0; transform: translate(-50%, -46%); } }
+#spirit .sp-card h3 { margin: 0 0 10px; text-align: center; font-weight: 400; font-style: italic; color: #ffd89a; }
+#spirit .sp-ins { display: grid; grid-template-columns: 44px 1fr; gap: 2px 10px; width: 100%; text-align: left; margin: 8px 0; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255, 220, 160, 0.35); background: rgba(255, 230, 180, 0.06); color: #fff1d4; cursor: pointer; font-family: inherit; }
+#spirit .sp-ins:hover { background: rgba(255, 230, 180, 0.14); }
+#spirit .sp-ins .ic { grid-row: span 3; font-size: 30px; align-self: center; text-align: center; }
+#spirit .sp-ins b { font-size: 18px; } #spirit .sp-ins b em { font-size: 11px; font-style: normal; letter-spacing: 1px; text-transform: uppercase; color: #9fe0a8; margin-left: 6px; }
+#spirit .sp-ins i { font-size: 14px; opacity: 0.9; } #spirit .sp-ins small { font: 12px ui-sans-serif, system-ui, sans-serif; opacity: 0.8; }
+/* Pack: Visions journal */
+.vj { margin: 6px 0; padding: 8px 10px; border-radius: 10px; background: rgba(255, 220, 150, 0.06); border: 1px solid rgba(224, 181, 106, 0.25); }
+.vj summary { cursor: pointer; font-weight: 700; }
+.vj p { margin: 4px 0; font-size: 13px; } .vj p.anc { font-style: italic; color: #cfe2ff; }
+.vj .vj-ins { font-size: 12px; opacity: 0.85; margin-top: 4px; }
+#spirit .sp-ins, #spirit .sp-ins * { text-transform: none; letter-spacing: normal; }
+#spirit .sp-ins b em { text-transform: uppercase !important; letter-spacing: 1px !important; }
+#game.spirit-on > *:not(#view):not(#spirit):not(.toasts) { visibility: hidden !important; }
+
+/* ---- round 23: audio mixer ---- */
+#audio-panel { position: absolute; inset: 0; z-index: 46; background: rgba(0, 0, 0, 0.45); display: flex; align-items: center; justify-content: center; }
+#audio-panel.hidden { display: none; }
+.au-row { display: grid; grid-template-columns: 78px 1fr 48px; align-items: center; gap: 8px; margin: 10px 0; }
+.au-row span { font-weight: 700; }
+.au-row b { text-align: right; font-variant-numeric: tabular-nums; }
+.au-row input[type=range] { width: 100%; accent-color: #f3c77a; height: 28px; }
+/* round 23: map tap menu, beacon HUD, fast-travel fade */
+.wm-pop { position: absolute; z-index: 5; display: flex; flex-direction: column; gap: 6px; padding: 8px; min-width: 170px; max-width: 260px; background: rgba(20, 14, 9, 0.96); border: 1px solid rgba(224, 181, 106, 0.6); border-radius: 10px; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6); }
+.wm-pop button { text-align: left; border-radius: 8px; border: 1px solid rgba(224, 181, 106, 0.5); background: #2a1e13; color: #f1e4cc; padding: 9px 10px; font: 600 14px ui-sans-serif, system-ui, sans-serif; cursor: pointer; }
+.wm-pop button.go { background: #24452e; border-color: #6ad08a; }
+.wm-pop button.bc { background: #173a44; border-color: #7ff6ff; }
+.wm-pop button:disabled { opacity: 0.55; cursor: not-allowed; }
+.wm-pop .wm-note { font: 12px ui-sans-serif, system-ui, sans-serif; color: #e8c890; opacity: 0.9; }
+.wm-legend .lg-tip { opacity: 0.75; font-style: italic; }
+#beacon-ind { position: absolute; z-index: 6; pointer-events: none; transform: translate(-50%, -50%); color: #aaf8ff; font: 700 13px ui-sans-serif, system-ui, sans-serif; text-shadow: 0 0 4px #000, 0 0 2px #000; white-space: nowrap; display: flex; flex-direction: column; align-items: center; gap: 1px; }
+#beacon-ind .ba { display: block; width: 0; height: 0; border-left: 9px solid transparent; border-right: 9px solid transparent; border-bottom: 16px solid #7ff6ff; filter: drop-shadow(0 0 3px #000); }
+#beacon-ind.hidden { display: none; }
+#ft-fade { position: absolute; inset: 0; z-index: 60; background: #000; opacity: 0; pointer-events: none; transition: opacity 0.45s ease; display: flex; align-items: center; justify-content: center; color: #f3d9a0; font: 600 20px Georgia, serif; }
+#ft-fade.on { opacity: 1; pointer-events: auto; }

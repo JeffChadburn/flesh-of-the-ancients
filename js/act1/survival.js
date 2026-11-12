@@ -186,14 +186,14 @@ export class Survival {
   /** Per-frame needs. running: 0..1. Returns { damage } when starving / parched. */
   tick(dt, running) {
     const gut = this.skills.has("surv3") ? 0.7 : 1;
-    this.hunger = Math.max(0, this.hunger - dt * 0.105 * gut);
-    this.thirst = Math.max(0, this.thirst - dt * 0.16 * gut);
+    this.hunger = Math.max(0, this.hunger - dt * 0.063 * gut); // round 23: needs drop ~40% slower
+    this.thirst = Math.max(0, this.thirst - dt * 0.096 * gut);
     this.organBoost = Math.max(0, this.organBoost - dt);
-    if (running > 0.2) { this.stamina = Math.max(0, this.stamina - dt * 15 * running * (this.wear.has("boots") ? 0.75 : 1)); this.restT = 0; }
+    if (running > 0.2) { this.stamina = Math.max(0, this.stamina - dt * 8.25 * running * (this.wear.has("boots") ? 0.75 : 1)); this.restT = 0; }
     else {
       this.restT += dt;
-      if (this.restT > 0.8) {
-        let r = 20 * (this.wear.has("paint") ? 1.3 : 1) * (this.organBoost > 0 ? 1.8 : 1) * (this.hunger < 15 || this.thirst < 15 ? 0.5 : 1);
+      if (this.restT > 0.6) {
+        let r = 27 * (this.wear.has("paint") ? 1.3 : 1) * (this.organBoost > 0 ? 1.8 : 1) * (this.hunger < 15 || this.thirst < 15 ? 0.5 : 1);
         this.stamina = Math.min(100, this.stamina + dt * r);
       }
     }

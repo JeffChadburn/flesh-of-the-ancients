@@ -181,6 +181,7 @@ export class Biomes {
       let rim = Infinity; for (let a = 0; a < 12; a++) rim = Math.min(rim, pre(x + Math.cos(a * 0.52) * r, z + Math.sin(a * 0.52) * r));
       this._lake(pre, x, z, r, rim - 0.4);
     }
+    this._creeks(pre, ok);
     // Round 19: shallow fords every ~260 m along each river (wade across instead of swimming)
     for (const r of this.rivers) {
       let d = 0; const P = r.pts, tot = P.reduce((a, p, i) => a + (i ? Math.hypot(p.x - P[i - 1].x, p.z - P[i - 1].z) : 0), 0);
@@ -203,6 +204,70 @@ export class Biomes {
   _lake(pre, x, z, r, y) {
     if (this.lakes.some((l) => Math.hypot(l.x - x, l.z - z) < l.r + r + 20)) return;
     this.lakes.push({ x, z, r, y, id: this.lakes.length });
+  }
+
+  /** Round 23: small creeks (about as many again as the big rivers), springing from hills and
+   *  forests and running down to the nearest river or lake (or a little pond of their own).
+   *  Narrow and shallow (wadeable); their own RNG so the big rivers / lakes don't move. */
+  _creeks(pre, ok) {
+    const rng = mulberry32((this.t.seed ^ 0xc7ee6) >>> 0), main = this.rivers.slice(), want = Math.max(10, main.length);
+    const samples = []; for (const r of main) for (let i = 0; i < r.pts.length; i += 6) samples.push(r.pts[i]);
+    const nearRiver = (x, z) => { let b = null, bd = Infinity; for (const p of samples) { const d = (p.x - x) ** 2 + (p.z - z) ** 2; if (d < bd) { bd = d; b = p; } } return b ? { p: b, d: Math.sqrt(bd) } : null; };
+    const srcs = [];
+    for (let k = 0; k < 4000 && srcs.length < want * 5; k++) { // more springs than we need: keep the first `want` that make a real creek
+      const x = (rng() * 2 - 1) * 2600, z = (rng() * 2 - 1) * 2900;
+      const w = this.weights(x, z);
+      if (w.sea > 0.05 || w.salt > 0.4 || w.red > 0.3 || w.swamp > 0.3 || w.cd < 200) continue;
+      if (Math.hypot(x, z) < 650 || !ok(x, z, 90)) continue;
+      const nr = nearRiver(x, z); if (nr && (nr.d < 160 || nr.d > 1300)) continue;
+      if (srcs.some((q) => Math.hypot(q.x - x, q.z - z) < 300)) continue;
+      if (this.lakes.some((l) => Math.hypot(l.x - x, l.z - z) < l.r + 120)) continue;
+      srcs.push({ x, z, to: nr ? nr.p : null });
+    }
+    for (const sp of srcs) {
+      if (this.rivers.length - main.length >= want) break;
+      if (this.rivers.some((r) => r.creek && r.pts.some((q, i) => i % 8 === 0 && Math.hypot(q.x - sp.x, q.z - sp.z) < 160))) continue;
+      let x = sp.x, z = sp.z, lvl = pre(x, z) - 0.5, end = "pond";
+      let T = sp.to; const lk = this.lakes.slice().sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z))[0];
+      if (lk && (!T || Math.hypot(lk.x - x, lk.z - z) < Math.hypot(T.x - x, T.z - z))) T = lk;
+      if (!T) continue;
+      let hd = Math.atan2(T.z - z, T.x - x); const pts = [];
+      for (let i = 0; i < 170; i++) {
+        const hh = pre(x, z);
+        if (hh - lvl > 4) { end = "pond"; break; } // creeks don't cut gorges: where the ground rises, it pools instead
+        lvl = Math.min(lvl, hh - 0.5);
+        pts.push({ x, z, y: lvl, w: Math.min(2.6, 1.5 + i * 0.012) });
+        if (!ok(x, z, 30)) { end = "cut"; break; }
+        const nr = nearRiver(x, z);
+        if (nr && nr.d < (nr.p.w || 4) + 4) { end = "join"; break; }
+        if (this.lakes.some((l) => Math.hypot(l.x - x, l.z - z) < l.r * 0.9)) { end = "join"; break; }
+        if (this.weights(x, z).cd < -20) { end = "sea"; break; }
+        const want2 = Math.atan2(T.z - z, T.x - x);
+        let best = null;
+        for (let k = -4; k <= 4; k++) { // mostly the fall line, with a gentle pull toward the river / lake
+          const a = hd + k * 0.26, da = Math.atan2(Math.sin(a - want2), Math.cos(a - want2));
+          if (Math.abs(da) > 1.7) continue;
+          const nx = x + Math.cos(a) * 20, nz = z + Math.sin(a) * 20;
+          let sc = pre(nx, nz) + Math.abs(da) * 1.5 + Math.abs(k) * 0.3;
+          if (!ok(nx, nz, 30)) sc += 1e4;
+          if (!best || sc < best.sc) best = { sc, a };
+        }
+        if (!best) best = { a: want2 };
+        hd = best.a; x += Math.cos(hd) * 10; z += Math.sin(hd) * 10;
+        if (Math.abs(x) > WORLD_HALF - 80 || Math.abs(z) > WORLD_HALF - 80) { end = "edge"; break; }
+      }
+      if (end === "cut") pts.splice(Math.max(0, pts.length - 6));
+      if (pts.length < 16) continue;
+      // a join must not leave a step: drop the creek's last stretch to the river / lake level
+      if (end === "join") { const nr = nearRiver(x, z), ly = nr ? nr.p.y : pts[pts.length - 1].y; for (let i = Math.max(0, pts.length - 4); i < pts.length; i++) pts[i].y = Math.min(pts[i].y, ly + 0.05); }
+      const sm = [pts[0]];
+      for (let k = 0; k < pts.length - 1; k++) { const a = pts[k], b = pts[k + 1]; sm.push({ x: a.x * 0.75 + b.x * 0.25, z: a.z * 0.75 + b.z * 0.25, y: b.y, w: a.w }, { x: a.x * 0.25 + b.x * 0.75, z: a.z * 0.25 + b.z * 0.75, y: b.y, w: b.w }); }
+      sm.push(pts[pts.length - 1]);
+      this.rivers.push({ pts: sm, end, id: this.rivers.length, creek: true });
+      const last = sm[sm.length - 1];
+      if (end === "pond" && ok(last.x, last.z, 40) && !this.lakes.some((l) => Math.hypot(l.x - last.x, l.z - last.z) < l.r + 60)) this._lake(pre, last.x, last.z, 12 + rng() * 10, last.y + 0.3);
+    }
+    this.creekCount = this.rivers.length - main.length;
   }
 
   /** Nearest river sample: { d, y (surface), w (half width), fx, fz (flow) } or null. */

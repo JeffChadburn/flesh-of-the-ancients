@@ -13,7 +13,7 @@ export class TripMusic {
     const A = this.audio; if (!A.ctx || this.on) return false;
     const ctx = (this.ctx = A.ctx), t = ctx.currentTime;
     this.on = true; this.nodes = []; this.bpm = 112; this.step = 0; this.next = t + 0.1; this.chord = 0; this.level = 0; this.peak = 0;
-    const out = (this.out = ctx.createGain()); out.gain.value = 0; out.connect(ctx.destination);
+    const out = (this.out = ctx.createGain()); out.gain.value = 0; out.connect(A.tripBus || ctx.destination); // round 23: through the mixer
     // echo bus
     const dl = ctx.createDelay(2), fb = ctx.createGain(), lp = ctx.createBiquadFilter(), wet = ctx.createGain();
     dl.delayTime.value = (60 / this.bpm) * 0.75; fb.gain.value = 0.48; lp.type = "lowpass"; lp.frequency.value = 2600; wet.gain.value = 0.55;

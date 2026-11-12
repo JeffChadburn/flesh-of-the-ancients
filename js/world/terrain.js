@@ -176,10 +176,11 @@ export class Terrain {
     // berry bushes + root patches around the camp
     const r2 = mulberry32(this.seed ^ 0xbe77);
     site.bushes = [];
-    for (let i = 0; i < 9; i++) {
-      const a = r2() * Math.PI * 2, d = 14 + r2() * 26;
+    for (let i = 0; i < 18; i++) { // round 23: twice as many (12 berry bushes, 6 root patches)
+      const a = r2() * Math.PI * 2, d = 14 + r2() * (i < 9 ? 26 : 34);
       const bx = site.camp.x + Math.cos(a) * d, bz = site.camp.z + Math.sin(a) * d;
       if (Math.hypot(bx - wx, bz - wz) < 10) continue;
+      if (i >= 9 && (site.stream.some((p) => Math.hypot(p.x - bx, p.z - bz) < 5) || site.bushes.some((q) => Math.hypot(q.x - bx, q.z - bz) < 2.5))) continue;
       site.bushes.push({ id: "b" + i, x: bx, z: bz, kind: i % 3 === 2 ? "roots" : "berries" });
     }
     return site;

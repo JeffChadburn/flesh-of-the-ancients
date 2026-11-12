@@ -7,8 +7,17 @@ import { CinematicScore } from "./music.js";
  * Starts after a user gesture.
  */
 
+// Round 23: mixer. Percent sliders (master 0-300, the rest 0-200), saved.
+const VOL_KEY = "fota-audio-v1";
+export const VOL_DEFAULTS = { master: 150, music: 100, effects: 100, voices: 100, ambience: 100 };
+// overall gains per bus at 100% (music / effects louder than before round 23)
+const BASE = { music: 1.35, effects: 1.4, ambience: 1.15, voices: 1.6 };
+
 export class CaveAudio {
   constructor() {
+    this.vol = { ...VOL_DEFAULTS };
+    try { Object.assign(this.vol, JSON.parse(localStorage.getItem(VOL_KEY) || "{}")); } catch {}
+    this.duck = 1;
     this.ctx = null;
     this.muted = false;
     try { this.muted = localStorage.getItem("cavern-muted") === "1"; } catch {}
@@ -53,7 +62,32 @@ export class CaveAudio {
   setMuted(m) {
     this.muted = !!m;
     try { localStorage.setItem("cavern-muted", this.muted ? "1" : "0"); } catch {}
-    if (this.master) this.master.gain.value = this.muted ? 0 : 0.7;
+    this.applyVol();
+  }
+
+  /** Round 23: set one slider (percent) and save. */
+  setVol(k, v) {
+    if (!(k in VOL_DEFAULTS)) return;
+    this.vol[k] = Math.max(0, Math.min(k === "master" ? 300 : 200, Math.round(+v || 0)));
+    try { localStorage.setItem(VOL_KEY, JSON.stringify(this.vol)); } catch {}
+    this.applyVol();
+  }
+  resetVol() { this.vol = { ...VOL_DEFAULTS }; try { localStorage.removeItem(VOL_KEY); } catch {} this.applyVol(); }
+  /** Trip ducking etc. (0..1 on everything but the trip music). */
+  setDuck(k) { this.duck = k; this.applyVol(); }
+  /** speechSynthesis volume (0..1): follows Voices x Master, capped at 1. */
+  get speechVol() { return this.muted ? 0 : Math.min(1, (this.vol.voices / 100) * Math.min(1, this.vol.master / 100)); }
+  /** Gain multiplier for player voice chat (Voices slider). */
+  get voiceGain() { return (this.vol.voices / 100) * BASE.voices; }
+  applyVol() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime, set = (n, v) => n && n.gain.setTargetAtTime(v, t, 0.03);
+    set(this.out, this.muted ? 0 : this.vol.master / 100);
+    set(this.master, (this.vol.effects / 100) * BASE.effects * this.duck);
+    set(this.musicBus, (this.vol.music / 100) * BASE.music * this.duck);
+    set(this.tripBus, (this.vol.music / 100) * BASE.music);
+    set(this.ambBus, (this.vol.ambience / 100) * BASE.ambience * this.duck);
+    set(this.voiceBus, this.voiceGain);
   }
 
   toggle() {
@@ -69,8 +103,23 @@ export class CaveAudio {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     this.ctx = new AC();
-    this.master = this.ctx.createGain();
-    this.master.gain.value = this.muted ? 0 : 0.7;
+    // Round 23 master bus: pre-mix (cave low-pass + echo) -> master gain (0-300%) -> compressor ->
+    // make-up gain -> brick-wall limiter -> speakers. Loud without clipping.
+    const ctx = this.ctx;
+    this.pre = ctx.createGain(); this.pre.gain.value = 0.7;
+    this.out = ctx.createGain();
+    const comp = (this.comp = ctx.createDynamicsCompressor());
+    comp.threshold.value = -22; comp.knee.value = 12; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.22;
+    const makeup = ctx.createGain(); makeup.gain.value = 2.2;
+    const lim = (this.limiter = ctx.createDynamicsCompressor());
+    lim.threshold.value = -1.5; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.001; lim.release.value = 0.08;
+    this.out.connect(comp); comp.connect(makeup); makeup.connect(lim); lim.connect(ctx.destination);
+    // buses
+    this.master = ctx.createGain(); this.master.connect(this.pre); // sound effects (kept as "master" for old callers)
+    this.musicBus = ctx.createGain(); this.musicBus.connect(this.pre);
+    this.ambBus = ctx.createGain(); this.ambBus.connect(this.pre);
+    this.tripBus = ctx.createGain(); this.tripBus.connect(this.out);
+    this.voiceBus = ctx.createGain(); this.voiceBus.connect(this.out);
     // Simple echo / cave-like delay.
     const delay = this.ctx.createDelay(1.2);
     delay.delayTime.value = 0.28;
@@ -81,19 +130,19 @@ export class CaveAudio {
     const filt = this.ctx.createBiquadFilter();
     filt.type = "lowpass";
     filt.frequency.value = 2400;
-    this.master.connect(filt);
-    filt.connect(this.ctx.destination);
+    this.pre.connect(filt);
+    filt.connect(this.out);
     filt.connect(delay);
     delay.connect(fb);
     fb.connect(delay);
     delay.connect(wet);
-    wet.connect(this.ctx.destination);
+    wet.connect(this.out);
     this.echoWet = wet;
     this.echoFb = fb;
     // Outdoor night ambience bus (wind gusts, crickets, an owl); silent underground.
     this.outGain = this.ctx.createGain();
     this.outGain.gain.value = this.outdoor ? 1 : 0;
-    this.outGain.connect(this.master);
+    this.outGain.connect(this.ambBus);
     {
       const ctx = this.ctx;
       const buf = ctx.createBuffer(1, ctx.sampleRate * 3, ctx.sampleRate), d = buf.getChannelData(0);
@@ -122,18 +171,19 @@ export class CaveAudio {
 
     this.flowGain = this.ctx.createGain();
     this.flowGain.gain.value = 0.0;
-    this.flowGain.connect(this.master);
+    this.flowGain.connect(this.ambBus);
     this._noiseDrone(this.flowGain, 400, 0.35);
 
     this.fallGain = this.ctx.createGain();
     this.fallGain.gain.value = 0.0;
-    this.fallGain.connect(this.master);
+    this.fallGain.connect(this.ambBus);
     this._noiseDrone(this.fallGain, 1200, 0.7);
 
     this.started = true;
+    this.applyVol();
     this._scheduleDrips();
     if (this.outdoor) this.setOutdoor(true);
-    try { this.music = new CinematicScore(this.ctx, this.master, this.musicOn); } catch (err) { console.warn("music failed", err); }
+    try { this.music = new CinematicScore(this.ctx, this.musicBus, this.musicOn); } catch (err) { console.warn("music failed", err); }
   }
 
   _noiseDrone(dest, cutoff, q = 0.4) {
@@ -255,7 +305,7 @@ export class CaveAudio {
     const f2 = ctx.createBiquadFilter(); f2.type = "bandpass"; f2.Q.value = 8;
     const sum = ctx.createGain(); sum.gain.value = 1.4;
     src.connect(f1); src.connect(f2); ng.connect(f1); ng.connect(f2); f1.connect(sum); f2.connect(sum); sum.connect(g);
-    g.connect(this.master);
+    g.connect(this.ambBus); // round 23: ambience slider
     let t = t0;
     while (t < t0 + dur) {
       const v = V[Math.floor(Math.random() * V.length)], len = 0.14 + Math.random() * 0.2;
@@ -360,7 +410,7 @@ export class CaveAudio {
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
     osc.connect(f);
     f.connect(g);
-    g.connect(this.master);
+    g.connect(this.ambBus); // round 23: ambience slider
     osc.start(t);
     osc.stop(t + 0.22);
   }
