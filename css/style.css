@@ -790,3 +790,70 @@ button:hover, .file-btn:hover { border-color: var(--accent); color: #fff; }
 #beacon-ind.hidden { display: none; }
 #ft-fade { position: absolute; inset: 0; z-index: 60; background: #000; opacity: 0; pointer-events: none; transition: opacity 0.45s ease; display: flex; align-items: center; justify-content: center; color: #f3d9a0; font: 600 20px Georgia, serif; }
 #ft-fade.on { opacity: 1; pointer-events: auto; }
+
+/* ---- round 24: cutscenes (intro + memories) ---- */
+#cine { position: absolute; inset: 0; z-index: 70; pointer-events: auto; color: #f3e2c0; font-family: Georgia, serif; }
+#cine.hidden { display: none; }
+#cine .cn-cv { position: absolute; inset: 0; width: 100%; height: 100%; display: none; }
+#cine.cn-panel .cn-cv { display: block; }
+#cine .cn-bar { position: absolute; left: 0; right: 0; height: 9vh; background: #000; z-index: 2; }
+#cine .cn-bar.top { top: 0; } #cine .cn-bar.bot { bottom: 0; }
+#cine .cn-fade { position: absolute; inset: 0; background: #000; opacity: 1; z-index: 3; pointer-events: none; }
+#cine .cn-card { position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: none; opacity: 0; transition: opacity 1.1s ease; }
+#cine .cn-card.in { opacity: 1; } #cine .cn-card.out { opacity: 0; }
+#cine .cn-card h2 { margin: 0; font: 400 clamp(30px, 7vw, 64px) Georgia, serif; letter-spacing: 3px; color: #f6dcae; text-shadow: 0 0 24px rgba(255, 140, 60, 0.55), 0 2px 4px #000; }
+#cine .cn-card p { margin: 10px 0 0; font: italic clamp(15px, 3.4vw, 22px) Georgia, serif; color: #e2c08a; text-shadow: 0 2px 4px #000; }
+#cine .cn-sub { position: absolute; left: 50%; bottom: calc(9vh + 14px); transform: translateX(-50%); width: min(880px, 92vw); z-index: 5; text-align: center; font: clamp(16px, 3.6vw, 23px)/1.4 Georgia, serif; text-shadow: 0 2px 6px #000, 0 0 2px #000; opacity: 0; transition: opacity 0.5s ease; pointer-events: none; }
+#cine .cn-sub.on { opacity: 1; }
+#cine .cn-sub b { color: #f3c77a; font-weight: 700; }
+#cine .cn-skip { position: absolute; right: 14px; top: calc(9vh + 10px); z-index: 6; border-radius: 18px; border: 1px solid rgba(240, 210, 160, 0.6); background: rgba(20, 12, 6, 0.6); color: #f3e2c0; padding: 8px 14px; font: 600 14px ui-sans-serif, system-ui, sans-serif; cursor: pointer; }
+#cine .cn-tip { position: absolute; left: 0; right: 0; bottom: 2.6vh; z-index: 6; text-align: center; font: 12px ui-sans-serif, system-ui, sans-serif; color: rgba(240, 220, 190, 0.55); pointer-events: none; }
+#game.cine-on > *:not(#view):not(#cine) { visibility: hidden !important; }
+.mem-row { display: flex; align-items: center; gap: 8px; padding: 5px 2px; border-bottom: 1px solid rgba(224, 181, 106, 0.15); }
+.mem-row span { flex: 1; }
+/* round 24: menu Intro / Tutorial row + first-run prompt */
+.main-menu .mm-row { display: flex; gap: 10px; }
+.main-menu .mm-row button { flex: 1; }
+.main-menu .mm-skip { background: transparent; border-color: rgba(224, 181, 106, 0.3); opacity: 0.85; }
+/* round 24: ☰ → Controls */
+#controls-sheet { position: absolute; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.55); }
+#controls-sheet.hidden { display: none; }
+#controls-sheet .cs-box { width: min(560px, 94vw); max-height: 88vh; overflow: auto; background: rgba(22, 16, 11, 0.96); border: 1px solid rgba(224, 181, 106, 0.4); border-radius: 12px; padding: 12px 14px; color: #ead6b4; font: 14px ui-sans-serif, system-ui, sans-serif; }
+#controls-sheet .cs-head { display: flex; align-items: center; justify-content: space-between; }
+#controls-sheet h3 { margin: 0; font: 20px Georgia, serif; }
+#controls-sheet .cs-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+#controls-sheet .cs-tabs button { padding: 6px 9px; font-size: 12px; }
+#controls-sheet .cs-tabs button.on { background: #7a4a1c; border-color: #e0b56a; }
+#controls-sheet table { width: 100%; border-collapse: collapse; }
+#controls-sheet th { text-align: left; font-weight: 600; padding: 5px 8px 5px 0; width: 42%; color: #e0b56a; vertical-align: top; }
+#controls-sheet td { padding: 5px 0; border-bottom: 1px solid rgba(224, 181, 106, 0.12); }
+#controls-sheet .cs-tip { opacity: 0.7; font-size: 12px; margin: 10px 0 0; }
+/* round 24: tutorial */
+#tut { position: absolute; inset: 0; z-index: 30; pointer-events: none; }
+#tut.hidden { display: none; }
+#tut .tu-card { pointer-events: auto; position: absolute; left: 50%; top: 64px; transform: translateX(-50%); width: min(440px, 92vw); background: rgba(20, 14, 9, 0.9); border: 1px solid rgba(224, 181, 106, 0.55); border-radius: 12px; padding: 9px 12px 10px; color: #ead6b4; font: 13px ui-sans-serif, system-ui, sans-serif; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); }
+#tut .tu-top { display: flex; justify-content: space-between; align-items: center; font-size: 11px; opacity: 0.8; }
+#tut .tu-dots i { display: inline-block; width: 8px; height: 8px; margin-left: 4px; border-radius: 50%; background: rgba(224, 181, 106, 0.25); }
+#tut .tu-dots i.on { background: #e0b56a; } #tut .tu-dots i.ok { background: #6fbf73; }
+#tut h3 { margin: 3px 0 2px; font: 18px Georgia, serif; color: #f2dfbd; }
+#tut p { margin: 2px 0; } #tut .tu-how { color: #e0b56a; font-weight: 600; }
+#tut .tu-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+#tut .tu-btns button, #tut .tu-mbox button { padding: 5px 9px; font-size: 12px; }
+#tut .tu-ok { background: #3f6b33; border-color: #8fd27a; }
+#tut .tu-done { position: absolute; left: 50%; top: 40%; transform: translateX(-50%); font: 700 30px Georgia, serif; color: #bdf0a6; text-shadow: 0 2px 10px #000; animation: tuPop 1s ease; }
+#tut .tu-done.hidden, #tut .hidden { display: none; }
+@keyframes tuPop { from { opacity: 0; transform: translateX(-50%) scale(0.7); } to { opacity: 1; transform: translateX(-50%) scale(1); } }
+#tut .tu-hand { position: absolute; font-size: 34px; z-index: 31; filter: drop-shadow(0 2px 4px #000); animation: tuTap 1.1s ease-in-out infinite; transition: left 0.25s, top 0.25s; }
+#tut .tu-hand.swipe { animation: tuSwipe 1.6s ease-in-out infinite; }
+@keyframes tuTap { 0%, 100% { transform: translateY(6px); } 50% { transform: translateY(-6px) scale(0.92); } }
+@keyframes tuSwipe { 0% { transform: translateX(-40px); } 50% { transform: translateX(40px); } 100% { transform: translateX(-40px); } }
+#tut .tu-menu { pointer-events: auto; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.5); }
+#tut .tu-mbox { width: min(340px, 90vw); display: flex; flex-direction: column; gap: 8px; background: rgba(22, 16, 11, 0.96); border: 1px solid rgba(224, 181, 106, 0.5); border-radius: 12px; padding: 14px; color: #ead6b4; }
+#tut .tu-mbox h3 { text-align: center; }
+#tut .tu-mbox button.ok { border-color: #6fbf73; }
+#tut .tu-mbox small { opacity: 0.6; font-size: 11px; }
+#tut .tu-mrow { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+#game.building #tut .tu-card { top: 200px; }
+#tut.low .tu-card { top: auto; bottom: 10px; }
+#tut.avoid .tu-card { top: auto; bottom: 30vh; }
+#tut.low .tu-card, #tut.low.avoid .tu-card { top: auto; bottom: 10px; }

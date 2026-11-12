@@ -244,6 +244,13 @@ export class Story {
   update(dt) {
     if (this.sandbox && !this.active) { // round 16: free play: prompts only (baskets, carcasses, pickups)
       const ui = this.env.ui;
+      if (this.tutorial) { // round 24: the tutorial has real needs (but nothing can kill you there)
+        const s = this.surv, pl = this.env.player();
+        const running = !pl?.mounted && pl?.runFrac > 0.3 && (pl?.speedNow || 0) > 2.6 ? 1 : 0;
+        if (!this.env.paused()) { s.tick(dt, running); s.starveT = 0; }
+        pl && (pl.sprintAllowed = !s.exhausted);
+        ui.meterUpdate(s);
+      }
       if (ui.modal) { ui.setPrompt(null); this.prompt = null; return; }
       this.prompt = this.findInteraction(); ui.setPrompt(this.prompt ? this.prompt.label : null);
       return;
@@ -297,7 +304,9 @@ export class Story {
       if (tp) return { label: `Talk to ${tp.ident.name}`, act: () => env.talk.talk(tp) };
       if (this.sandbox && !this.active) {
         const carc = env.wildlife()?.nearestCarcass(f, 2.6);
-        return carc ? { label: `Harvest the ${carc.kind}`, act: () => this.harvest(carc) } : null;
+        if (carc) return { label: `Harvest the ${carc.kind}`, act: () => this.harvest(carc) };
+        if (this.tutorial && env.nearWater?.(f)) return { label: "Drink from the stream", act: () => this.drinkWater() }; // round 24
+        return null;
       }
       // round 16: people with something to say
       const P = this.P;

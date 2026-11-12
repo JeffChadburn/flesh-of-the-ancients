@@ -386,7 +386,13 @@ export class Caveman {
     this.root.updateMatrixWorld(true);
     this.flameAnchor.getWorldPosition(this.torchPos);
     const flick = 0.82 + 0.1 * Math.sin(t * 13.1) + 0.07 * Math.sin(t * 23.7 + 1.3) + 0.06 * Math.sin(t * 7.3 + Math.sin(t * 1.7) * 2);
-    this.light.intensity = this.baseIntensity * flick * (this.torchBoost || 1);
+    // round 24: the torch can be shaded (L / 🔥): the flame drops to a faint ember glow
+    let tk = 1;
+    if (this.torchDown !== undefined) {
+      this._torchK = (this._torchK ?? 1) + ((this.torchDown ? 0.07 : 1) - (this._torchK ?? 1)) * Math.min(1, (dt || 0.016) * 6);
+      tk = this._torchK; this.flame.visible = this.embers.visible = tk > 0.35;
+    }
+    this.light.intensity = this.baseIntensity * flick * (this.torchBoost || 1) * tk;
     this.light.position.set(this.torchPos.x + Math.sin(t * 11) * 0.02, this.torchPos.y + 0.12, this.torchPos.z + Math.cos(t * 9) * 0.02);
     this.flame.position.copy(this.torchPos);
     this.embers.position.copy(this.torchPos);

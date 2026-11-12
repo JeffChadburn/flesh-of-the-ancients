@@ -13,7 +13,7 @@ Then visit http://127.0.0.1:8765/
 The main menu offers **Continue** (from the last save), **New Game** (Act I, "The Empty Camp") and **Free Play** (the open world and caves with no story, as in round 6). In free play you start outdoors in **the Hills**, in sight of a cave mouth. Walk into any dark opening in the hillside rock outcrops to enter its cave; one of them leads to Carlsbad Cavern. Walk back to where you came in to return to that entrance. Monsters live only in caves.
 
 - **URL options:**
-  - `?play=new`, `?play=continue` or `?play=free` skip the main menu
+  - `?play=new`, `?play=continue`, `?play=free` or `?play=tutorial` skip the main menu
   - `?daymin=N` sets the real minutes per in-game day (default 22)
   - `?seed=N` or `?cave=carlsbad` start directly in a cave, as before
   - `?world=N` picks a different overworld
@@ -25,7 +25,7 @@ The main menu offers **Continue** (from the last save), **New Game** (Act I, "Th
 - Low passages will not duck for you. A standing player is blocked until they choose to crouch, and the tightest squeezes need crawl. A short hint appears when a low passage is ahead.
 - Your torch is the only light; past about 10 m the cave fades to black. Depth and distance are shown at the top left, with a north-up plan of the cave at the top right (the stream is drawn in blue-green).
 - A warm glow marks the way out. **New cave** builds another layout. Type a seed and press **Load** to replay one. Each cave has at least one large, high-ceilinged cavern, and the route to the exit is always passable at least by crawling.
-- **Sound on / off** mutes everything (dripping, flowing water, echo, music). **Music on / off** (or **M**) toggles only the creepy score. Sound starts after the first click or tap.
+- **Sound on / off** mutes everything (dripping, flowing water, echo, music). **Music on / off** toggles only the creepy score. Sound starts after the first click or tap.
 - Stalactites, stalagmites, columns, flowstone, and soda straws are placed from the seed, denser in caverns. A shallow stream runs along some floors and falls into a pool, usually in a cavern. Water is walkable and will not trap you.
 - You cannot walk out through walls, floors, ceilings, or junctions. If anything ever pushed you outside, you are placed back at the last valid footing.
 
@@ -271,6 +271,34 @@ Draw calls go up slightly because each cell is its own mesh. The triangle count 
   - *World:* twice as many streams: 14 new shallow creeks run from hills and forests down to a river, lake or a small pond of their own (they're wadeable, drawn thinner on the maps, and too narrow for boats). About 260 wild berry bushes now grow across the biomes: brambles in the woods, bilberries on the cold slopes, cloudberries on the tundra, cranberries in the marsh and juniper in the red rock. They grow in clumps near water and regrow after 10 minutes. The camp has twice as many bushes and root patches.
   - *Stamina and hunger:* sprinting drains stamina 45% slower (about 12 s of full sprint instead of 7), it starts coming back sooner and refills 35% faster, and hunger and thirst drop 40% slower.
 
+- **Round 24: the intro, the tutorial, Memories, and a sturdier start.**
+  - *Intro "The River-Tooth"* (`js/cine/`): about 2 minutes, real time in the engine (no video file). It has camera flights over the camp at dusk, a cave mouth, the western sea and the red canyons, plus animated cave-painting panels (`paintings.js`: parallax layers, torch flicker, the First Mouth slowly lit). It also has title cards, a Web Audio score (`score.js`), fades and letterbox bars. It is narrated with spoken lines (the Voices volume in Audio) and subtitles. It is offered on first launch and is always on the main menu (**▶ Intro**). **Skip ⏭** or Esc ends it; a tap, click or Space moves to the next line.
+  - *Memories*: short story cutscenes (20–45 s) played by the same player (`js/cine/cutscene.js`, scripts in `js/cine/scripts.js`). Each plays once per save and stays in Pack → **Journal** (formerly Visions) → Memories, where you can replay it. The intro is always listed there too.
+    - **The First Throat** plays when you first enter a cave.
+    - **First Blood** plays on your first kill.
+    - **The First Face** plays when you take the hunter's face.
+    - One plays when you finish each quest: **The Empty Camp**, **Smoke to the West**, **Proof of the Hunt**, **The Painted Hall**, **Throat of Ash**, **Word to the Hold** and **The Hunter of Faces**.
+    - **A Fire of Our Own** plays when you found your first settlement.
+    - **The … Age** plays at each age advance.
+    - **The Colours** plays on your first mushroom vision.
+    - **The Breath of the First Mouth** plays deep in a cave once *Throat of Ash* has started. The First Mouth itself (Act IV) isn't in the game yet, so this is the closest moment.
+    - Story memories reset with New Game. Free play and multiplayer keep their own.
+  - *Tutorial* (`js/tutorial.js`): offered on first launch ("Play the tutorial? / Skip"). It is also on the main menu and under ☰ → **Tutorial**, and you can replay it.
+    - It has five chapters: **Basics** (walk, look, slow/fast, sprint and stamina, jump, crouch, crawl, torch), **Survival** (hunger/thirst, berries, Pack, inspect, eat, drink), **Combat** (spear, bow, hunting, skinning, crafting), **World** (map, filters, hint, beacon, fast travel, Tasks, talking, horse, boat, caves and Exit cave) and **Empire** (founding, building, jobs, mushrooms and Calm visuals, multiplayer and voice, Audio, Controls).
+    - Each step has a spoken and subtitled line, shows the control for your device (phone, keyboard and mouse, or gamepad), and an animated hand points at the real button. The step completes when you do the thing.
+    - **Skip step**, **Chapters** (jump to any chapter) and **Exit tutorial** are always on the card.
+    - It plays in its own practice world beside the camp, where nothing can hurt you. Your saves are put back when you leave, even if the tab was closed mid-tutorial. Progress is saved in `fota-tutorial-v1`.
+  - ☰ → **Controls**: every control for phone, keyboard & mouse and gamepad (yours is marked).
+  - *Torch*: **L** / 🔥 Torch / gamepad RB lowers the torch to embers and raises it again.
+  - *Gamepad buttons*: A jump, B crouch → crawl → stand, X attack, Y use/ride, LB spear ⇄ bow, RB torch, Back map, Start Pack, D-pad up Tasks. A, X or Y advances a cutscene; B or Start skips it.
+  - **M** now only opens the map. It no longer also toggled the music.
+  - *Sturdier start*:
+    - The WebGL renderer is retried with fewer demands if the first try fails.
+    - A shader error, a crash in the first frames, or the world failing to build on High graphics switches to Low once and reloads, with a note.
+    - A lost WebGL context pauses drawing until the browser restores it.
+    - The boot-check box in `index.html` reports anything else.
+    - `?failhigh=1` simulates a High failure, for testing.
+  - URL: `?play=tutorial&ch=N` (N = 0–4) opens the tutorial at a chapter.
 - **Round 20: talkative townsfolk, your own settlements, and the ages.**
   - *Talk to anyone:* every person in a town (and your own villagers) can be talked to with E / **Talk**, in the story and in free play. They stop and turn when you walk up.
     - Each has a name, a trade, a temperament and their own voice (spoken with subtitles when Voices are on).

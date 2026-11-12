@@ -46,6 +46,10 @@ import { WildBerries, BERRY_KINDS } from "./world/berries.js";
 import { Multiplayer } from "./mp/mp.js"; // round 22
 import { AudioPanel } from "./audio-ui.js"; // round 23
 import { Beacon } from "./beacon.js"; // round 23
+import { Cutscene } from "./cine/cutscene.js"; // round 24
+import { Tutorial, CHAPTERS } from "./tutorial.js";
+import { ControlsSheet, currentDevice } from "./controls.js";
+import { INTRO, MEMORIES, AGE_LINES, fillMemory } from "./cine/scripts.js";
 
 const errors = [];
 window.addEventListener("error", (e) => errors.push(String(e.message || e.error || e)));
@@ -66,11 +70,37 @@ const muteBtn = document.getElementById("mute-btn");
 const placeEl = document.getElementById("place");
 
 const IS_TOUCH = matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
-const renderer = new THREE.WebGLRenderer({
-  canvas,
-  antialias: !IS_TOUCH,
-  powerPreference: "high-performance",
-});
+// Round 24: robust start. Try the WebGL renderer with fewer demands each time (some desktop drivers
+// refuse antialias / high-performance), and if High graphics breaks (shader error, a crash in the first
+// frames, the world failing to build), switch to Low once and reload. The boot-check in index.html shows
+// any error that still gets through.
+function makeRenderer() {
+  const tries = [{ antialias: !IS_TOUCH, powerPreference: "high-performance" }, { antialias: false, powerPreference: "default" }, { antialias: false, powerPreference: "low-power", precision: "mediump" }];
+  let last = null;
+  for (const o of tries) { try { return new THREE.WebGLRenderer({ canvas, ...o }); } catch (e) { last = e; console.warn("WebGL renderer failed with", o, e); } }
+  throw last || new Error("WebGL is not available");
+}
+function gfxFallback(why) {
+  if (gfxQuality() !== "high") return false;
+  try { if (sessionStorage.getItem("fota-gfx-fb")) return false; sessionStorage.setItem("fota-gfx-fb", String(why).slice(0, 120)); } catch { return false; }
+  console.warn("Graphics: High failed (" + why + "), switching to Low");
+  setGfxQuality("low"); setTimeout(() => location.reload(), 50); return true;
+}
+const renderer = makeRenderer();
+renderer.debug.onShaderError = (gl, program, vs, fs) => {
+  const log = (sh) => (gl.getShaderInfoLog(sh) || "").trim();
+  console.error("Shader error:", log(vs) || log(fs) || gl.getProgramInfoLog(program));
+  gfxFallback("shader error");
+};
+let glLost = false;
+canvas.addEventListener("webglcontextlost", (e) => {
+  e.preventDefault(); glLost = true; console.warn("WebGL context lost");
+  try { storyUI?.toast("The graphics driver reset. Restoring…", "bad"); } catch {}
+}, false);
+canvas.addEventListener("webglcontextrestored", () => {
+  glLost = false; console.warn("WebGL context restored");
+  try { storyUI?.toast("Graphics restored."); } catch {}
+}, false);
 // Phones: cap the pixel ratio (fill rate is the main cost of the rock shader), then adapt.
 // Round 14: Graphics quality. Low (phone default) caps the pixel ratio lower and skips surface relief.
 let DPR_CAP = Math.min(window.devicePixelRatio || 1, IS_TOUCH ? (gfxQuality() === "high" ? 1.75 : 1.3) : 2);
@@ -114,6 +144,19 @@ const skyFill = new THREE.HemisphereLight(0x34446a, 0x0c0a08, 0);
 scene.add(skyFill);
 
 const URLP = new URLSearchParams(location.search);
+// Round 24: the tutorial plays in its own sandbox. Before it starts, the few shared keys it can touch are
+// copied aside; leaving (or the next normal launch, if the tab was closed mid-tutorial) puts them back.
+const TUT_SNAP = "fota-tut-snapshot-v1", TUT_KEYS = ["flesh.save.v1", "fota-talk-v1", "fota-berry-taken-v1", "fota-shroom-seen-v1", "fota-shroom-taken-v1", "cavern.kills", "cavern.deaths", "fota-mapfilters-v1"];
+function tutSnapshot() { try { const o = {}; for (const k of TUT_KEYS) o[k] = localStorage.getItem(k); localStorage.setItem(TUT_SNAP, JSON.stringify(o)); } catch {} }
+function tutRestore() {
+  try {
+    const raw = localStorage.getItem(TUT_SNAP); if (!raw) return false;
+    const o = JSON.parse(raw); for (const k of TUT_KEYS) { if (o[k] == null) localStorage.removeItem(k); else localStorage.setItem(k, o[k]); }
+    for (const k of Object.keys(localStorage)) if (/-tut-\d+$/.test(k)) localStorage.removeItem(k);
+    localStorage.removeItem(TUT_SNAP); return true;
+  } catch { return false; }
+}
+if (URLP.get("play") !== "tutorial") tutRestore();
 const STREAM = URLP.get("stream") !== "0";
 const chunks = new ChunkManager(scene, { budgetMs: 3.5 });
 const world = {
@@ -393,7 +436,7 @@ function ensureWorld() {
   // Round 20: Kra's own settlements, townsfolk who talk and remember him
   const pack = () => story.active || story.sandbox;
   world.colony = new Colony({ terrain: world.terrain, parent: world.settleRoot, people: world.people, toast: (m, k) => storyUI.toast(m, k),
-    skills: () => (pack() ? story.surv.skills : new Set()), key: () => `fota-colony-v1-${story.sandbox ? (mpActive ? "mp" : "free") : "story"}-${seed}` }); // round 22: multiplayer keeps its own
+    skills: () => (pack() ? story.surv.skills : new Set()), key: () => `fota-colony-v1-${story.tutorial ? "tut" : story.sandbox ? (mpActive ? "mp" : "free") : "story"}-${seed}` }); // round 22: multiplayer keeps its own
   world.talk = new TownTalk({ ui: storyUI, voice: storyUI.voice, surv: () => (pack() ? story.surv : null), terrain: () => world.terrain, atmo: () => world.atmo,
     people: () => world.people, colony: () => world.colony, story: () => story.active, wildlife: () => world.wildlife, discovered: () => world.discovered,
     kills: () => { const st = story.surv.stats; return (st.small || 0) + (st.deer || 0); }, questsDone: () => (story.active ? story.quests.completed().length : 0), time: () => game.time,
@@ -529,6 +572,158 @@ function spiritTick(dt) {
     if (ow) { const g = world.terrain.height(viewCam.position.x, viewCam.position.z); if (viewCam.position.y < g + 1.2) viewCam.position.y = g + 1.2; }
     viewCam.lookAt(f.x, f.y + 1.25 + (ow ? Math.min(1.2, c.t * 0.03) : 0), f.z);
   }
+}
+// ---------------- Round 24: cutscenes (the intro + "Memories") ----------------
+let cine = null; // created in wireMemoriesUI (after the UI exists)
+let cineCam = null, cineOpts = {};
+const QIDS = ["m1", "m2", "m3", "m4", "m5", "m6", "m7"];
+const _spots = {};
+/** Intro locations: the camp, a cave mouth, the western sea, the red canyons, the cold north. */
+function introSpot(at) {
+  const T = world.terrain, B = T.bio, site = world.camp?.site;
+  if (_spots[at]) return _spots[at];
+  let s = null;
+  if (at === "camp" && world.camp) { const c = campSpawn(); s = { x: c.x, z: c.z, yaw: c.yaw, look: site.camp }; }
+  else if (at === "cave") {
+    const cx = site?.camp.x ?? 0, cz = site?.camp.z ?? 0;
+    const e = T.entrances.filter((q) => !q.hollow).sort((a, b) => Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b.x - cx, b.z - cz))[0] || site?.caveEntrance;
+    if (e) { const L = landingNear(e.x + e.fx * 16, e.z + e.fz * 16, 2) || { x: e.x + e.fx * 16, z: e.z + e.fz * 16 }; s = { ...L, look: { x: e.x, z: e.z } }; }
+  } else if (at === "ocean" && B) {
+    const z = site?.camp.z ?? 0, x = B.coastX(z) + 90, L = landingNear(x, z, 4); if (L) s = { ...L, look: { x: L.x - 400, z: L.z } };
+  } else if ((at === "red" || at === "north") && B) {
+    let best = null, bd = Infinity;
+    for (let z = -3000; z <= 3000; z += 70) for (let x = -1600; x <= 1600; x += 90) {
+      const w = B.weights(x, z); if (w.sea > 0.05) continue;
+      if ((at === "red" ? w.red : w.alpine + w.tundra) < 0.75) continue;
+      const d = Math.hypot(x, z); if (d < bd) { bd = d; best = { x, z }; }
+    }
+    if (best) { const L = landingNear(best.x, best.z, 3); if (L) s = { ...L, look: { x: L.x + 200, z: L.z + (at === "red" ? 120 : -120) } }; }
+  }
+  return (_spots[at] = s);
+}
+function cinePrepare(sc) {
+  const ow = world.mode === "overworld" && world.terrain && player;
+  if (cineOpts.teleport && sc.time != null) world.atmo.setTime(sc.time);
+  let s = null;
+  if (cineOpts.teleport && ow && sc.at && sc.at !== "here") s = introSpot(sc.at);
+  caveman.root.visible = !cineOpts.teleport || !!sc.kra || !s || sc.at === "here";
+  let far = 0;
+  if (s) {
+    far = Math.hypot(s.x - feetPos().x, s.z - feetPos().z);
+    player.placeWorld(s.x, 0, s.z);
+    if (s.yaw != null) player.yaw = s.yaw; else if (s.look) player.yaw = Math.atan2(-(s.look.x - s.x), -(s.look.z - s.z));
+    player.applyLook?.();
+  }
+  cineCam = { f: player ? feetPos().clone() : viewCam.position.clone(), yaw: player?.yaw || 0, look: s?.look || null, a0: bestVisionAngle() };
+  return new Promise((r) => setTimeout(r, !s ? 250 : far > 400 ? 2800 : 1400)); // let the terrain stream in
+}
+const _cv = new THREE.Vector3();
+function cineCamUpdate(sc, t, dt, dur) {
+  const c = cineCam; if (!c) return;
+  const ow = world.mode === "overworld" && world.terrain, f = c.f;
+  const u = dur ? Math.min(1, t / dur) : 0, e = u * u * (3 - 2 * u);
+  const fa = c.look ? Math.atan2(c.look.x - f.x, c.look.z - f.z) : c.yaw + Math.PI; // the way Kra / the scene faces
+  const dx = Math.sin(fa), dz = Math.cos(fa), sx = dz, sz = -dx;
+  const G = (x, z) => (ow ? world.terrain.height(x, z) : f.y);
+  let P, L;
+  if (!ow) { const a = c.a0 + t * 0.08; P = [f.x + Math.sin(a) * 2.3, f.y + 1.7, f.z + Math.cos(a) * 2.3]; L = [f.x, f.y + 1.2, f.z]; }
+  else if (sc.cam === "fly") {
+    const k = -40 + 80 * e, x = f.x + dx * k + sx * 14, z = f.z + dz * k + sz * 14;
+    const alt = sc.alt || 24; P = [x, Math.max(G(x, z), f.y) + alt + 10 * (1 - e), z]; const lx = x + dx * (45 + alt), lz = z + dz * (45 + alt); L = [lx, G(lx, lz) + 3, lz];
+  } else if (sc.cam === "orbit") { const a = c.a0 + t * 0.09; P = [f.x + Math.sin(a) * 9, f.y + 3.4, f.z + Math.cos(a) * 9]; L = [f.x, f.y + 1.3, f.z]; }
+  else if (sc.cam === "rise") { const a = c.a0, r = 3 + 12 * e; P = [f.x + Math.sin(a) * r, f.y + 0.9 + 9 * e, f.z + Math.cos(a) * r]; L = [f.x, f.y + 1.3, f.z]; }
+  else if (sc.cam === "push") {
+    const tg = c.look || { x: f.x + dx * 14, z: f.z + dz * 14 }, ty = G(tg.x, tg.z), d = 30 - 18 * e;
+    const x = tg.x - dx * d + sx * 3, z = tg.z - dz * d + sz * 3; P = [x, Math.max(G(x, z), ty) + 3.5, z]; L = [tg.x, ty + 2.2, tg.z];
+  } else { // "low": behind Kra's shoulder, looking past him at the sky
+    P = [f.x - dx * (3.4 + e) + sx * 0.9, f.y + 1.15, f.z - dz * (3.4 + e) + sz * 0.9]; L = [f.x + dx * 25, f.y + 3.5, f.z + dz * 25];
+  }
+  if (ow) { const g = world.terrain.height(P[0], P[2]); if (P[1] < g + 1.2) P[1] = g + 1.2; const wl = world.terrain.waterLevel?.(P[0], P[2]); if (wl != null && P[1] < wl + 1) P[1] = wl + 1; }
+  viewCam.position.set(P[0], P[1], P[2]); viewCam.up.set(0, 1, 0); viewCam.lookAt(_cv.set(L[0], L[1], L[2]));
+}
+/** Play a script (intro or a memory). opts.teleport: fly the player around (the intro), put him back after. */
+function beginCine(script, opts = {}) {
+  if (!cine || cine.on || !player) return false;
+  if (document.pointerLockElement) document.exitPointerLock();
+  armAudio(); storyUI.closePanel(); storyUI.closeChoice?.(); wmap.close?.();
+  const canTp = !!opts.teleport && world.mode === "overworld" && !game.horse && !game.boat && !player.mounted && !travelling;
+  const back = canTp ? { x: feetPos().x, z: feetPos().z, yaw: player.yaw, time: world.atmo.time } : null;
+  cineOpts = { ...opts, teleport: canTp };
+  storyUI.cineOn = true; gameEl.classList.add("cine-on"); cineCam = null;
+  glog({ e: "cine", id: script.id });
+  return cine.play(script, { prepare: cinePrepare, cam: cineCamUpdate, done: (sk) => {
+    cineCam = null; storyUI.cineOn = false; gameEl.classList.remove("cine-on"); caveman.root.visible = true;
+    if (back) { player.placeWorld(back.x, 0, back.z); player.yaw = back.yaw; player.applyLook?.(); if (back.time != null) world.atmo.setTime(back.time); }
+    glog({ e: "cineEnd", id: script.id, skipped: sk }); opts.done?.(sk);
+  } });
+}
+function playIntro(fromMenu = false) {
+  if (fromMenu) storyUI.hideMenu();
+  return beginCine(INTRO, { teleport: true, done: () => { try { localStorage.setItem("fota-firstrun-v1", "1"); } catch {} if (fromMenu) { world.atmo.setTime(6.15); showMainMenu(); } } });
+}
+// --- the memories store: once per save (story: cleared on New Game; free play / multiplayer: per world) ---
+const memKey = () => (story.tutorial ? null : `fota-memories-v1-${story.active ? "story" : story.sandbox ? (mpActive ? "mp" : "free") : null}`);
+function memLoad() { const k = memKey(); if (!k || k.endsWith("null")) return null; try { return JSON.parse(localStorage.getItem(k)) || { seen: [] }; } catch { return { seen: [] }; } }
+function memSave(m) { const k = memKey(); if (k && m) try { localStorage.setItem(k, JSON.stringify(m)); } catch {} }
+function memScript(key) {
+  const [id, n] = key.split(":");
+  if (id === "intro") return INTRO;
+  const m = MEMORIES.find((q) => q.id === id); if (!m) return null;
+  if (id === "age") { const a = COL_AGES[+n] || COL_AGES[1]; return fillMemory(m, { title: `The ${a.name} Age`, age: `The ${a.name} Age`, ageLine: AGE_LINES[+n] || a.lore || "" }); }
+  return m;
+}
+const memTitle = (key) => memScript(key)?.title || key;
+/** Pack → Journal → Memories: the intro is always there, then every memory seen in this save. */
+function wireMemoriesUI() {
+  cine = new Cutscene({ root: gameEl, audio, voice: storyUI.voice, touch: IS_TOUCH });
+  storyUI.memories = () => [{ key: "intro", title: "The River-Tooth (the intro)" }, ...(memLoad()?.seen || []).map((k) => ({ key: k, title: memTitle(k) }))];
+  storyUI.onMemoryReplay = (key) => { const s = memScript(key); if (s) beginCine(s, { teleport: key === "intro", replay: true }); };
+}
+const memQueue = [];
+/** A story beat happened: queue its cutscene (once per save). */
+function memory(key, delay = 2) {
+  if (story.tutorial || game.noMemories) return false;
+  const m = memLoad(); if (!m || m.seen.includes(key) || memQueue.some((q) => q.key === key)) return false;
+  memQueue.push({ key, t: delay }); return true;
+}
+const memWatch = { prev: null, key: null, t: 0 };
+function memPoll() {
+  const k = memKey();
+  if (k !== memWatch.key) { memWatch.key = k; memWatch.prev = null; }
+  if (!k || k.endsWith("null") || !ready || !player || game.dead) return;
+  const C = world.colony, sq = story.quests;
+  let deep = 0;
+  if (world.mode === "cave" && cave && mainPath.length) {
+    const cp = camera.position; let near = null, nd = Infinity;
+    for (const st of cave.stations) { const w = stationWorld(st), d = Math.hypot(cp.x - w.x, cp.y - w.y, cp.z - w.z); if (d < nd) { nd = d; near = st; } }
+    deep = near ? Math.max(0, mainPath.indexOf(near.id)) / mainPath.length : 0;
+  }
+  const st = { cave: world.mode === "cave", kills: tally.kills, face: !!story.flags?.faceTaken, q: QIDS.map((id) => !!(story.active && sq?.done(id))), towns: C?.list.length || 0, age: C?.maxAge?.() || 0, trip: trip.on,
+    mouth: world.mode === "cave" && story.active && !!(sq?.state("m5") || sq?.done("m5")) && cave?.kind !== "hollow" && deep > 0.85 };
+  const p = memWatch.prev; memWatch.prev = st;
+  if (!p) return;
+  if (st.cave && !p.cave) memory("cave1", 2.5);
+  if (st.kills > p.kills) memory("kill1", 2.2);
+  if (st.face && !p.face) memory("face1", 1.2);
+  QIDS.forEach((id, i) => { if (st.q[i] && !p.q[i]) memory("q_" + id, 2.5); });
+  if (st.towns > 0 && p.towns === 0) memory("settle1", 3);
+  if (st.age > p.age && st.age > 0) memory("age:" + st.age, 3);
+  if (st.trip && !p.trip) memory("shroom1", 3.5);
+  if (st.mouth && !p.mouth) memory("mouth1", 0.8);
+}
+function cineTick(dt) {
+  if (!cine) return;
+  if ((memWatch.t -= dt) <= 0) { memWatch.t = 0.5; memPoll(); }
+  if (memQueue.length && !cine.on) {
+    const q = memQueue[0];
+    if (game.dead || storyUI.modal || travelling || world.busy || spirit?.on || !player || storyUI.menuOpen?.()) q.t = Math.max(q.t, 1);
+    else if ((q.t -= dt) <= 0) {
+      memQueue.shift();
+      const m = memLoad(), s = memScript(q.key);
+      if (m && s && !m.seen.includes(q.key)) { m.seen.push(q.key); memSave(m); beginCine(s, {}); }
+    }
+  }
+  cine.update(dt);
 }
 function endTrip() { if (!trip.on) return; trip.endSoon(5); storyUI.toast("You breathe slowly. The colours drain away."); }
 function tripTick(dt) {
@@ -744,9 +939,6 @@ if (musicBtn) {
   });
   musicBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
 }
-window.addEventListener("keydown", (e) => {
-  if (e.code === "KeyM" && !(e.target instanceof HTMLInputElement)) toggleMusic();
-});
 
 const btnCrouch = document.getElementById("btn-crouch");
 const btnCrawl = document.getElementById("btn-crawl");
@@ -902,6 +1094,7 @@ function saveTally() {
   renderStatus();
 }
 const game = {
+  tc: {}, // round 24: tutorial counters (stabs, arrows, crafts…)
   weapon: "spear",
   health: 3, maxHealth: 3, invuln: 0, dead: false, deadT: 0, attackCd: 0, attackPending: -1,
   noiseBurst: 0, lastDamage: 0, time: 0, monster: null, respawnAt: -1, shake: 0, vignette: 0,
@@ -917,6 +1110,7 @@ syncVoice();
 window.__VOICE__ = storyUI.voice;
 storyUI.voice.getVolume = () => audio.speechVol; // round 23: speech follows the Voices slider
 storyUI.tripOn = () => trip.on; // round 21
+wireMemoriesUI(); // round 24
 storyUI.visionJournal = () => world.colony?.know.journal || []; storyUI.onVisionReplay = (n) => startVision(n); // round 23
 // Round 22: multiplayer (rooms, avatars, chat, voice). Idle until you open ☰ → Multiplayer.
 // the room to join: from an invite link, or this tab's room after a reload (the address bar is tidied on load)
@@ -960,6 +1154,7 @@ const story = new Story({
   monster: () => game.monster,
   caveKind: () => cave?.kind || null,
   get talk() { return world.talk || null; }, // round 20
+  nearWater: (f) => world.mode === "overworld" && !!world.terrain && world.terrain.streamDist(f.x, f.z) < 2.1, // round 24 (tutorial)
   berryNear: (f) => (world.mode === "overworld" ? world.berries?.near(f) || null : null), // round 23: wild berry bushes
   pickBerry: (b) => {
     const got = story.surv.add("berries", 3);
@@ -1062,6 +1257,7 @@ function restoreFromSave(snap) {
 }
 function startNewGame() {
   clearSave();
+  try { localStorage.removeItem("fota-memories-v1-story"); } catch {} // round 24: a new journey, new memories
   if (world.terrain) wmap.clear(mapKey()); else wmap.pendingClear = true; // a new journey: the map starts dark again
   story.newGame();
   ensureWorld();
@@ -1096,7 +1292,9 @@ function startFreePlay() {
 }
 function showMainMenu() {
   if (document.pointerLockElement) document.exitPointerLock();
-  storyUI.showMenu({ canContinue: !!readSave(), onContinue: () => transition(continueGame), onNew: () => transition(startNewGame), onFree: () => transition(startFreePlay) });
+  let first = false; try { first = !localStorage.getItem("fota-firstrun-v1") && !readSave(); } catch {}
+  storyUI.showMenu({ canContinue: !!readSave(), onContinue: () => transition(continueGame), onNew: () => transition(startNewGame), onFree: () => transition(startFreePlay),
+    onIntro: () => playIntro(true), onTutorial: () => openTutorial(), firstRun: first && !URLP.has("nofirst"), onFirstDone: () => { try { localStorage.setItem("fota-firstrun-v1", "1"); } catch {} } }); // round 24
 }
 
 function renderStatus() {
@@ -1189,7 +1387,7 @@ function attack() {
   game.attackPending = 0.14;
   game.noiseBurst = 0.45;
   caveman.thrust();
-  mp.fx("thrust");
+  mp.fx("thrust"); tc("spear");
   attackBtn?.classList.add("hit");
   setTimeout(() => attackBtn?.classList.remove("hit"), 150);
   return true;
@@ -1435,7 +1633,7 @@ function updateView(dt) {
       viewCam.lookAt(_tmp);
     }
   }
-  if (spiritCam) fp = false; // round 23: the vision camera shows Kra
+  if (spiritCam || cineCam) fp = false; // round 23/24: the vision / cutscene camera shows Kra
   caveman.setFirstPerson(fp);
   if (fp) {
     viewCam.position.copy(eye);
@@ -1489,7 +1687,7 @@ function shootArrow() {
   const d = target.sub(origin);
   { const L = d.length(); d.y += 0.5 * 7.5 * (L / 40) ** 2; } // aim above by the gravity drop, so the arrow lands on the cross
   archery.shoot(origin, d);
-  mp.fx("arrow", origin, d);
+  mp.fx("arrow", origin, d); tc("bow");
   audio.bowShot?.();
   glog({ e: "shoot" });
   return true;
@@ -1537,6 +1735,15 @@ function setView(fp) {
   if (viewBtn) viewBtn.firstChild.textContent = game.fp ? "3rd person " : "1st person ";
 }
 function toggleView() { setView(!game.fp); }
+// Round 24: raise / lower the torch (L, 🔥, gamepad RB). Lowered, it is a glow of embers: hide, or watch the dark.
+caveman.torchDown = false;
+const torchBtn = document.getElementById("btn-torch");
+function toggleTorch() {
+  caveman.torchDown = !caveman.torchDown; torchBtn?.classList.toggle("active", caveman.torchDown);
+  storyUI.toast(caveman.torchDown ? "🔥 Torch lowered: just a glow of embers." : "🔥 Torch up.");
+}
+torchBtn?.addEventListener("click", (e) => { e.stopPropagation(); toggleTorch(); });
+torchBtn?.addEventListener("pointerdown", (e) => e.stopPropagation());
 
 attackBtn?.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); armAudio(); attack(); });
 viewBtn?.addEventListener("click", (e) => { e.stopPropagation(); toggleView(); });
@@ -1554,11 +1761,12 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "KeyF") attack();
   if (e.code === "KeyQ" || e.code === "KeyB") setWeapon(game.weapon === "bow" ? "spear" : "bow");
   if (e.code === "KeyV") toggleView();
+  if (e.code === "KeyL" && !storyUI.modal) toggleTorch(); // round 24
   // Act 1: interact / inventory / skills / crafting; debug time + weather
   if (e.code === "KeyE" && storyUI.dialog.classList.contains("hidden") && canToggleMount()) { e.preventDefault(); toggleMount(); }
   else if (e.code === "KeyE" || (e.code === "Space" && !storyUI.dialog.classList.contains("hidden"))) { e.preventDefault(); story.interact(); }
   else if (e.code === "Space" && !storyUI.modal && !game.dead) { e.preventDefault(); player?.jump(); }
-  if (story.active && e.code === "KeyJ") storyUI.toggleTasks();
+  if ((story.active || story.tutorial) && e.code === "KeyJ") storyUI.toggleTasks();
   const pk = story.active || story.sandbox;
   if (pk && e.code === "KeyI") { storyUI.togglePanel("inv", story.surv); }
   if (pk && e.code === "KeyK") { storyUI.togglePanel("skills", story.surv); }
@@ -1634,7 +1842,7 @@ function caveQuestTarget() {
 }
 // ---------------- Round 16: full-screen map + cave exit ----------------
 const wmap = new WorldMap(gameEl, { touch: IS_TOUCH });
-function mapKey() { return `fota-map-${story.active ? "story" : "free"}-${world.terrain?.seed ?? 0}`; }
+function mapKey() { return `fota-map-${story.tutorial ? "tut" : story.active ? "story" : "free"}-${world.terrain?.seed ?? 0}`; }
 function mapState() {
   const p = camera.position, out = { mode: world.mode, player: { x: p.x, z: p.z, yaw: player?.yaw || 0 } };
   const tgt = story.active ? story.questTarget() : null;
@@ -1677,7 +1885,11 @@ function openMap(toggle = false, focus = null) {
 /** Round 17: 💡 Hint: map centred on the next objective (pulsing), a spoken / written line, and the
  *  compass pointing there for 20 s. */
 function showObjectiveHint() {
-  const h = story.hint();
+  let h = story.hint();
+  if (!h && story.tutorial && world.terrain) { // round 24: the tutorial's hint points at the nearest town
+    const f = feetPos(), s = (world.terrain.settlements || []).slice().sort((a, b) => Math.hypot(a.x - f.x, a.z - f.z) - Math.hypot(b.x - f.x, b.z - f.z))[0];
+    if (s) h = { x: s.x, z: s.z, label: s.name, text: `People live at ${s.name}. Follow the marker.` };
+  }
   if (!h) { storyUI.toast("No hint right now. Explore freely."); return null; }
   game.hint = { ...h, mode: world.mode === "overworld" ? "overworld" : "cave", until: game.time + 20 };
   compassKey = "";
@@ -1692,7 +1904,7 @@ wmap.onFilters = () => toggleFilters(wmap.el, () => wmap.draw(), "big");
 
 // ---------------- Round 23: map beacon + fast travel ----------------
 const beacon = new Beacon(scene, gameEl);
-const beaconKey = () => `fota-beacon-${story.active ? "story" : "free"}-${world.terrain?.seed ?? 0}`;
+const beaconKey = () => `fota-beacon-${story.tutorial ? "tut" : story.active ? "story" : "free"}-${world.terrain?.seed ?? 0}`;
 const ftFade = document.createElement("div"); ftFade.id = "ft-fade"; gameEl.appendChild(ftFade);
 let travelling = false;
 /** Places you can fast-travel to: towns you've found, your settlements, discovered cave mouths, camp, an explored beacon. */
@@ -1718,7 +1930,7 @@ function travelBlock() {
 }
 /** A dry, clear spot near (x, z), r m out (spiral search). */
 function landingNear(x, z, r0) {
-  const t = world.terrain, f = feetPos(), a0 = Math.atan2(f.z - z, f.x - x);
+  const t = world.terrain, f = player ? feetPos() : { x: x + 1, z }, a0 = Math.atan2(f.z - z, f.x - x);
   const ok = (px, pz) => t.waterDepth(px, pz) < -0.4 && t.slope(px, pz).m < 0.45 && t.collidersNear(px, pz, 0.8).every((c) => { const q = colCore(c, px, pz); return Math.hypot(q.x - px, q.z - pz) > q.t + 0.6; });
   for (let r = r0; r < r0 + 40; r += 3) for (let k = 0; k < 16; k++) { const a = a0 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.39, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r; if (ok(px, pz)) return { x: px, z: pz }; }
   return null;
@@ -1726,7 +1938,7 @@ function landingNear(x, z, r0) {
 function fastTravel(dst) {
   const why = travelBlock(); if (why) { storyUI.toast(why, "bad"); return false; }
   const L = landingNear(dst.x, dst.z, dst.r); if (!L) { storyUI.toast("No safe ground to arrive on there.", "bad"); return false; }
-  travelling = true; wmap.close();
+  travelling = true; wmap.close(); tc("ft");
   const horse = game.horse;
   if (game.boat) leaveBoat(true); // the boat stays where it is (it's on the map)
   ftFade.textContent = `Travelling to ${dst.name}…`; ftFade.classList.add("on");
@@ -1846,7 +2058,25 @@ function revealAround(p) {
 const DEBUG_UI = new URLSearchParams(location.search).has("debug");
 if (DEBUG_UI) document.getElementById("game")?.classList.add("debug-ui");
 let storyModeUI = null;
+let tickErrs = 0, tickFrames = 0;
 function tick(now) {
+  if (glLost) { requestAnimationFrame(tick); return; } // wait for webglcontextrestored
+  try {
+    if (tickFrames < 5 && URLP.has("failhigh") && gfxQuality() === "high") throw new Error("test: High graphics failure");
+    tickBody(now);
+    if (++tickFrames === 30) {
+      window.__bootOK?.();
+      let fb = null; try { fb = sessionStorage.getItem("fota-gfx-fb"); sessionStorage.removeItem("fota-gfx-fb"); } catch {}
+      if (fb) { syncGfx?.(); storyUI.toast("Graphics switched to Low: High didn't work on this device. (☰ → Graphics to try again.)", "bad"); }
+    }
+  }
+  catch (err) {
+    tickErrs++; if (tickErrs <= 3) { console.error("frame error", err); errors.push(String(err && err.stack || err).slice(0, 300)); }
+    if (tickFrames < 120 && gfxFallback("frame error: " + (err && err.message))) return;
+    requestAnimationFrame(tick);
+  }
+}
+function tickBody(now) {
   if (storyModeUI !== !!story.active) { storyModeUI = !!story.active; document.getElementById("game")?.classList.toggle("story-mode", storyModeUI); }
   const rawMs = now - last;
   // Frame-rate independent: up to 0.1 s per frame, simulated in <= 1/40 s substeps.
@@ -1980,9 +2210,13 @@ function tick(now) {
   }
   caveman.setPixelHeight(renderer.domElement.height);
   tripTick(dt); // round 21
+  if (tut) tut.update(dt); // round 24
+  padButtons();
   spiritTick(dt); // round 23
+  cineTick(dt); // round 24
   if (world.terrain && beacon.key !== beaconKey()) beacon.bind(beaconKey());
-  if (player) beacon.update(viewCam, feetPos(), (x, z) => world.terrain.height(x, z), ready && world.mode === "overworld" && !spiritCam && !!world.terrain, now / 1000, gameEl.clientWidth, gameEl.clientHeight);
+  beaconReachCheck(); // round 24
+  if (player) beacon.update(viewCam, feetPos(), (x, z) => world.terrain.height(x, z), ready && world.mode === "overworld" && !spiritCam && !cine?.on && !!world.terrain, now / 1000, gameEl.clientWidth, gameEl.clientHeight);
   if ((trip.on && trip.level > 0.002) || trip.dream > 0) trip.render(renderer, scene, viewCam); else renderer.render(scene, viewCam);
   if (debugOn && now - debugLast > 250) { debugLast = now; renderDebug(); }
   requestAnimationFrame(tick);
@@ -2624,6 +2858,16 @@ window.__CAVE__ = {
   act1: {
     get story() { const st = story.currentStep(); return { active: story.active, flags: { ...story.flags }, step: st ? st.title : "done", lines: st ? st.lines : [], surv: story.surv.toJSON(), glyphs: story.glyphs.length, prompt: story.prompt?.label || null, log: story.log.slice(-40), modal: storyUI.modal, armed: game.armed, health: game.health, maxHealth: game.maxHealth }; },
     interact: () => story.interact(),
+    // round 24: cutscenes + tutorial
+    cine: () => ({ on: !!cine?.on, id: cine?.script?.id, scene: cine?.sceneI, line: cine?.line, log: cine?.log.slice(-40), cam: !!cineCam, cls: gameEl.classList.contains("cine-on"), t: +(cine?.t || 0).toFixed(1) }),
+    colonyAge: (n, i = 0) => { world.colony.list[i].age = n; world.colony.save(); return world.colony.maxAge(); },
+    questSet: (id, st = "done") => { story.quests.st[id] = st; return story.quests.done(id); }, flagSet: (k, v = true) => { story.flags[k] = v; },
+    cineNext: () => cine?.next(), cineSkip: () => cine?.skip(), playIntro: (menu = false) => !!playIntro(menu),
+    memory: (k, d = 0.2) => memory(k, d), memPlay: (k) => !!(storyUI.onMemoryReplay(k), cine?.on), memories: () => storyUI.memories(), memSeen: () => memLoad()?.seen || null, memQueue: () => memQueue.map((q) => q.key),
+    memScripts: () => [INTRO, ...MEMORIES].map((m) => ({ id: m.id, title: m.title, scenes: m.scenes.length, words: m.scenes.reduce((a, sc) => a + (sc.lines || []).reduce((b, l) => b + (typeof l === "string" ? l : l.text).split(/\s+/).length, 0), 0), lines: m.scenes.reduce((a, sc) => a + (sc.lines || []).length, 0), cards: m.scenes.filter((sc) => sc.card).length })),
+    tut: () => tut && ({ on: tut.on, ch: tut.ci, si: tut.si, step: tut.step?.id, done: tut._done, log: tut.log.slice(-30), save: tut.save, hand: !tut.hand.classList.contains("hidden"), c: { ...game.tc } }),
+    tutGo: (ci, si = 0) => tut?.go(ci, si), tutSkip: () => tut?.skip(), tutOk: () => tut?.complete(), TG: () => TG,
+    torch: () => { toggleTorch(); return caveman.torchDown; }, controls: () => (controlsSheet.open(), controlsSheet.dev),
     talkLume: () => story.talkLume(),
     advance: () => storyUI.advance(),
     give: (id, n = 1) => story.surv.add(id, n),
@@ -2759,7 +3003,7 @@ window.__CAVE__ = {
     trip: () => ({ on: trip.on, t: +trip.t.toFixed(1), level: +trip.level.toFixed(2), phase: trip.phase, melt: +trip_MELT().toFixed(2), visions: visions.list.map((v) => v.kind), spawned: visions.n, music: tripMusic.on, calm: calmOn, btn: !tripBtn.classList.contains("hidden") }),
     /** Round 23 QoL test hooks: beacon, fast travel, audio mixer. */
     qol: {
-      beacon: () => beacon.pos, setBeacon: (x, z) => beacon.set(x, z), clearBeacon: () => beacon.clear(),
+      beacon: () => beacon.pos, beaconArm: () => beaconArm, setBeacon: (x, z) => beacon.set(x, z), clearBeacon: () => beacon.clear(),
       beaconHud: () => ({ shown: !beacon.el.classList.contains("hidden"), text: beacon.el.textContent, left: beacon.el.style.left, top: beacon.el.style.top, pillar: beacon.group.visible, k: +beacon.group.scale.x.toFixed(3) }),
       targets: () => travelTargets().map((d) => ({ kind: d.kind, name: d.name, x: Math.round(d.x), z: Math.round(d.z) })),
       block: () => travelBlock(), travel: (i) => fastTravel(travelTargets()[i]), travelling: () => travelling,
@@ -3267,6 +3511,165 @@ const params = new URLSearchParams(location.search);
 if (params.get("debugside") === "1") { material.side = THREE.DoubleSide; material.needsUpdate = true; }
 if (params.get("debugside") === "2") { material.side = THREE.BackSide; material.needsUpdate = true; }
 const startSeed = params.has("seed") ? parseSeed(params.get("seed")) : 1847265319;
+// Round 24: gamepad buttons (A jump, B crouch → crawl → stand, X attack, Y use / ride, LB spear ⇄ bow,
+// RB torch, Back map, Start Pack, D-pad up Tasks). Sticks were round 17 (player.js).
+const _padPrev = [];
+function padButtons() {
+  let g = null; try { g = [...(navigator.getGamepads?.() || [])].find((x) => x && x.connected); } catch {}
+  if (!g) return;
+  const hit = (i) => { const on = !!g.buttons[i]?.pressed, was = _padPrev[i]; _padPrev[i] = on; return on && !was; };
+  const P = {}; for (const i of [0, 1, 2, 3, 4, 5, 8, 9, 12]) P[i] = hit(i);
+  if (cine?.on) { if (P[0] || P[2] || P[3]) cine.next(); if (P[1] || P[9]) cine.skip(); return; }
+  if (!ready || !player || game.dead) return;
+  if (P[9]) storyUI.togglePanel("inv", story.surv);
+  if (P[8]) openMap(true);
+  if (storyUI.modal) { if (P[1]) { storyUI.closePanel(); storyUI.closeChoice(); } return; }
+  if (P[0]) player.jump();
+  if (P[1]) player.setStance(player.stance === "stand" ? "crouch" : player.stance === "crouch" ? "crawl" : "stand");
+  if (P[2]) attack();
+  if (P[3]) { if (canToggleMount()) toggleMount(); else story.interact(); }
+  if (P[4]) setWeapon(game.weapon === "bow" ? "spear" : "bow");
+  if (P[5]) toggleTorch();
+  if (P[12]) storyUI.toggleTasks();
+}
+// Round 24: reaching the beacon (within ~8 m) removes it, with a toast and a soft chime. It must have been
+// farther than 12 m first, so a beacon dropped right next to you doesn't vanish on the spot.
+let beaconArm = null;
+function beaconReachCheck() {
+  const b = beacon.pos;
+  if (!b || !player || !ready || world.mode !== "overworld" || cine?.on) { if (!b) beaconArm = null; return; }
+  const f = feetPos(), d = Math.hypot(b.x - f.x, b.z - f.z), k = b.x + "," + b.z;
+  if (beaconArm !== k) { if (d > 12) beaconArm = k; return; }
+  if (d < 8) { beaconArm = null; beacon.clear(); if (wmap.isOpen) wmap.draw(); storyUI.toast("📍 Beacon reached.", "good"); softChime(); glog({ e: "beaconReached" }); }
+}
+function softChime() {
+  const ctx = audio.ctx; if (!ctx || !audio.master) return;
+  const t = ctx.currentTime;
+  for (const [f, dt, g] of [[784, 0, 0.16], [1175, 0.12, 0.12], [1568, 0.24, 0.07]]) {
+    const o = ctx.createOscillator(), v = ctx.createGain(); o.type = "sine"; o.frequency.value = f;
+    v.gain.setValueAtTime(0, t + dt); v.gain.linearRampToValueAtTime(g, t + dt + 0.02); v.gain.exponentialRampToValueAtTime(0.0008, t + dt + 1.4);
+    o.connect(v); v.connect(audio.master); o.start(t + dt); o.stop(t + dt + 1.5);
+  }
+}
+// ---------------- Round 24: the tutorial (its own sandbox; your saves are put back when you leave) ----------------
+let tut = null;
+const tc = (k) => { game.tc[k] = (game.tc[k] || 0) + 1; };
+function openTutorial(ch = 0) {
+  const go = () => {
+    tutSnapshot();
+    const u = new URL(location.href); for (const k of ["play", "ch", "room"]) u.searchParams.delete(k);
+    u.searchParams.set("play", "tutorial"); if (ch) u.searchParams.set("ch", String(ch));
+    location.href = u.toString();
+  };
+  if (mpActive) { storyUI.toast("Leave the multiplayer room first (☰ → Multiplayer).", "bad"); return; }
+  if (story.active) storyUI.ask("Play the tutorial?", "The tutorial is its own practice world (nothing there can hurt you). Your story carries on from your last save when you come back.", [{ id: "go", label: "🎓 Start the tutorial", desc: "Exit any time" }], (id) => { if (id === "go") go(); });
+  else go();
+}
+function exitTutorial() { // the next page load puts the saved keys back (before anything reads them)
+  const u = new URL(location.href); for (const k of ["play", "ch"]) u.searchParams.delete(k);
+  location.href = u.toString();
+}
+const A1 = () => window.__CAVE__.act1;
+function waterSpot() {
+  const T = world.terrain, f = feetPos(), site = T.act1;
+  const pts = (site?.stream || []).slice(); pts.sort((a, b) => Math.hypot(a.x - f.x, a.z - f.z) - Math.hypot(b.x - f.x, b.z - f.z));
+  for (const p of pts.slice(0, 12)) for (let r = 1; r < 6; r += 0.5) for (let a = 0; a < 6.28; a += 0.5) {
+    const x = p.x + Math.cos(a) * r, z = p.z + Math.sin(a) * r, d = T.streamDist(x, z);
+    if (d > 0.5 && d < 1.7 && T.waterDepth(x, z) < -0.3) return { x, z, look: p };
+  }
+  for (let r = 10; r < 600; r += 6) for (let a = 0; a < 6.28; a += 0.25) { // any creek / river / lake shore
+    const x = f.x + Math.cos(a) * r, z = f.z + Math.sin(a) * r, d = T.streamDist(x, z);
+    if (d > 0.5 && d < 1.7 && T.waterDepth(x, z) < -0.3) return { x, z, look: null };
+  }
+  return null;
+}
+const faceTo = (x, z, tx, tz) => Math.atan2(-(tx - x), -(tz - z));
+const TG = {
+  dev: () => currentDevice(IS_TOUCH), feet: () => feetPos(), look: () => ({ yaw: player.yaw, pitch: player.pitch || 0 }), speed: () => player.speedNow || 0,
+  stance: () => player.stance, air: () => player.grounded === false, stamina: () => story.surv.stamina, torchDown: () => !!caveman.torchDown,
+  get c() { return game.tc; }, count: (id) => story.surv.count(id), stats: () => story.surv.stats, kills: () => tally.kills,
+  packOpen: (tab) => !storyUI.panel.classList.contains("hidden") && storyUI.tab === tab, inspectOpen: () => !!storyUI.inspector.isOpen,
+  mapOpen: () => wmap.isOpen, filtersSig: () => JSON.stringify(mapFilters), hint: () => game.hint, beaconPos: () => beacon.pos, tasksOpen: () => storyUI.tasksOpen,
+  horse: () => !!game.horse, boat: () => !!game.boat, mode: () => world.mode, colonies: () => world.colony?.list.length || 0,
+  buildMode: () => colonyUI?.mode === "build", colonyOpen: () => !!colonyUI?.isOpen(), audioOpen: () => audioPanel.isOpen, controlsOpen: () => controlsSheet.isOpen,
+  weapon: (w) => { if (game.weapon !== w) setWeapon(w); },
+  give: (id, n) => story.surv.add(id, n), needs: (h, t) => { story.surv.hunger = h; story.surv.thirst = t; },
+  openPack: () => storyUI.openPanel("inv", story.surv), closeInspect: () => storyUI.inspector.isOpen && storyUI.inspector.close(),
+  panelsOpen: () => !storyUI.panel.classList.contains("hidden") || !storyUI.choice.classList.contains("hidden") || wmap.isOpen || !!colonyUI?.isOpen() || audioPanel.isOpen || storyUI.inspector.isOpen,
+  closePanels: () => { for (let i = 0; i < 30 && !storyUI.dialog.classList.contains("hidden"); i++) storyUI.advance(); storyUI.closePanel(); storyUI.closeChoice(); if (storyUI.inspector.isOpen) storyUI.inspector.close(); if (wmap.isOpen) wmap.close(); },
+  openMap: () => { if (!wmap.isOpen) openMap(false); }, closeAudio: () => audioPanel.isOpen && audioPanel.close(),
+  toast: (t) => storyUI.toast(t),
+  tp: (x, z, yaw) => { if (world.mode !== "overworld") enterOverworld(null, { at: { x, z, yaw } }); else { player.placeWorld(x, 0, z); player.yaw = yaw; player.pitch = 0; player.applyLook?.(); } },
+  toBerry: () => {
+    const f = feetPos(), T = world.terrain;
+    const settle = (q) => { // the same "step off a tree / rock" check the bushes do when you first come near
+      if (q.bad !== undefined) return !q.bad;
+      q.bad = true;
+      for (let k = 0; k < 6 && q.bad; k++) { const a = k * 1.05, d = k ? 1.6 : 0, x = q.x + Math.cos(a) * d, z = q.z + Math.sin(a) * d; if (!T.collidersNear(x, z, 1.3).length && T.waterDepth(x, z) < -0.3) { q.x = x; q.z = z; q.bad = false; } }
+      return !q.bad;
+    };
+    const list = world.berries.spots.filter((q) => q.bad !== true && world.berries.available(q)).map((q) => ({ q, d: Math.hypot(q.x - f.x, q.z - f.z) })).sort((a, b) => a.d - b.d).slice(0, 40);
+    for (const { q } of list) { if (!settle(q)) continue; for (let k = 0; k < 8; k++) { const a = (k / 8) * 6.283, x = q.x + Math.cos(a) * 1.4, z = q.z + Math.sin(a) * 1.4; if (!T.collidersNear(x, z, 0.7).length && T.waterDepth(x, z) < -0.4) { TG.tp(x, z, faceTo(x, z, q.x, q.z)); return q; } } }
+    storyUI.toast("No bush nearby: skip this step."); return null;
+  },
+  toWater: () => { const w = waterSpot(); if (!w) return storyUI.toast("No water close by. Skip this step."); TG.tp(w.x, w.z, w.look ? faceTo(w.x, w.z, w.look.x, w.look.z) : player.yaw); },
+  stalk: (kind, d) => { if (!A1().stalk(kind, d)) { const k = world.wildlife?.list.find((a) => a.alive && a.kind !== "horse"); if (k) A1().stalk(k.kind, d); else storyUI.toast("No animals close. Skip this step."); } },
+  toCarcass: () => A1().toCarcass(),
+  toHorse: () => { if (!A1().toHorse(false)) storyUI.toast("No horses near here. Skip this step."); },
+  dismount: () => { if (game.horse) toggleMount(true); },
+  toBoat: () => { const f = feetPos(), b = world.boats?.list.filter((q) => !q.taken).map((q, i) => ({ q, d: Math.hypot(q.x - f.x, q.z - f.z) })).sort((a, b2) => a.d - b2.d)[0]; if (!b || !A1().toBoat(world.boats.list.indexOf(b.q))) storyUI.toast("No boat close by. Skip this step."); },
+  leaveBoat: () => { if (game.boat) leaveBoat(true); },
+  toPerson: () => {
+    const T = world.terrain, f = feetPos(), s = (T.settlements || []).slice().sort((a, b) => Math.hypot(a.x - f.x, a.z - f.z) - Math.hypot(b.x - f.x, b.z - f.z))[0];
+    const near = () => world.people?.list.filter((p) => p.ident && !p.ext).sort((a, b) => Math.hypot(a.x - feetPos().x, a.z - feetPos().z) - Math.hypot(b.x - feetPos().x, b.z - feetPos().z))[0];
+    const step2 = () => { const p = near(); if (!p) return storyUI.toast("Nobody about. Skip this step."); const x = p.x + 1.8, z = p.z + 0.4; TG.tp(x, z, faceTo(x, z, p.x, p.z)); };
+    const p0 = near(); if (p0 && Math.hypot(p0.x - f.x, p0.z - f.z) < 120) return step2();
+    if (s) { const L = landingNear(s.x, s.z, 4) || { x: s.x, z: s.z }; TG.tp(L.x, L.z, player.yaw); setTimeout(step2, 1800); } else step2();
+  },
+  toCave: () => {
+    const f = feetPos(), e = world.terrain.entrances.filter((q) => !q.hollow).sort((a, b) => Math.hypot(a.x - f.x, a.z - f.z) - Math.hypot(b.x - f.x, b.z - f.z))[0];
+    if (!e) return; const x = e.x + e.fx * 7 * (e.scale || 1), z = e.z + e.fz * 7 * (e.scale || 1); TG.tp(x, z, faceTo(x, z, e.x, e.z)); world.discovered.add(e.id); game.tutCave = e;
+  },
+  awayFromCamp: () => { const c = world.terrain.act1?.camp || feetPos(); const L = landingNear(c.x + 260, c.z + 60, 4) || landingNear(c.x - 260, c.z, 4); if (L) TG.tp(L.x, L.z, player.yaw); },
+  toFoundSpot: () => { // stand 7 m from a good hearth spot, facing it (the Found ghost goes 7 m ahead)
+    if (world.mode !== "overworld") enterOverworld(world.entrance || null);
+    const q = A1().foundSpot(20, 500); if (!q) return;
+    const T = world.terrain;
+    for (let k = 0; k < 12; k++) { const yaw = (k / 12) * 6.283, x = q.x + Math.sin(yaw) * 7, z = q.z + Math.cos(yaw) * 7; if (T.waterDepth(x, z) < -0.4 && T.slope(x, z).m < 0.45) { TG.tp(x, z, yaw); return; } }
+    TG.tp(q.x, q.z, player.yaw);
+  },
+  stopBuild: () => { if (colonyUI?.mode) colonyUI.stop(); },
+  recruit: (n) => { const c = world.colony?.list[0]; if (!c) return; const got = A1().recruitNear(n); if (got.length < n) for (let i = got.length; i < n; i++) world.colony.recruit(c, { name: ["Ama", "Toru", "Ilsa"][i], voice: "f1", trait: "steady" }); world.colony.save(); },
+  openTown: () => { const c = world.colony?.list[0]; if (c) colonyUI.open(c); },
+  showTasks: (on) => { storyUI.obj.classList.toggle("hidden", !on); if (on) storyUI.setObjective("Tutorial", [["This is the Tasks log: your quests show here", false]], ""); },
+  say: (t) => { if (!t) { storyUI.voice.stop?.(false); return; } storyUI.voice.speak?.(t, ""); },
+  exit: () => exitTutorial(),
+};
+function startTutorial(ch = 0) {
+  try { for (const k of Object.keys(localStorage)) if (/-tut-\d+$/.test(k)) localStorage.removeItem(k); } catch {}
+  story.tutorial = true; game.god = true;
+  story.startSandbox();
+  storyUI.setSandbox(true); storyUI.setStoryVisible(true);
+  game.armed = true; caveman.spear.visible = true;
+  applyStats(); game.health = game.maxHealth; renderStatus();
+  ensureWorld(); syncColony(true);
+  world.atmo.setTime(10.5); world.atmo.setWeather("clear", true);
+  // the practice ground: open grass beside the camp (the fire ring and the tents are in the way at the spawn)
+  const c0 = world.camp ? world.camp.site.camp : null, pg = c0 && (landingNear(c0.x + 26, c0.z + 14, 2) || landingNear(c0.x - 26, c0.z - 14, 2));
+  enterOverworld(null, { at: pg ? { x: pg.x, z: pg.z, yaw: faceTo(pg.x, pg.z, c0.x, c0.z) + Math.PI } : world.camp ? campSpawn() : undefined });
+  storyUI.obj.classList.add("hidden");
+  const site = world.terrain.act1; if (site) wmap.revealAt?.(site.camp.x, site.camp.z, 450);
+  // counters the steps listen for
+  const s = story.surv, oc = s.craft.bind(s); s.craft = (...a) => { const r = oc(...a); if (r) tc("craft"); return r; };
+  const oh = story.harvest.bind(story); story.harvest = (...a) => { tc("harvest"); return oh(...a); };
+  const ot = world.talk.talk.bind(world.talk); world.talk.talk = (...a) => { tc("talk"); return ot(...a); };
+  const oj = world.colony.setJob.bind(world.colony); world.colony.setJob = (...a) => { const r = oj(...a); tc("jobs"); return r; };
+  const ojp = player.jump.bind(player); player.jump = (...a) => { tc("jump"); return ojp(...a); };
+  const otk = storyUI.toggleTasks.bind(storyUI); storyUI.toggleTasks = (...a) => { tc("tasks"); return otk(...a); };
+  tut = new Tutorial(gameEl, TG);
+  tut.start(Math.max(0, Math.min(CHAPTERS.length - 1, ch | 0)));
+  setTimeout(() => storyUI.toast("🎓 Tutorial: nothing can hurt you here. Your real saves are untouched."), 600);
+}
 // Default start: outside, in the hills. ?seed=, ?cave=carlsbad (and test ?shot=) start in a cave.
 const directCave = params.has("seed") || params.has("cave") || params.has("shot") || params.get("start") === "cave" || params.get("demo") === "1";
 if (directCave) {
@@ -3276,7 +3679,9 @@ if (directCave) {
 } else {
   // Default: main menu (Continue / New Game / Free Play) over the dawn camp. ?play=new|free|continue skips it.
   const play = MP_ROOM ? "free" : params.get("play"); // round 22: an invite link drops you into free play
-  if (play === "new") startNewGame();
+  try { // round 24: if building the world fails on High graphics, retry once on Low; otherwise still show the menu
+  if (play === "tutorial") startTutorial(+(params.get("ch") || 0)); // round 24
+  else if (play === "new") startNewGame();
   else if (play === "free") startFreePlay();
   else if (play === "continue" && readSave()) continueGame();
   else {
@@ -3287,6 +3692,10 @@ if (directCave) {
     storyUI.setStoryVisible(false);
     showMainMenu();
   }
+  } catch (err) {
+    console.error("start failed", err); errors.push(String(err && err.stack || err).slice(0, 300));
+    if (!gfxFallback("start: " + (err && err.message))) { try { showMainMenu(); } catch {} setTimeout(() => { throw err; }, 0); } // the boot-check box reports it
+  }
 }
 
 // Round 22: invite links (?room=ABCDE) join straight away (or ask for a name first).
@@ -3295,7 +3704,11 @@ window.addEventListener("keyup", (e) => { if (!(e.target instanceof HTMLInputEle
 // Round 23: ☰ → Audio (volume mixer)
 const audioPanel = new AudioPanel(gameEl, audio, { onTestVoice: () => storyUI.voice.speak?.("The fire is lit. The night is long. Stay close, Kra.", "Old Lume") });
 document.getElementById("audio-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); armAudio(); audioPanel.open(); });
-document.getElementById("mp-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); mp.open(); });
+document.getElementById("mp-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); if (story.tutorial) { storyUI.toast("Multiplayer is off in the tutorial."); return; } mp.open(); });
+// Round 24: ☰ → Controls / Tutorial
+const controlsSheet = new ControlsSheet(gameEl, { touch: IS_TOUCH });
+document.getElementById("controls-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); controlsSheet.open(); });
+document.getElementById("tut-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); if (story.tutorial) tut?.menu(true); else openTutorial(); });
 window.__CAVE__.mp = mp;
 const shot = params.get("shot");
 if (shot === "mid" || params.get("demo") === "1") player.placeAlongMainPath(0.42, mainPath);

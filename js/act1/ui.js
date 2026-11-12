@@ -44,7 +44,7 @@ export class StoryUI {
       this.toggleTasks(false);
     });
     this.dialog = el("div", "dialog hidden", `<div class="who"></div><div class="line"></div><div class="more">${touch ? "Tap" : "E / click"} to continue</div>`); root.appendChild(this.dialog);
-    this.panel = el("div", "panel hidden", `<div class="tabs"><button data-t="inv">Inventory <kbd>I</kbd></button><button data-t="craft">Crafting <kbd>Tab</kbd></button><button data-t="skills">Skills <kbd>K</kbd></button><button data-t="visions">Visions</button><button class="close">✕</button></div><div class="body"></div>`);
+    this.panel = el("div", "panel hidden", `<div class="tabs"><button data-t="inv">Inventory <kbd>I</kbd></button><button data-t="craft">Crafting <kbd>Tab</kbd></button><button data-t="skills">Skills <kbd>K</kbd></button><button data-t="visions">Journal</button><button class="close">✕</button></div><div class="body"></div>`);
     root.appendChild(this.panel);
     this.choice = el("div", "choice hidden"); root.appendChild(this.choice);
     this.card = el("div", "title-card hidden"); root.appendChild(this.card);
@@ -63,7 +63,7 @@ export class StoryUI {
     this.dialog.addEventListener("click", () => this.advance());
   }
 
-  get modal() { return !!this.visionOn || !this.panel.classList.contains("hidden") || !this.choice.classList.contains("hidden") || !this.dialog.classList.contains("hidden") || !this.menu.classList.contains("hidden"); }
+  get modal() { return !!this.visionOn || !!this.cineOn || !this.panel.classList.contains("hidden") || !this.choice.classList.contains("hidden") || !this.dialog.classList.contains("hidden") || !this.menu.classList.contains("hidden"); }
 
   setStoryVisible(on) {
     this.meters.classList.toggle("hidden", !on);
@@ -226,11 +226,14 @@ export class StoryUI {
       }).join("") + (locked.length ? `<div class="inv-head">Not learned yet (skills or quests teach these)</div>` + locked.map((r) => `<div class="recipe locked"><strong>${r.name}</strong><small>${r.desc}</small><b>🔒</b></div>`).join("") : "")
         + `<div class="inv-head">Materials: animals (bone, sinew, hide, pelt), storage baskets in towns, flint / ochre in caves.</div>`;
     } else if (this.tab === "visions") { // round 23: the spirit-vision journal
-      const J = this.visionJournal?.() || [];
+      const J = this.visionJournal?.() || [], MEM = this.memories?.() || [];
       const e = (t) => String(t).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-      body.innerHTML = (J.length ? J.slice().reverse().map((v) => `<details class="vj"><summary>${v.n}. ${e(v.title)}</summary>${v.lines.map((l) => `<p class="${l.who === "Kra" ? "" : "anc"}"><b>${l.who === "Kra" ? "Kra" : e(l.who)}:</b> ${e(l.text)}</p>`).join("")}${v.ins ? `<div class="vj-ins">Insight: ${e(v.ins)}</div>` : ""}<button type="button" class="vj-play" data-vn="${v.n}">▶ Replay</button></details>`).join("")
+      // round 24: Memories (the story cutscenes you've seen), then the visions
+      const mem = `<div class="inv-head">Memories</div>` + (MEM.length ? MEM.map((m) => `<div class="mem-row"><span>🎞 ${e(m.title)}</span><button type="button" class="mem-play" data-mem="${e(m.key)}">▶ Play</button></div>`).join("") : `<div class="inv-tip">No memories yet.</div>`) + `<div class="inv-head">Visions</div>`;
+      body.innerHTML = mem + (J.length ? J.slice().reverse().map((v) => `<details class="vj"><summary>${v.n}. ${e(v.title)}</summary>${v.lines.map((l) => `<p class="${l.who === "Kra" ? "" : "anc"}"><b>${l.who === "Kra" ? "Kra" : e(l.who)}:</b> ${e(l.text)}</p>`).join("")}${v.ins ? `<div class="vj-ins">Insight: ${e(v.ins)}</div>` : ""}<button type="button" class="vj-play" data-vn="${v.n}">▶ Replay</button></details>`).join("")
         : `<div class="inv-tip">No visions yet. Eat a glowing mushroom: as the colours fade, the spirits speak.</div>`);
       body.querySelectorAll("[data-vn]").forEach((b) => b.addEventListener("click", (ev) => { ev.stopPropagation(); this.onVisionReplay?.(+b.dataset.vn); }));
+      body.querySelectorAll("[data-mem]").forEach((b) => b.addEventListener("click", (ev) => { ev.stopPropagation(); this.onMemoryReplay?.(b.dataset.mem); }));
       return;
     } else if (this.tab === "skills" && this.questDone) {
       // round 16: skill tree (4 branches x 3 tiers)
@@ -272,14 +275,29 @@ export class StoryUI {
     this._cardT2 = setTimeout(() => this.card.classList.add("hidden"), ms + 1300);
   }
 
-  showMenu({ canContinue, onContinue, onNew, onFree }) {
+  showMenu({ canContinue, onContinue, onNew, onFree, onIntro, onTutorial, firstRun, onFirstDone }) {
+    const go = (f) => () => { this.menu.classList.add("hidden"); f?.(); };
+    if (firstRun) { // round 24: the first launch offers the intro and the tutorial
+      this.menu.innerHTML = `<div class="mm mm-first"><h1>Flesh of the Ancients</h1><p class="sub">First time here?</p>
+        <button data-m="intro">▶ Watch the intro <small>(about 2 minutes)</small></button>
+        <button data-m="tut">🎓 Play the tutorial? <small>Yes, show me how to play</small></button>
+        <button data-m="skip" class="mm-skip">Skip</button></div>`;
+      this.menu.classList.remove("hidden");
+      const done = () => onFirstDone?.();
+      this.menu.querySelector("[data-m=intro]").addEventListener("click", () => { done(); onIntro?.(); });
+      this.menu.querySelector("[data-m=tut]").addEventListener("click", () => { done(); this.menu.classList.add("hidden"); onTutorial?.(); });
+      this.menu.querySelector("[data-m=skip]").addEventListener("click", () => { done(); this.showMenu({ canContinue, onContinue, onNew, onFree, onIntro, onTutorial }); });
+      return;
+    }
     this.menu.innerHTML = `<div class="mm"><h1>Flesh of the Ancients</h1><p class="sub">Act I · The Empty Camp</p>
-      ${canContinue ? `<button data-m="cont">Continue</button>` : ""}<button data-m="new">New Game</button><button data-m="free">Free Play <small>(hills &amp; caves, no story)</small></button></div>`;
+      ${canContinue ? `<button data-m="cont">Continue</button>` : ""}<button data-m="new">New Game</button><button data-m="free">Free Play <small>(hills &amp; caves, no story)</small></button>
+      <div class="mm-row"><button data-m="intro">▶ Intro</button><button data-m="tut">🎓 Tutorial</button></div></div>`;
     this.menu.classList.remove("hidden");
-    const go = (f) => () => { this.menu.classList.add("hidden"); f(); };
     this.menu.querySelector("[data-m=cont]")?.addEventListener("click", go(onContinue));
     this.menu.querySelector("[data-m=new]").addEventListener("click", go(onNew));
     this.menu.querySelector("[data-m=free]").addEventListener("click", go(onFree));
+    this.menu.querySelector("[data-m=intro]").addEventListener("click", () => onIntro?.());
+    this.menu.querySelector("[data-m=tut]").addEventListener("click", go(onTutorial));
   }
   hideMenu() { this.menu.classList.add("hidden"); }
 }
