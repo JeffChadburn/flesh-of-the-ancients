@@ -641,3 +641,39 @@ button:hover, .file-btn:hover { border-color: var(--accent); color: #fff; }
   background: rgba(20, 70, 100, 0.9); border: 1px solid #9fd4ff; color: #e8f6ff; pointer-events: auto; }
 #swim-btn.hidden, #beach-btn.hidden { display: none; }
 @media (max-width: 700px), (pointer: coarse) { #swim-btn, #beach-btn { top: 196px; font-size: 13px; } }
+
+/* ---------- Round 20: settlements ---------- */
+#stance-bar #btn-colony.hidden { display: none; }
+#stance-bar #btn-colony { background: rgba(30, 60, 70, 0.82); border-color: #7fe0ff; color: #dff8ff; }
+#build-bar { position: absolute; left: 50%; transform: translateX(-50%); top: 58px; z-index: 12; width: min(620px, calc(100% - 16px)); background: rgba(20, 16, 10, 0.9); border: 1px solid #8a6a40; border-radius: 12px; padding: 6px; color: #f0e2c8; font: 13px Georgia, serif; box-sizing: border-box; }
+#build-bar.hidden, #colony-panel.hidden { display: none; }
+#build-bar .bb-cards { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
+#build-bar .bb-card { flex: 0 0 auto; min-width: 84px; display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border-radius: 8px; border: 1px solid #6a5030; background: #2c2216; color: #f0e2c8; font: 12px Georgia, serif; text-align: left; }
+#build-bar .bb-card span { font-size: 11px; opacity: 0.85; white-space: nowrap; }
+#build-bar .bb-card.on { border-color: #7fe0ff; background: #1e3a40; }
+#build-bar .bb-card.poor { opacity: 0.6; }
+#build-bar .bb-card:disabled { opacity: 0.35; }
+#build-bar .bb-tip { padding: 4px 6px; font-style: italic; }
+#build-bar .bb-row { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+#build-bar .bb-status { flex: 1; color: #9fe3a8; font-size: 12px; line-height: 1.2; }
+#build-bar .bb-status.bad { color: #ff9a80; }
+#build-bar .bb-row button { padding: 9px 12px; border-radius: 8px; border: 1px solid #8a6a40; background: #3a2c1a; color: #f0e2c8; font: 700 13px Georgia, serif; }
+#build-bar .bb-row .bb-go { background: #2e5a32; border-color: #9fe3a8; }
+#build-bar .bb-row .bb-go:disabled { background: #3a2c1a; border-color: #6a5030; opacity: 0.5; }
+#colony-panel { position: absolute; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.45); }
+#colony-panel .cp-box { width: min(480px, calc(100% - 20px)); max-height: calc(100% - 40px); overflow-y: auto; background: rgba(28, 22, 14, 0.97); border: 1px solid #8a6a40; border-radius: 14px; padding: 12px 14px; color: #f0e2c8; font: 14px Georgia, serif; box-sizing: border-box; }
+#colony-panel .cp-head { display: flex; justify-content: space-between; align-items: center; font-size: 18px; color: #7fe0ff; }
+#colony-panel .cp-head button { background: none; border: none; color: #f0e2c8; font-size: 20px; padding: 4px 8px; }
+#colony-panel .cp-age { margin: 6px 0; font-size: 13px; } #colony-panel .cp-age i { opacity: 0.8; }
+#colony-panel .cp-stats, #colony-panel .cp-small, #colony-panel .cp-tip { font-size: 12px; opacity: 0.9; margin: 4px 0; }
+#colony-panel .cp-resrow { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+#colony-panel .cp-res { background: #3a2c1a; border-radius: 6px; padding: 3px 7px; font-size: 13px; }
+#colony-panel h4 { margin: 10px 0 4px; color: #ffd36a; font-size: 14px; }
+#colony-panel .cp-v { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px solid rgba(138, 106, 64, 0.3); }
+#colony-panel select, #colony-panel button { font: 13px Georgia, serif; padding: 6px 8px; border-radius: 7px; border: 1px solid #8a6a40; background: #3a2c1a; color: #f0e2c8; }
+#colony-panel button:disabled { opacity: 0.45; }
+#colony-panel .cp-btns { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+#colony-panel .cp-go { background: #2e5a32; border-color: #9fe3a8; font-weight: 700; }
+#colony-panel .cp-need { font-size: 13px; opacity: 0.75; } #colony-panel .cp-need.ok { color: #9fe3a8; opacity: 1; }
+#colony-panel > .cp-box > button { margin-top: 8px; width: 100%; }
+#game.building .toasts { top: 190px; }

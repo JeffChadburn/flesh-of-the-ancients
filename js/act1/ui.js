@@ -9,7 +9,7 @@ import { Inspector } from "./inspect.js";
 
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 const ITEM_COLORS = { berries: "#7a1f3a", roots: "#8a6a3a", meat: "#9a3a34", cooked: "#8a5a2a", organ: "#6a1018", pelt: "#8a7a64", hide: "#7a5636", feather: "#4a4a54", skin: "#6a4a3c", blood: "#5a0808", morgan: "#3a0a2a",
-  bone: "#cfc3a6", sinew: "#9a6a52", flint: "#6a7484", ochre: "#a8401c", herbs: "#4a7a3a", salve: "#8a7a4a", logs: "#7a5a3a" };
+  bone: "#cfc3a6", sinew: "#9a6a52", flint: "#6a7484", ochre: "#a8401c", herbs: "#4a7a3a", salve: "#8a7a4a", logs: "#7a5a3a", copper: "#3a8a6a", tin: "#a8acb0", iron: "#8a4a2a", coal: "#2a2a2c" };
 
 export class StoryUI {
   constructor(root, { touch = false } = {}) {
@@ -158,7 +158,7 @@ export class StoryUI {
     this.dialog.querySelector(".line").textContent = next.text;
     this.dialog.classList.toggle("narration", !next.who);
     // Round 13: speak the line; when it ends (plus a short pause) the next one follows by itself.
-    const spoken = this.voice.speak(next.text, next.who || "", (why) => {
+    const spoken = this.voice.speak(next.text, next.voice || next.who || "", (why) => {
       if (this.voice.broken) { this.textOnly(); return; } // speech failed: leave the line up to read
       this._autoT = setTimeout(() => { if (!this.dialog.classList.contains("hidden")) this.advance(true); }, 700);
     });

@@ -22,6 +22,11 @@ export const ITEMS = {
   herbs: { name: "Healing herbs", stack: 8, icon: "🌿" },
   salve: { name: "Healing salve", stack: 4, icon: "🏺", heal: 1 },
   logs: { name: "Deadwood logs", stack: 8, icon: "🪵" }, // round 19: raft building
+  // round 20: ores Kra mines in the caves with a pick (for his settlements)
+  copper: { name: "Copper ore", stack: 8, icon: "🟠" },
+  tin: { name: "Tin ore", stack: 8, icon: "⚪" },
+  iron: { name: "Iron ore", stack: 8, icon: "⚙️" },
+  coal: { name: "Coal", stack: 8, icon: "⬛" },
 };
 export const SKILLS = {
   tools: { name: "Stone Tools", desc: "Knife and spear: harvest carcasses, craft simple gear." },
@@ -47,6 +52,12 @@ export const TREE = {
     { id: "surv2", name: "Pitch Torch", desc: "Recipe: resin torch (brighter, reaches further in caves).", recipe: "torch" },
     { id: "surv3", name: "Iron Gut", desc: "Hunger and thirst drain 30% slower.", quest: "m4" },
   ] },
+  work: { name: "Industry", icon: "⛏", tiers: [ // round 20: settlements
+    { id: "wood1", name: "Woodcutting", desc: "Gather deadwood without Herb Lore, 3 logs a tree; your woodcutters +25%." },
+    { id: "mine1", name: "Mining", desc: "Recipe: stone pick. Mine ore veins in caves; your miners and quarry workers +25%.", recipe: "pick" },
+    { id: "mason", name: "Masonry", desc: "Your settlements' buildings need 20% less stone." },
+    { id: "smelt", name: "Smelting", desc: "Your settlements learn smelting and iron working for half the cost." },
+  ] },
   spirit: { name: "Spirit", icon: "✋", tiers: [
     { id: "spirit1", name: "Ochre Rites", desc: "Recipe: red face paint (stamina comes back 30% faster).", recipe: "paint" },
     { id: "spirit2", name: "Far Sight", desc: "The map reveals twice as far around you.", quest: "m4" },
@@ -67,6 +78,7 @@ export const RECIPES = [
   { id: "paint", name: "Red face paint", desc: "Ochre and berry juice in the hunters' stripes: stamina back 30% faster. (worn)", needs: [["ochre", 2], ["berries", 1]], once: true, gear: true },
   { id: "salve", name: "Healing salve", desc: "Crushed herbs in fat. Use it to heal a heart.", needs: [["herbs", 2], ["berries", 1]] },
   { id: "raft", name: "Log raft", desc: "Deadwood logs lashed with sinew. Build it at the water's edge, then board it (E / Board).", needs: [["logs", 4], ["sinew", 2]], skill: "surv1" },
+  { id: "pick", name: "Stone pick", desc: "A flint head on a bone haft, bound tight. Mine ore veins in the caves.", needs: [["flint", 2], ["bone", 1], ["sinew", 1]], once: true },
   { id: "torch", name: "Resin torch", desc: "Pine pitch on a bone haft: a brighter torch that reaches further.", needs: [["bone", 1], ["sinew", 1]], once: true },
 ];
 
@@ -165,6 +177,7 @@ export class Survival {
     if (id === "flintspear") { this.tools.spearDone = true; return "The flint head is bound on: +1 spear damage"; }
     if (id === "arrows") return "Bone arrows fletched: +1 arrow damage";
     if (id === "torch") return "Resin torch made: it burns brighter";
+    if (id === "pick") { this.tools.pick = true; return "Stone pick made: strike the ore veins in the caves"; }
     if (id === "raft") { this.crafted.delete("raft"); return "You lash the logs together: a raft, ready at the water's edge"; }
     return "Crafted";
   }

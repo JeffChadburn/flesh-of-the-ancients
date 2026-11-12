@@ -32,6 +32,9 @@ import { planPlaces, makeNPC, NPCS } from "./act1/quests.js";
 import { WorldMap } from "./worldmap.js";
 import { mapFilters, toggleFilters } from "./mapfilters.js";
 import { Boats } from "./world/boats.js";
+import { Colony, AGES as COL_AGES } from "./world/colony.js"; // round 20
+import { TownTalk } from "./act1/talk.js";
+import { ColonyUI } from "./act1/colony-ui.js";
 
 const errors = [];
 window.addEventListener("error", (e) => errors.push(String(e.message || e.error || e)));
@@ -376,6 +379,20 @@ function ensureWorld() {
   world.boats = new Boats(world.terrain, world.settleRoot, { lite: IS_TOUCH }); // round 19
   world.settle.onBuild = (s) => world.people.spawnFor(s);
   world.settle.onDrop = (s) => world.people.despawnFor(s);
+  // Round 20: Kra's own settlements, townsfolk who talk and remember him
+  const pack = () => story.active || story.sandbox;
+  world.colony = new Colony({ terrain: world.terrain, parent: world.settleRoot, people: world.people, toast: (m, k) => storyUI.toast(m, k),
+    skills: () => (pack() ? story.surv.skills : new Set()), key: () => `fota-colony-v1-${story.sandbox ? "free" : "story"}-${seed}` });
+  world.talk = new TownTalk({ ui: storyUI, voice: storyUI.voice, surv: () => (pack() ? story.surv : null), terrain: () => world.terrain, atmo: () => world.atmo,
+    people: () => world.people, colony: () => world.colony, story: () => story.active, wildlife: () => world.wildlife, discovered: () => world.discovered,
+    kills: () => { const st = story.surv.stats; return (st.small || 0) + (st.deer || 0); }, questsDone: () => (story.active ? story.quests.completed().length : 0), time: () => game.time,
+    markHint: (x, z, label) => { game.hint = { x, z, label, text: label, mode: "overworld", until: game.time + 40 }; compassKey = ""; } });
+  world.people.skip = (k) => world.talk.joined(k);
+  colonyUI = new ColonyUI({ root: gameEl, stanceBar: document.getElementById("stance-bar"), colony: world.colony, feet: () => feetPos(), yaw: () => player.yaw,
+    surv: () => (pack() ? story.surv : null), toast: (m, k) => storyUI.toast(m, k), debug: URLP.has("debug") || URLP.has("play"),
+    mode: () => world.mode, busy: () => world.mode !== "overworld" || !!game.boat || !!player?.mounted || !!storyUI.modal || game.dead,
+    unlocked: () => colonyLock(), onChange: () => {} });
+  syncColony();
   // Round 16: the named people who give quests (one small mesh each, near their fire)
   world.places = planPlaces(world.terrain);
   world.npcs = {};
@@ -386,6 +403,22 @@ function ensureWorld() {
   }
 }
 
+let colonyUI = null;
+/** Round 20: (re)load the settlements saved for this mode (story / free play) and world seed. */
+function syncColony(fresh = false) {
+  const C = world.colony; if (!C) return;
+  const k = C.env.key();
+  if (C._k !== k || fresh) { C._k = k; if (fresh) { C.clear(); C.save(); world.talk.mem = {}; world.talk.save(); } else C.loadSaved(); }
+}
+/** Round 20: when Kra may found a settlement (null = yes). Free play: always; story: after the
+ *  "m2" quest or once he knows a Survival / Industry skill. */
+function colonyLock() {
+  if (story.sandbox && !story.active) return null;
+  if (!story.active) return "Start the story or free play to found settlements";
+  const s = story.surv.skills;
+  if (story.quests.done("m2") || s.has("surv1") || s.has("wood1")) return null;
+  return "Not yet: finish the second task in the story, or learn a Survival skill (Herb Lore), to lead your own people.";
+}
 /** Where Kra wakes in Act 1: beside the cold fire, facing Old Lume. */
 function campSpawn() {
   const c = world.camp, C = c.site.camp, L = c.lume;
@@ -750,6 +783,10 @@ const story = new Story({
   atmo: () => world.atmo,
   monster: () => game.monster,
   caveKind: () => cave?.kind || null,
+  get talk() { return world.talk || null; }, // round 20
+  colonyJSON: () => world.colony?.toJSON() || null,
+  talkJSON: () => world.talk?.toJSON() || null,
+  colonyRestore: (o) => { if (world.colony && !world.colony.list.length && o?.list?.length) { world.colony.load(o, false); } },
   container: (f) => (world.mode === "overworld" && world.settle ? world.settle.containerNear(f.x, f.z) : null),
   places: () => world.places || null,
   caveEntryId: () => (world.mode !== "overworld" && world.entrance ? world.entrance.id : null),
@@ -841,6 +878,7 @@ function startNewGame() {
   if (world.terrain) wmap.clear(mapKey()); else wmap.pendingClear = true; // a new journey: the map starts dark again
   story.newGame();
   ensureWorld();
+  syncColony(true); // a new journey: no settlements yet
   world.atmo.setTime(6.0); world.atmo.setWeather("clear", true); world.atmo.nextChange = 2.5;
   game.armed = false; caveman.spear.visible = false;
   applyStats(); game.health = game.maxHealth; renderStatus();
@@ -854,6 +892,7 @@ function startNewGame() {
 function continueGame() {
   const snap = readSave(); if (!snap) return startNewGame();
   story.load(snap);
+  ensureWorld(); syncColony(); if (snap.colony && world.colony && !world.colony.list.length) world.colony.load(snap.colony, false);
   restoreFromSave(snap);
   storyUI.toast("Welcome back, Kra.");
   showHint(8000, 600);
@@ -863,7 +902,7 @@ function startFreePlay() {
   storyUI.setStoryVisible(false); storyUI.setSandbox(true);
   game.armed = true; caveman.spear.visible = true;
   applyStats(); game.health = game.maxHealth; renderStatus();
-  ensureWorld();
+  ensureWorld(); syncColony();
   world.atmo.setTime(19.4);
   enterOverworld();
   showHint(9000, 600);
@@ -1418,6 +1457,7 @@ function mapState() {
     out.entrances = t.entrances.filter((e) => world.discovered.has(e.id)).map((e) => ({ x: e.x, z: e.z, name: e.name, cave: e.cave }));
     out.marks = site ? [{ x: site.camp.x, z: site.camp.z, color: "#ffb050", label: story.active ? "River-Tooth camp" : "Camp" }] : [];
     if (site && story.active) out.stream = site.stream;
+    if (world.colony) for (const c of world.colony.list) out.towns.push({ x: c.x, z: c.z, name: `${c.name} · ${COL_AGES[c.age].name} · 👥${c.vill.length}`, kind: "village", color: "#7fe0ff", known: true }); // round 20
     if (world.boats) out.boats = world.boats.list.map((b) => ({ x: b.x, z: b.z, yaw: b.yaw, kind: b.kind, mine: b === game.boat || b === game.myBoat, riding: b === game.boat }));
     out.npcs = world.places ? Object.entries(world.places.npc).map(([id, n]) => ({ x: n.x, z: n.z, mark: story.npcMark(id) })) : [];
   } else if (cave) {
@@ -1563,6 +1603,7 @@ function tick(now) {
     updateArrows(dt);
     story.update(dt);
     if (STREAM || world.mode === "overworld") chunks.update(streamCtx());
+    if (world.mode !== "overworld") colonyUI?.update(); // round 20: hides the settlement button / build bar underground
     if (world.mode === "overworld") tickOverworld(dt, info, now);
     else if (cave) {
     depthEl.textContent = `Depth ${fmt(Math.max(0, info.depth))} m`;
@@ -1893,6 +1934,10 @@ function tickOverworld(dt, info, now) {
       extra.marks.push({ x: b.x, z: b.z, color: mine ? "#ffe0a0" : "#c8955a", r: mine ? 0.016 : 0.011, label: mine && b !== game.boat ? "⛵" : "" });
     }
   }
+  if (world.colony?.list.length && mapFilters.towns) { // round 20: your settlements
+    extra = extra || { marks: [], dots: [] };
+    for (const c of world.colony.list) extra.marks.push({ x: c.x, z: c.z, color: "#7fe0ff", r: 0.026, edge: true, label: Math.hypot(c.x - p.x, c.z - p.z) < 200 ? c.name : "" });
+  }
   if (extra) extra.noLabels = !mapFilters.labels;
   minimap.drawOverworld(t, p, player.yaw, mapFilters.caves ? world.discovered : new Set(), extra);
   updateLowHint(info);
@@ -1933,6 +1978,10 @@ function tickOverworld(dt, info, now) {
   if (world.settle) {
     world.settle.update(dt, p);
     world.people.update(dt, p);
+    const f20 = feetPos(); // round 20: Kra's settlements + talkative townsfolk
+    world.colony?.update(dt, f20);
+    if (!storyUI.modal && !game.dead) world.talk?.update(dt, f20);
+    colonyUI?.update();
     town = world.settle.at(p.x, p.z);
     updateCompass(p, town);
   }
@@ -2405,6 +2454,30 @@ window.__CAVE__ = {
       player.pitch = pitch; player.applyLook();
       return { x, z };
     },
+    // round 20: settlements + talk
+    colony: () => { const C = world.colony; if (!C) return null; return { list: C.list.map((c) => ({ id: c.id, name: c.name, x: Math.round(c.x), z: Math.round(c.z), age: c.age, ageName: COL_AGES[c.age].name, res: Object.fromEntries(Object.entries(c.res).map(([k, v]) => [k, Math.floor(v)])), blds: c.blds.map((b) => b.type + (b.built < 1 ? ":" + b.built.toFixed(2) : "")), vill: c.vill.map((v) => v.name + "/" + v.job), techs: c.techs })), agents: C.agents.map((a) => ({ n: a.v.name, job: a.v.job, phase: a.phase, x: +a.p.x.toFixed(1), z: +a.p.z.toFixed(1), carry: !!a.p.carry, trips: a.trips || 0, node: a.node ? { x: Math.round(a.node.x), z: Math.round(a.node.z) } : null })), log: C.log.slice(-12), lock: colonyLock(), btn: colonyUI?.btn._w, mode: colonyUI?.mode }; },
+    foundSpot: (r0 = 0, r1 = 400) => { const f = feetPos(); for (let r = r0; r <= r1; r += 12) for (let a = 0; a < 6.28; a += 0.4) { const x = Math.round(f.x + Math.cos(a) * r), z = Math.round(f.z + Math.sin(a) * r); if (!world.colony.canFound(x, z)) return { x, z }; } return null; },
+    found: (x, z) => { const why = world.colony.canFound(x, z); if (why) return why; return world.colony.found(x, z).name; },
+    placeSpot: (type, rot = 0, i = 0) => { const C = world.colony, c = C.list[i]; for (let r = 6; r < C.radius(c); r += 2) for (let a = 0; a < 6.28; a += 0.3) { for (let k = 0; k < 4; k++) { const x = Math.round(c.x + Math.cos(a) * r), z = Math.round(c.z + Math.sin(a) * r), ro = type === "dock" ? k * Math.PI / 2 : rot; if (!C.canPlace(c, type, x, z, ro)) return { x, z, rot: ro }; if (type !== "dock") break; } } return null; },
+    place: (type, x, z, rot = 0, i = 0) => world.colony.place(world.colony.list[i], type, x, z, rot),
+    canPlace: (type, x, z, rot = 0, i = 0) => world.colony.canPlace(world.colony.list[i], type, x, z, rot),
+    giveRes: (o, i = 0) => { const c = world.colony.list[i]; for (const [k, v] of Object.entries(o)) c.res[k] = (c.res[k] || 0) + v; world.colony.save(); return c.res; },
+    recruitNear: (n = 1, i = 0) => { const C = world.colony, c = C.list[i], f = feetPos(), out = []; const ps = world.people.list.filter((p) => p.ident && !p.ext).sort((a, b) => Math.hypot(a.x - f.x, a.z - f.z) - Math.hypot(b.x - f.x, b.z - f.z)); for (const p of ps.slice(0, n)) { if (!C.hasRoom(c)) break; const m = world.talk.m(p); m.joined = 1; C.recruit(c, p.ident); world.people.remove(p); out.push(p.ident.name); } world.talk.save(); return out; },
+    setJob: (k, job, i = 0) => world.colony.setJob(world.colony.list[i].vill[k].vid, job),
+    colonyFF: (sec) => { world.colony.ff(sec); return world.colony.list.map((c) => ({ res: c.res, built: c.blds.filter((b) => b.built >= 1).length })); },
+    colonyAdvance: (i = 0) => { const c = world.colony.list[i]; const k = world.colony.ageCheck(c); return world.colony.advance(c) ? COL_AGES[c.age].name : k.lines.filter((l) => !l[1]).map((l) => l[0]); },
+    learnTech: (id, i = 0) => world.colony.learnTech(world.colony.list[i], id) || world.colony.techCheck(world.colony.list[i], id),
+    colonyPanel: (i = 0) => colonyUI.open(world.colony.list[i]),
+    buildMode: (type, i = 0) => { colonyUI.start("build", world.colony.list[i]); if (type) colonyUI.pick(type); colonyUI.update(); return colonyUI.bar.querySelector(".bb-status").textContent; },
+    colonyReload: () => { try { world.colony.load(JSON.parse(localStorage.getItem(world.colony.env.key())), true); return world.colony.list.length; } catch (e) { return String(e.stack).slice(0, 400); } },
+    clearColony: () => { world.colony.clear(); world.colony.save(); },
+    talkNear: () => { const n = world.people.nearest(feetPos().x, feetPos().z); if (!n) return null; world.talk.talk(n.p); return { name: n.p.ident.name, voice: n.p.ident.voice, trait: n.p.ident.trait, ext: !!n.p.ident.ext, d: +n.d.toFixed(1) }; },
+    peopleNear: (n = 8) => { const f = feetPos(); return world.people.list.filter((p) => p.ident).map((p) => ({ name: p.ident.name, voice: p.ident.voice, ext: !!p.ident.ext, x: +p.x.toFixed(1), z: +p.z.toFixed(1), d: +Math.hypot(p.x - f.x, p.z - f.z).toFixed(1) })).sort((a, b) => a.d - b.d).slice(0, n); },
+    pickups: () => story.pickups.map((k) => ({ id: k.id, ore: !!k.ore, taken: k.taken, x: +k.x.toFixed(1), y: +k.y.toFixed(1), z: +k.z.toFixed(1) })),
+    toPickup: (i) => { const k = story.pickups[i]; if (!k) return null; player.placeWorld(k.x + 0.6, k.y + 0.05, k.z + 0.6); return true; },
+    setTool: (k, v = true) => { story.surv.tools[k] = v; return story.surv.tools; },
+    count: (id) => story.surv.count(id),
+    talkLog: () => world.talk.log.slice(-20), talkMem: () => world.talk.mem,
     people: () => ({ count: world.people?.list.length || 0, visible: world.people?.visible || 0, cap: world.people?.cap, states: world.people?.list.reduce((o, p) => ((o[p.state] = (o[p.state] || 0) + 1), o), {}), carrying: world.people?.list.filter((p) => p.carry).length }),
     nearestPerson: () => { const n = world.people?.nearest(camera.position.x, camera.position.z); return n && { x: n.p.x, z: n.p.z, d: +n.d.toFixed(2), state: n.p.state }; },
     settleDraws: () => world.settle?.drawCalls(),

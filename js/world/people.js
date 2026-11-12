@@ -9,6 +9,7 @@ import * as THREE from "three";
 import { mulberry32 } from "../rng.js";
 import { addDetail, smoothNormals } from "../realism.js";
 import { colCore } from "./terrain.js";
+import { identity } from "../act1/talk.js";
 
 const TUNIC = [0x8a6a48, 0x7a5a3c, 0x9b7b55, 0x6e5034, 0xa38763, 0x5f4a36, 0x8c5a3c];
 const SKIN = [0xc79a74, 0xb5835c, 0xa87454, 0x8e5e40, 0xd2a983];
@@ -51,20 +52,29 @@ export class People {
 
   /** Spawn people for a settlement whose meshes were just built. */
   spawnFor(s) {
+    // Round 20: each townsperson is a fixed person (name, voice, trade) from the town's seed, so
+    // they can be talked to and remembered; ones who joined Kra's settlement stay away.
+    const R0 = mulberry32((s.seed || 1) ^ 0x51ed);
     const [lo, hi] = PER[s.kind];
-    let n = lo + Math.floor(this.rng() * (hi - lo + 1));
+    let n = lo + Math.floor(R0() * (hi - lo + 1));
     if (this.lite) n = Math.ceil(n * 0.45);
     for (let i = 0; i < n && this.list.length < this.cap; i++) {
+      const key = `${s.id}:${i}`;
+      if (this.skip?.(key)) continue;
+      const r = mulberry32((s.seed || 1) + i * 977 + 13);
       const sp = this._spot(s);
       const p = {
-        s, x: sp.x + (this.rng() - 0.5) * 2, z: sp.z + (this.rng() - 0.5) * 2, yaw: this.rng() * 6.28,
-        speed: 1.0 + this.rng() * 0.5, h: 0.92 + this.rng() * 0.14, phase: this.rng() * 6.28,
-        tunic: TUNIC[Math.floor(this.rng() * TUNIC.length)], skin: SKIN[Math.floor(this.rng() * SKIN.length)],
-        state: "idle", t: this.rng() * 4, route: [], carry: false, sit: 0, stuck: 0, walkAmt: 0,
+        s, key, ident: identity((s.seed || 1) + i * 7919, s), x: sp.x + (r() - 0.5) * 2, z: sp.z + (r() - 0.5) * 2, yaw: r() * 6.28,
+        speed: 1.0 + r() * 0.5, h: 0.92 + r() * 0.14, phase: r() * 6.28,
+        tunic: TUNIC[Math.floor(r() * TUNIC.length)], skin: SKIN[Math.floor(r() * SKIN.length)],
+        state: "idle", t: r() * 4, route: [], carry: false, sit: 0, stuck: 0, walkAmt: 0,
       };
       this.list.push(p);
     }
   }
+  /** Round 20: a person driven from outside (a villager of Kra's settlement); only rendered here. */
+  addExternal(p) { Object.assign(p, { ext: true, yaw: p.yaw || 0, speed: 1.3, h: p.h || 1, phase: 0, tunic: p.tunic || TUNIC[(p.seed || 0) % TUNIC.length], skin: p.skin || SKIN[(p.seed || 0) % SKIN.length], state: "idle", route: [], carry: false, sit: 0, stuck: 0, walkAmt: 0 }); this.list.push(p); return p; }
+  remove(p) { const i = this.list.indexOf(p); if (i >= 0) this.list.splice(i, 1); }
   despawnFor(s) { this.list = this.list.filter((p) => p.s !== s); }
 
   _spot(s) {
@@ -74,7 +84,8 @@ export class People {
   }
   _plan(p) {
     const s = p.s, r = this.rng();
-    if (r < 0.3) { p.state = "idle"; p.t = 2 + this.rng() * 6; return; }
+    p.work = null;
+    if (r < 0.3) { p.state = "idle"; p.t = 2 + this.rng() * 6; if (p.ident && this.rng() < 0.6) { p.work = p.ident.anim; p.t += 4; } return; } // round 20: chores
     if (r < 0.5 && s.fires.length) {
       // walk to a fire and sit
       const f = s.fires[Math.floor(this.rng() * s.fires.length)], a = this.rng() * 6.28;
@@ -101,6 +112,15 @@ export class People {
     for (const p of this.list) {
       const dx = p.x - px, dz = p.z - pz, d2 = dx * dx + dz * dz;
       // ---- behaviour (cheap; runs for hidden ones too)
+      if (p.ext) { // round 20: Kra's villagers are moved by the colony sim
+        if (p.talkT > 0) { p.talkT -= dt; const want = Math.atan2(-dx, -dz); p.yaw += wrap(want - p.yaw) * Math.min(1, dt * 4); }
+        p.walkAmt += ((p.state === "walk" ? 1 : 0) - p.walkAmt) * Math.min(1, dt * 6);
+        if (d2 > vis2 || n >= this.cap) continue;
+        this._pose(p, n++);
+        continue;
+      }
+      if (!(p.talkT > 0) && d2 < 9 && p.ident && p.state === "walk") p.talkT = 3; // round 20: they stop when Kra walks up (easy to talk to)
+      if (p.talkT > 0) { p.talkT -= dt; p.state = "idle"; p.t = Math.max(p.t, 1); p.yaw += wrap(Math.atan2(-dx, -dz) - p.yaw) * Math.min(1, dt * 4); } // round 20: stop and face Kra while talking
       if (p.state === "idle" || p.state === "sit") {
         p.t -= dt;
         if (p.t <= 0) { p.state = "idle"; p.sit = 0; this._plan(p); }
@@ -165,7 +185,11 @@ export class People {
       L.makeRotationX(ax); const Z = this._z.makeRotationZ(az); L.premultiply(Z).setPosition(side * 0.24, 1.38, 0);
       L.premultiply(M); this.m.arm.setMatrixAt(i * 2 + k, L); this.m.arm.setColorAt(i * 2 + k, c.setHex(p.skin));
     };
-    if (p.carry && !sit) { armAt(0, 1, -2.7, 0.15); armAt(1, -1, -sw * 0.8, -0.08); }
+    const wk = p.state === "idle" && p.walkAmt < 0.2 ? p.work : null, tt = this.time * (wk === "chop" || wk === "mine" ? 3.2 : 2.4) + p.phase;
+    if (wk === "chop" || wk === "mine") { const a = -1.6 - Math.max(0, Math.sin(tt)) * 1.3; armAt(0, 1, a, 0.1); armAt(1, -1, a, -0.1); } // round 20: work animations
+    else if (wk === "scrape") { const a = -0.9 - Math.sin(tt) * 0.35; armAt(0, 1, a, 0.15); armAt(1, -1, a + 0.2, -0.15); }
+    else if (wk === "dig") { const a = -0.6 - Math.abs(Math.sin(tt)) * 0.9; armAt(0, 1, a, 0.05); armAt(1, -1, a, -0.05); }
+    else if (p.carry && !sit) { armAt(0, 1, -2.7, 0.15); armAt(1, -1, -sw * 0.8, -0.08); }
     else if (sit) { armAt(0, 1, -0.9, 0.1); armAt(1, -1, -0.9, -0.1); }
     else { const idleSway = p.walkAmt < 0.1 ? Math.sin(this.time * 1.3 + p.phase) * 0.05 : 0; armAt(0, 1, -sw * 0.8 + idleSway, 0.08); armAt(1, -1, sw * 0.8 - idleSway, -0.08); }
     if (p.carry && !sit) {
@@ -174,7 +198,7 @@ export class People {
     }
   }
 
-  nearest(x, z) { let best = null, bd = 1e9; for (const p of this.list) { const d = Math.hypot(p.x - x, p.z - z); if (d < bd) { bd = d; best = p; } } return best ? { p: best, d: bd } : null; }
+  nearest(x, z) { let best = null, bd = 1e9; for (const p of this.list) { if (!p.ident) continue; const d = Math.hypot(p.x - x, p.z - z); if (d < bd) { bd = d; best = p; } } return best ? { p: best, d: bd } : null; }
 
   dispose() {
     for (const k in this.m) { this.scene.remove(this.m[k]); this.m[k].geometry.dispose(); this.m[k].material.dispose(); this.m[k].dispose(); }

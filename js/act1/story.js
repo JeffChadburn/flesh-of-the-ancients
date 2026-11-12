@@ -280,10 +280,15 @@ export class Story {
       const box = env.container?.(f);
       if (box) return { label: box.searched ? "The basket is empty" : "Search the storage basket", act: () => this.searchBasket(box) };
       // round 19: deadwood for a raft (Survival: Herb Lore)
-      if (s.skills.has("surv1") && t?.scatter) {
+      if ((s.skills.has("surv1") || s.skills.has("wood1")) && t?.scatter) {
         const k = this.deadwoodNear(f, t);
         if (k) return { label: "Gather deadwood logs", act: () => this.gatherWood(k) };
       }
+      // round 20: anyone in a town (or Kra's own villagers) can be talked to
+      const P0 = this.P;
+      const named = this.active && P0 && Object.entries(P0.npc).some(([id, n]) => this.npcVisible(id) && d2(n) < 2.4);
+      const tp = !named && env.talk?.near(f);
+      if (tp) return { label: `Talk to ${tp.ident.name}`, act: () => env.talk.talk(tp) };
       if (this.sandbox && !this.active) {
         const carc = env.wildlife()?.nearestCarcass(f, 2.6);
         return carc ? { label: `Harvest the ${carc.kind}`, act: () => this.harvest(carc) } : null;
@@ -319,7 +324,10 @@ export class Story {
       if (m0 && !m0.alive && m0.kind === "rat" && !fl.ratHarvested && Math.hypot(m0.pos.x - f.x, m0.pos.z - f.z) < 2.6) return { label: "Collect the creature's blood and organ", big: "Collect blood", act: () => this.harvestRat() };
     }
     // round 16: flint / ochre / bone lying in the caves
-    for (const k of this.pickups) if (!k.taken && Math.hypot(k.x - f.x, k.z - f.z) < 1.6 && Math.abs(k.y - f.y) < 2) return { label: `Pick up ${ITEMS[k.id].name.toLowerCase()}`, act: () => this.takePickup(k) };
+    for (const k of this.pickups) if (!k.taken && Math.hypot(k.x - f.x, k.z - f.z) < (k.ore ? 2.2 : 1.6) && Math.abs(k.y - f.y) < 2.2) {
+      if (k.ore) return s.tools.pick ? { label: `Mine the ${ITEMS[k.id].name.toLowerCase().replace(" ore", "")} vein`, act: () => this.takePickup(k) } : { label: `A ${ITEMS[k.id].name.toLowerCase()} vein (you need a pick)`, act: () => env.ui.toast("You need a pick: learn Mining (Industry), or take one from your settlement's workshop.") };
+      return { label: `Pick up ${ITEMS[k.id].name.toLowerCase()}`, act: () => this.takePickup(k) };
+    }
     if (this.sandbox && !this.active) return null;
     // caves: drink only where the rendered stream / pool really is
     const wh = env.caveWater?.();
@@ -449,7 +457,7 @@ export class Story {
     return null;
   }
   gatherWood(k) {
-    const got = this.surv.add("logs", 2);
+    const got = this.surv.add("logs", this.surv.skills.has("wood1") ? 3 : 2);
     if (!got) { this.env.ui.toast("No room for the logs. Craft a backpack.", "bad"); return; }
     this.woodTaken.add(k);
     this.env.ui.toast(`+${got} Deadwood logs`);
@@ -616,6 +624,17 @@ export class Story {
       if (!k.taken) { const m = new THREE.Mesh(geo, mats[id]); m.position.set(sp.x, sp.y + 0.08, sp.z); m.scale.set(1.3, 0.7, 1); m.name = "pickup"; env.addCaveObject(m); k.obj = m; }
       this.pickups.push(k);
     });
+    // round 20: two ore veins per cave (copper / tin / coal / iron), mined with a pick
+    const ores = ["copper", "tin", "coal", "iron"], h = [...String(key)].reduce((a, ch) => a * 31 + ch.charCodeAt(0), 7) >>> 0;
+    const vg = this._veinGeo || (this._veinGeo = new THREE.DodecahedronGeometry(0.42, 0));
+    const vm = this._veinMat || (this._veinMat = { copper: new THREE.MeshLambertMaterial({ color: 0x3a8a6a, emissive: 0x0a2a1a }), tin: new THREE.MeshLambertMaterial({ color: 0xa8acb0, emissive: 0x1a1c20 }), coal: new THREE.MeshLambertMaterial({ color: 0x1a1a1c, emissive: 0x050505 }), iron: new THREE.MeshLambertMaterial({ color: 0x8a4a2a, emissive: 0x200a04 }) });
+    [0.3, 0.68].forEach((fr, j) => {
+      const sp = env.caveSpot(fr); if (!sp) return;
+      const id = ores[(h + j * 3) % 4], i = 10 + j;
+      const k = { id, n: 2, ore: true, x: sp.x + Math.cos(sp.yaw) * 0.5, y: sp.y, z: sp.z - Math.sin(sp.yaw) * 0.5, i, cave: key, taken: taken.has(i) };
+      if (!k.taken) { const m = new THREE.Mesh(vg, vm[id]); m.position.set(k.x, k.y + 0.25, k.z); m.scale.set(1.2, 0.8, 1); m.name = "ore"; env.addCaveObject(m); k.obj = m; }
+      this.pickups.push(k);
+    });
   }
   onCaveLoaded(kind, key = kind) {
     this.placePickups(key);
@@ -719,6 +738,7 @@ export class Story {
       v: 1, kind, flags: { ...this.flags }, surv: this.surv.toJSON(), glyphs: this.glyphs.slice(), quests: this.quests.toJSON(), picked: this.picked,
       pos: p, hours: env.atmo()?.hours, weather: env.atmo()?.weather,
       camp: camp ? { fireLit: camp.fireLit, tor: camp.tor.skinned } : null,
+      colony: env.colonyJSON?.() || null, talk: env.talkJSON?.() || null, // round 20
       health: env.health(),
     };
   }
@@ -733,6 +753,7 @@ export class Story {
     this.flags = { ...snap.flags };
     this.glyphs = (snap.glyphs || []).slice();
     this.quests.fromJSON(snap.quests); this.picked = snap.picked || {};
+    if (snap.colony) this.env.colonyRestore?.(snap.colony); // round 20: only if the live settlement save is missing
     if (!this.quests.state("m1")) this.quests.start("m1", this.surv.stats); // pre-round-16 saves
     this.sandbox = false;
     if (prev) {

@@ -239,6 +239,19 @@ Draw calls go up slightly because each cell is its own mesh. The triangle count 
 
 ## Changelog
 
+- **Round 20: talkative townsfolk, your own settlements, and the ages.**
+  - *Talk to anyone:* every person in a town (and your own villagers) can be talked to with E / **Talk**, in the story and in free play. They stop and turn when you walk up.
+    - Each has a name, a trade, a temperament and their own voice (spoken with subtitles when Voices are on).
+    - Replies: ask about the area (lakes, biomes, nearby towns), news and rumours (quest hints, the nearest unfound cave, which gets marked 💡; animals; ore in the deep caves), trade (barter from your pack), give a gift (food), ask them to join your settlement, goodbye.
+    - They remember Kra (saved): how often you've met, how much they like you, and react to the faces you wear, your deeds, the time of day, the weather and the biome. Walk past and they call out to you.
+  - *Found a settlement:* **Found 🏛** (stance bar) on flat, dry, open ground away from towns, caves and the old camp. Free play: any time. Story: after the second task, or once you know Herb Lore / Woodcutting. Up to 3.
+  - *Build:* **Town 🏘 → 🔨 Build** opens a build bar: cards with costs, a ghost in front of Kra on a 1 m grid (green = OK, red = why not, and it slides to the nearest good spot), **⟳ Rotate**, **Place**. Hut, storage, fire pit, drying rack, workshop, lumber camp, palisade, dock, then farm plot, quarry, mine entrance (by rock), kiln and forge in later ages. Buildings rise as a construction site.
+  - *People and jobs:* take people in from the towns (Join, once they like you enough), or keep huts and food and newcomers arrive. In the Settlement panel give each a job: gatherer, woodcutter, quarry worker, miner, hunter, fisher, builder, farmer. They really walk out to trees / rocks / water / the mine, work (chop, dig, scrape) and carry it home. Away or offline, the settlement keeps working at the same rates (capped catch-up).
+  - *Resources:* wood, stone, food, hide, fibre, clay; then copper, tin, iron ore and coal. **🎒 Deposit pack** turns Kra's logs, flint, hides, meat, sinew and ore into stores.
+  - *Ages:* Hide & Hut → Timber → Stone → Bronze → Iron & Steel (Modern is a stub). Each needs people, stores and a key building (workshop, quarry, kiln + copper smelting, forge + iron working). Every building changes look and material each age, new buildings unlock and tools get better (faster work).
+  - *New skills (Industry branch):* Woodcutting, Mining (stone pick recipe), Masonry (20% less stone), Smelting (half-cost know-how). Each cave now has two ore veins (copper / tin / iron / coal) Kra mines with a pick (or take one from your workshop).
+  - Settlements show on the minimap and big map (cyan, with age and population) and are saved with the game.
+
 - **Round 19: boats, plus ford, horse and camera fixes.**
   - *Three kinds of boat* (`js/world/boats.js`):
     - a dugout canoe for lakes and rivers;

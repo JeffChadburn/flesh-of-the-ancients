@@ -356,6 +356,7 @@ export class Terrain {
       }
     }
     if (this.campColliders) for (const c of this.campColliders) if (Math.abs(c.x - x) < r + c.r && Math.abs(c.z - z) < r + c.r) out.push(c);
+    if (this.extraColliders) for (const c of this.extraColliders) if (Math.abs(c.x - x) < r + c.r && Math.abs(c.z - z) < r + c.r) out.push(c); // round 20: Kra's settlements
     const f = this.act1?.fall;
     if (f && Math.abs(f.x - x) < r + 6 && Math.abs(f.z - z) < r + 6) out.push({ x: f.x, z: f.z, r: 3.4 });
     for (const e of this.entrances) {

@@ -100,3 +100,21 @@ The overworld is now 6.4 km across (±3.2 km). North is −z.
   - Everything is carved into the height function and rendered per chunk as one water sheet with a flowing / rolling shader.
 - **Wading and swimming:** wading slows Kra. Deeper than 1.15 m he swims at the surface (slow, no running). A "Swim to shore" button appears, and he is pulled to the nearest dry ground after 60 s or 12 s without progress.
 - **Boats (next step):** `terrain.bio.bodies` lists every water body. `terrain.bio.navigable(x, z)` says where a boat could float.
+
+
+## Settlements & ages (round 20, 2026-11-12)
+
+**Lore.** After the First Mouth swallowed the River-Tooth camp, the tribe that survives is the one Kra builds. The ages are the tribe's rise out of the dark:
+
+| Age | What it means in the story | Needs |
+|---|---|---|
+| Hide & Hut | The first hearth since the camp went silent: a Founding Stone, a fire, hides on poles. | (found it) |
+| Timber | Log walls and thatch, a place meant to last a winter. | 3 people, 40 wood, 10 stone, a workshop |
+| Stone | Dressed stone and walls: the tribe stops running from the dark. | 5 people, 40 wood, 60 stone, a quarry |
+| Bronze | "Green stone" from the deep caves melted into gold-red metal. The caves that ate the camp now feed it. | 7 people, stone, clay, copper, tin, a kiln + copper smelting |
+| Iron & Steel | Black iron, then steel: brick, beams and chimneys. A town, not a camp. | 9 people, iron, coal, stone, a forge + iron working |
+| Modern | Stub (later round). | — |
+
+- **Townsfolk** are ordinary people of the other camps. They have heard of the River-Tooth massacre. They fear the face-wearer, warm to a hunter who brings meat, and only follow Kra once they trust him (gifts, trade, deeds). Their rumours point back to the story: caves not yet found, the Ash-Walker, and ore glinting in the deep caves.
+- **Unlock in the story:** after the second task (m2), or once Kra knows Herb Lore or Woodcutting. Free play: always.
+- **Design notes:** villagers reuse the instanced townsfolk renderer; built buildings are merged into one mesh per settlement; the economy ticks once a second; far-away and offline settlements use an abstract tick (offline catch-up capped at 2 h, at half rate). Colony data is saved in its own key and also inside the story save. NPC towns do not evolve (skipped).

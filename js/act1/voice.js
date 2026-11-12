@@ -17,6 +17,13 @@ const PROFILES = {
   "Warden Orrek": { prefer: ["Microsoft Guy", "Google UK English Male", "Daniel", "Aaron", "Gordon"], pitch: 0.55, rate: 0.9, slot: 5 },
   Brannoc: { prefer: ["Ralph", "Fred", "Albert", "Microsoft David", "Lee"], pitch: 0.7, rate: 0.8, slot: 6 },
   "The Ash-Walker": { prefer: ["Whisper", "Bad News", "Microsoft Ryan", "Arthur", "Rishi", "Oliver"], pitch: 0.3, rate: 0.74, slot: 7 },
+  // round 20: townsfolk (six voice types, picked per person)
+  town0: { prefer: ["Google UK English Male", "Microsoft Ryan", "Daniel", "Aaron"], pitch: 0.75, rate: 0.95, slot: 9 },
+  town1: { prefer: ["Google UK English Female", "Microsoft Libby", "Serena", "Kate"], pitch: 1.1, rate: 1.0, slot: 10 },
+  town2: { prefer: ["Microsoft David", "Fred", "Ralph", "Lee"], pitch: 0.6, rate: 0.88, slot: 11 },
+  town3: { prefer: ["Samantha", "Microsoft Zira", "Google US English", "Allison"], pitch: 1.2, rate: 1.06, slot: 12 },
+  town4: { prefer: ["Microsoft Mark", "Tom", "Evan", "Nathan"], pitch: 0.95, rate: 1.04, slot: 13 },
+  town5: { prefer: ["Moira", "Fiona", "Tessa", "Karen", "Microsoft Hazel"], pitch: 0.9, rate: 0.9, slot: 14 },
   Mosi: { prefer: ["Tom", "Evan", "Google US English", "Microsoft Mark", "Nathan"], pitch: 1.12, rate: 1.08, slot: 8 },
 };
 const LS = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v === "1"; } catch { return d; } };
