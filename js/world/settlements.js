@@ -214,7 +214,7 @@ function layout(s) {
   // segment colliders with a doorway gap, a dark torch-lit interior and a few furnishings.
   s.buildings = [];
   const lootRng = mulberry32(s.seed ^ 0xb0b);
-  const LOOT = [["berries", 3], ["roots", 2], ["cooked", 1], ["hide", 1], ["feather", 2], ["pelt", 1]];
+  const LOOT = [["berries", 3], ["roots", 2], ["cooked", 1], ["hide", 1], ["feather", 2], ["pelt", 1], ["sinew", 1], ["bone", 2], ["flint", 1], ["herbs", 2], ["ochre", 1]]; // round 16: + crafting materials
   const loot = () => { const a = LOOT[Math.floor(lootRng() * LOOT.length)], b = LOOT[Math.floor(lootRng() * LOOT.length)]; return a === b ? [a] : [a, b]; };
   for (const h of s.huts) if (h.r >= 2.0) {
     h.big = true;

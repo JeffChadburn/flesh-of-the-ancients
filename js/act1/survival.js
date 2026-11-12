@@ -14,6 +14,13 @@ export const ITEMS = {
   skin: { name: "Tor's skin", stack: 1, icon: "◼" },
   blood: { name: "Creature blood", stack: 4, icon: "🩸" },
   morgan: { name: "Creature organ", stack: 2, icon: "✶" },
+  // round 16: crafting materials + a consumable
+  bone: { name: "Bone", stack: 8, icon: "🦴" },
+  sinew: { name: "Sinew", stack: 8, icon: "〰" },
+  flint: { name: "Flint", stack: 8, icon: "◆" },
+  ochre: { name: "Red ochre", stack: 8, icon: "●" },
+  herbs: { name: "Healing herbs", stack: 8, icon: "🌿" },
+  salve: { name: "Healing salve", stack: 4, icon: "🏺", heal: 1 },
 };
 export const SKILLS = {
   tools: { name: "Stone Tools", desc: "Knife and spear: harvest carcasses, craft simple gear." },
@@ -21,9 +28,44 @@ export const SKILLS = {
   fire: { name: "Fire-starting", desc: "Relight a fire pit to cook meat and rest (save)." },
   blood: { name: "Blood Memory", desc: "Eating a monster organ permanently changes you." },
 };
+/** Round 16: skill tree. 4 branches x 3 tiers; 1 skill point each; a tier needs the one below it
+ *  (and some need a story quest done). Points come from quests and from XP (100 XP = 1 point). */
+export const TREE = {
+  hunt: { name: "Hunting", icon: "🏹", tiers: [
+    { id: "hunt1", name: "Keen Eye", desc: "Animals show on the map. Recipe: bone arrows.", recipe: "arrows" },
+    { id: "hunt2", name: "Flint Knapper", desc: "Recipe: flint-tipped spear (+1 spear damage).", recipe: "flintspear" },
+    { id: "hunt3", name: "Butcher", desc: "Every carcass gives an extra meat and bone.", quest: "m4" },
+  ] },
+  craft: { name: "Crafting", icon: "🧵", tiers: [
+    { id: "craft1", name: "Hide-Working", desc: "Recipe: hide boots (sprinting tires you 25% less).", recipe: "boots" },
+    { id: "craft2", name: "Sinew Sewing", desc: "Recipe: hide cloak (+1 heart).", recipe: "cloak" },
+    { id: "craft3", name: "Furrier", desc: "Recipe: fur hat (+1 heart).", recipe: "hat", quest: "m4" },
+  ] },
+  surv: { name: "Survival", icon: "🔥", tiers: [
+    { id: "surv1", name: "Herb Lore", desc: "Find healing herbs when you gather. Recipe: healing salve.", recipe: "salve" },
+    { id: "surv2", name: "Pitch Torch", desc: "Recipe: resin torch (brighter, reaches further in caves).", recipe: "torch" },
+    { id: "surv3", name: "Iron Gut", desc: "Hunger and thirst drain 30% slower.", quest: "m4" },
+  ] },
+  spirit: { name: "Spirit", icon: "✋", tiers: [
+    { id: "spirit1", name: "Ochre Rites", desc: "Recipe: red face paint (stamina comes back 30% faster).", recipe: "paint" },
+    { id: "spirit2", name: "Far Sight", desc: "The map reveals twice as far around you.", quest: "m4" },
+    { id: "spirit3", name: "Ancestors' Voice", desc: "The dead stand with you: +1 heart.", quest: "m6" },
+  ] },
+};
+export const TREE_IDS = Object.values(TREE).flatMap((b) => b.tiers.map((t) => t.id));
+/** Clothing Kra can wear (crafted once, then Wear / Remove). */
+export const GEAR = { boots: "Hide boots", cloak: "Hide cloak", hat: "Fur hat", paint: "Red face paint" };
 export const RECIPES = [
   { id: "backpack", name: "Simple backpack", desc: "Sewn from a whole skin. Inventory 6 → 12 slots.", needs: [["hide", 1], ["skin", 1]], anyOf: true, once: true },
   { id: "spear", name: "Finish the bone spear", desc: "Bind the point with pelt strips. Longer reach; a deer falls in one thrust.", needs: [["pelt", 1]], once: true },
+  { id: "arrows", name: "Bone arrows", desc: "Bone points and fletching: +1 arrow damage.", needs: [["bone", 2], ["feather", 2]], once: true },
+  { id: "flintspear", name: "Flint-tipped spear", desc: "A knapped flint head bound with sinew: +1 spear damage.", needs: [["flint", 2], ["sinew", 1]], once: true, spear: true },
+  { id: "boots", name: "Hide boots", desc: "Wrapped and laced. Sprinting tires you 25% less. (worn)", needs: [["hide", 1], ["sinew", 1]], once: true, gear: true },
+  { id: "cloak", name: "Hide cloak", desc: "A deer hide over the shoulders: +1 heart. (worn)", needs: [["hide", 2], ["sinew", 1]], once: true, gear: true },
+  { id: "hat", name: "Fur hat", desc: "Rabbit pelts sewn in a cap: +1 heart. (worn)", needs: [["pelt", 3], ["sinew", 1]], once: true, gear: true },
+  { id: "paint", name: "Red face paint", desc: "Ochre and berry juice in the hunters' stripes: stamina back 30% faster. (worn)", needs: [["ochre", 2], ["berries", 1]], once: true, gear: true },
+  { id: "salve", name: "Healing salve", desc: "Crushed herbs in fat. Use it to heal a heart.", needs: [["herbs", 2], ["berries", 1]] },
+  { id: "torch", name: "Resin torch", desc: "Pine pitch on a bone haft: a brighter torch that reaches further.", needs: [["bone", 1], ["sinew", 1]], once: true },
 ];
 
 export class Survival {
@@ -37,7 +79,28 @@ export class Survival {
     this.tools = { knife: false, spear: false, spearDone: false };
     this.crafted = new Set();
     this.stats = { ate: 0, drank: 0, small: 0, deer: 0, cooked: 0, harvested: 0 };
+    this.xp = 0; this.sp = 0; this.recipes = new Set(); this.wear = new Set();
   }
+
+  // ---- round 16: XP / skill tree / gear ----
+  get level() { return 1 + Math.floor(this.xp / 100); }
+  /** Add XP; returns the number of new skill points (levels gained). */
+  addXP(n) { const l0 = this.level; this.xp += n; const g = this.level - l0; this.sp += g; return g; }
+  tierInfo(id) { for (const b of Object.values(TREE)) { const i = b.tiers.findIndex((t) => t.id === id); if (i >= 0) return { b, i, t: b.tiers[i] }; } return null; }
+  /** Why a tree skill can't be learned yet (null = it can). */
+  learnBlock(id, questsDone = () => true) {
+    const k = this.tierInfo(id); if (!k) return "?";
+    if (this.skills.has(id)) return "Learned";
+    if (k.i > 0 && !this.skills.has(k.b.tiers[k.i - 1].id)) return "Needs " + k.b.tiers[k.i - 1].name;
+    if (k.t.quest && !questsDone(k.t.quest)) return "Unlocked by the story";
+    if (this.sp < 1) return "Needs a skill point";
+    return null;
+  }
+  learn(id, questsDone) { if (this.learnBlock(id, questsDone)) return false; this.sp -= 1; this.skills.add(id); if (id === "hunt1") this.skills.add("tracking"); return true; }
+  knows(r) { return !r || !TREE_IDS.some((t) => this.tierInfo(t).t.recipe === r.id) || this.recipes.has(r.id) || TREE_IDS.some((t) => this.skills.has(t) && this.tierInfo(t).t.recipe === r.id); }
+  bonusHearts() { return (this.wear.has("cloak") ? 1 : 0) + (this.wear.has("hat") ? 1 : 0) + (this.skills.has("spirit3") ? 1 : 0); }
+  spearBonus() { return this.crafted.has("flintspear") ? 1 : 0; }
+  arrowBonus() { return this.crafted.has("arrows") ? 1 : 0; }
 
   count(id) { return this.inv.filter((s) => s.id === id).reduce((a, s) => a + s.n, 0); }
   freeSlots() { return this.slots - this.inv.length; }
@@ -76,6 +139,8 @@ export class Survival {
     if (r.once && this.crafted.has(r.id)) return false;
     if (!this.tools.knife) return false;
     if (r.id === "spear" && !this.tools.spear) return false;
+    if (r.spear && !this.tools.spear) return false;
+    if (!this.knows(r)) return false;
     return r.anyOf ? r.needs.some(([id, n]) => this.count(id) >= n) : r.needs.every(([id, n]) => this.count(id) >= n);
   }
   /** Craft; `use` picks the input for anyOf recipes. Returns message or null. */
@@ -91,19 +156,25 @@ export class Survival {
     this.crafted.add(id);
     if (id === "backpack") { this.slots = 12; return this.craftedFrom === "skin" ? "You sew Tor's skin into a pack. It still smells of him." : "You sew the deer hide into a pack (12 slots)"; }
     if (id === "spear") { this.tools.spearDone = true; return "The bone spear is finished: longer reach, deadlier point"; }
+    if (r.gear) { this.wear.add(id); return `${r.name} made, and you put it on`; }
+    if (id === "salve") { this.crafted.delete("salve"); this.add("salve", 1); return "Mixed a healing salve"; }
+    if (id === "flintspear") { this.tools.spearDone = true; return "The flint head is bound on: +1 spear damage"; }
+    if (id === "arrows") return "Bone arrows fletched: +1 arrow damage";
+    if (id === "torch") return "Resin torch made: it burns brighter";
     return "Crafted";
   }
 
   /** Per-frame needs. running: 0..1. Returns { damage } when starving / parched. */
   tick(dt, running) {
-    this.hunger = Math.max(0, this.hunger - dt * 0.105);
-    this.thirst = Math.max(0, this.thirst - dt * 0.16);
+    const gut = this.skills.has("surv3") ? 0.7 : 1;
+    this.hunger = Math.max(0, this.hunger - dt * 0.105 * gut);
+    this.thirst = Math.max(0, this.thirst - dt * 0.16 * gut);
     this.organBoost = Math.max(0, this.organBoost - dt);
-    if (running > 0.2) { this.stamina = Math.max(0, this.stamina - dt * 15 * running); this.restT = 0; }
+    if (running > 0.2) { this.stamina = Math.max(0, this.stamina - dt * 15 * running * (this.wear.has("boots") ? 0.75 : 1)); this.restT = 0; }
     else {
       this.restT += dt;
       if (this.restT > 0.8) {
-        let r = 20 * (this.organBoost > 0 ? 1.8 : 1) * (this.hunger < 15 || this.thirst < 15 ? 0.5 : 1);
+        let r = 20 * (this.wear.has("paint") ? 1.3 : 1) * (this.organBoost > 0 ? 1.8 : 1) * (this.hunger < 15 || this.thirst < 15 ? 0.5 : 1);
         this.stamina = Math.min(100, this.stamina + dt * r);
       }
     }
@@ -116,13 +187,14 @@ export class Survival {
 
   toJSON() {
     return { hunger: this.hunger, thirst: this.thirst, stamina: this.stamina, slots: this.slots, inv: this.inv, skills: [...this.skills], faces: this.faces, str: this.str, hpBonus: this.hpBonus,
-      tools: this.tools, crafted: [...this.crafted], stats: this.stats };
+      tools: this.tools, crafted: [...this.crafted], stats: this.stats, xp: this.xp, sp: this.sp, recipes: [...this.recipes], wear: [...this.wear] };
   }
   fromJSON(o) {
     this.reset();
     if (!o) return this;
     Object.assign(this, { hunger: o.hunger, thirst: o.thirst, stamina: o.stamina ?? 100, slots: o.slots || 6, inv: (o.inv || []).map((s) => ({ ...s })), faces: o.faces || 0, str: o.str || 0, hpBonus: o.hpBonus || 0 });
     this.skills = new Set(o.skills || []); this.tools = { ...this.tools, ...(o.tools || {}) }; this.crafted = new Set(o.crafted || []); this.stats = { ...this.stats, ...(o.stats || {}) };
+    this.xp = o.xp || 0; this.sp = o.sp || 0; this.recipes = new Set(o.recipes || []); this.wear = new Set(o.wear || []);
     return this;
   }
 }

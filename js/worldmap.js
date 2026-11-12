@@ -1,0 +1,212 @@
+/**
+ * Round 16: the full-screen map (tap the minimap or 🗺, M on desktop). Pan with a finger / mouse,
+ * pinch or wheel to zoom, ✕ to close.
+ *  - Overworld: the terrain under a fog of war that lifts where Kra has been, the trail he walked,
+ *    towns, discovered cave mouths, people with quests, the tracked quest target and Kra's arrow.
+ *  - In a cave: the passages explored so far, the way out and Kra.
+ * Fog + trail persist in localStorage per world (and per story / free play). Cheap: the terrain
+ * image (160 x 160 cells of 16 m) is built once, the fog is a 160 x 160 alpha image scaled up.
+ */
+const N = 160, CELL = 16, HALF = (N * CELL) / 2; // covers +-1280 m
+const TRAIL_STEP = 8, TRAIL_MAX = 4000;
+
+export class WorldMap {
+  constructor(root, { touch = false } = {}) {
+    this.touch = touch;
+    const el = (this.el = document.createElement("div"));
+    el.className = "wmap hidden";
+    el.innerHTML = `<canvas></canvas><div class="wm-top"><b class="wm-title">Map</b><button class="wm-x" type="button" aria-label="Close map">✕</button></div>
+      <div class="wm-ctl"><button data-z="1" type="button" aria-label="Zoom in">+</button><button data-z="-1" type="button" aria-label="Zoom out">−</button><button data-z="0" type="button" aria-label="Centre on Kra">◎</button></div>
+      <div class="wm-legend"></div>`;
+    root.appendChild(el);
+    this.cv = el.querySelector("canvas"); this.ctx = this.cv.getContext("2d");
+    this.fog = new Uint8Array(N * N); this.trail = []; this.key = null; this.dirty = false; this.saveT = 0;
+    this.view = { cx: 0, cz: 0, s: 1 }; this.isOpen = false; this.state = null;
+    for (const e of ["pointerdown", "click", "pointerup", "touchstart", "wheel"]) el.addEventListener(e, (ev) => ev.stopPropagation(), { passive: e !== "wheel" });
+    el.querySelector(".wm-x").addEventListener("click", () => this.close());
+    el.querySelectorAll(".wm-ctl button").forEach((b) => b.addEventListener("click", () => {
+      const z = +b.dataset.z;
+      if (!z) this.center(); else this.zoomAt(this.cv.clientWidth / 2, this.cv.clientHeight / 2, z > 0 ? 1.6 : 1 / 1.6);
+      this.draw();
+    }));
+    // pan / pinch
+    const pts = new Map(); let last = null;
+    this.cv.addEventListener("pointerdown", (e) => { this.cv.setPointerCapture?.(e.pointerId); pts.set(e.pointerId, { x: e.offsetX, y: e.offsetY }); last = null; });
+    this.cv.addEventListener("pointermove", (e) => {
+      if (!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
+      const a = [...pts.values()];
+      if (a.length === 1) {
+        if (last && last.n === 1) { this.view.cx -= (a[0].x - last.x) / this.view.s; this.view.cz -= (a[0].y - last.y) / this.view.s; this.draw(); }
+        last = { n: 1, x: a[0].x, y: a[0].y };
+      } else {
+        const mx = (a[0].x + a[1].x) / 2, my = (a[0].y + a[1].y) / 2, d = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
+        if (last && last.n === 2) {
+          this.view.cx -= (mx - last.x) / this.view.s; this.view.cz -= (my - last.y) / this.view.s;
+          if (last.d > 5) this.zoomAt(mx, my, d / last.d);
+          this.draw();
+        }
+        last = { n: 2, x: mx, y: my, d };
+      }
+    });
+    const up = (e) => { pts.delete(e.pointerId); last = null; };
+    this.cv.addEventListener("pointerup", up); this.cv.addEventListener("pointercancel", up);
+    this.cv.addEventListener("wheel", (e) => { e.preventDefault(); this.zoomAt(e.offsetX, e.offsetY, e.deltaY < 0 ? 1.25 : 0.8); this.draw(); }, { passive: false });
+  }
+
+  // ---------------- exploration record ----------------
+  setWorld(terrain, key) {
+    if (this.terrain === terrain && this.key === key) return;
+    this.flush();
+    this.terrain = terrain; this.key = key; this.bg = null;
+    this.fog.fill(0); this.trail = []; this._fogImg = null;
+    try {
+      const o = JSON.parse(localStorage.getItem(key) || "null");
+      if (o?.f) { const b = atob(o.f); for (let i = 0; i < Math.min(b.length, N * N); i++) this.fog[i] = b.charCodeAt(i); }
+      if (o?.t) for (let i = 0; i + 1 < o.t.length; i += 2) this.trail.push([o.t[i], o.t[i + 1]]);
+    } catch {}
+  }
+  clear(key) { try { localStorage.removeItem(key); } catch {} if (this.key === key) { this.fog.fill(0); this.trail = []; this._fogImg = null; } }
+  flush() {
+    if (!this.key || !this.dirty) return;
+    this.dirty = false;
+    let s = ""; for (let i = 0; i < this.fog.length; i += 4096) s += String.fromCharCode.apply(null, this.fog.subarray(i, i + 4096));
+    try { localStorage.setItem(this.key, JSON.stringify({ f: btoa(s), t: this.trail.flat() })); } catch {}
+  }
+  /** Overworld: reveal around (x, z) and extend the trail. Call every frame (cheap). */
+  record(x, z, dt, reach = 1) {
+    const lp = this._lp;
+    if (!lp || Math.hypot(x - lp.x, z - lp.z) > 4) {
+      this._lp = { x, z };
+      const R = 70 * reach, ci = Math.floor((x + HALF) / CELL), cj = Math.floor((z + HALF) / CELL), k = Math.ceil(R / CELL);
+      for (let j = cj - k; j <= cj + k; j++) for (let i = ci - k; i <= ci + k; i++) {
+        if (i < 0 || j < 0 || i >= N || j >= N) continue;
+        const d = Math.hypot((i + 0.5) * CELL - HALF - x, (j + 0.5) * CELL - HALF - z);
+        if (d < R && !this.fog[j * N + i]) { this.fog[j * N + i] = 1; this.dirty = true; this._fogImg = null; }
+      }
+      const t = this.trail[this.trail.length - 1];
+      if (!t || Math.hypot(t[0] - x, t[1] - z) > TRAIL_STEP) { this.trail.push([Math.round(x), Math.round(z)]); if (this.trail.length > TRAIL_MAX) this.trail.shift(); this.dirty = true; }
+    }
+    if ((this.saveT += dt) > 10) { this.saveT = 0; this.flush(); }
+  }
+  seen(x, z) { const i = Math.floor((x + HALF) / CELL), j = Math.floor((z + HALF) / CELL); return i >= 0 && j >= 0 && i < N && j < N && !!this.fog[j * N + i]; }
+  revealedCount() { let n = 0; for (const v of this.fog) n += v; return n; }
+
+  // ---------------- open / close ----------------
+  open(state) {
+    this.state = state; this.isOpen = true;
+    this.el.classList.remove("hidden");
+    const s = state();
+    this.resize(); this.center(s);
+    this.view.s = s.mode === "overworld" ? Math.min(this.cv.clientWidth, this.cv.clientHeight) / 500 : Math.min(this.cv.clientWidth, this.cv.clientHeight) / 90;
+    this.draw();
+    clearInterval(this._iv); this._iv = setInterval(() => this.draw(), 300);
+  }
+  close() { this.isOpen = false; this.el.classList.add("hidden"); clearInterval(this._iv); this.onClose?.(); }
+  toggle(state) { if (this.isOpen) this.close(); else this.open(state); }
+  resize() {
+    const dpr = Math.min(2, window.devicePixelRatio || 1), w = this.cv.clientWidth || window.innerWidth, h = this.cv.clientHeight || window.innerHeight;
+    if (this.cv.width !== Math.round(w * dpr)) { this.cv.width = Math.round(w * dpr); this.cv.height = Math.round(h * dpr); }
+    this.dpr = dpr;
+  }
+  center(s = this.state?.()) { if (s?.player) { this.view.cx = s.player.x; this.view.cz = s.player.z; } }
+  zoomAt(px, py, f) {
+    const v = this.view, ns = Math.max(0.05, Math.min(12, v.s * f));
+    const wx = v.cx + (px - this.cv.clientWidth / 2) / v.s, wz = v.cz + (py - this.cv.clientHeight / 2) / v.s;
+    v.s = ns; v.cx = wx - (px - this.cv.clientWidth / 2) / ns; v.cz = wz - (py - this.cv.clientHeight / 2) / ns;
+  }
+
+  _bg() {
+    if (this.bg || !this.terrain) return this.bg;
+    const c = document.createElement("canvas"); c.width = c.height = N;
+    const g = c.getContext("2d"), img = g.createImageData(N, N), H = new Float32Array(N * N), t = this.terrain;
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) H[j * N + i] = t.height((i + 0.5) * CELL - HALF, (j + 0.5) * CELL - HALF);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const h = H[j * N + i], hx = H[j * N + Math.min(N - 1, i + 1)] - h, hz = H[Math.min(N - 1, j + 1) * N + i] - h;
+      const shade = Math.max(-0.35, Math.min(0.35, (-hx - hz) * 0.04));
+      const v = Math.max(0, Math.min(1, (h + 20) / 170)), band = Math.floor(h / 10) % 2 ? 6 : 0, k = (j * N + i) * 4;
+      const snow = h > 120 ? (h - 120) / 60 : 0;
+      img.data[k] = Math.min(255, (58 + v * 80 + band) * (1 + shade) + snow * 120);
+      img.data[k + 1] = Math.min(255, (74 + v * 52 + band) * (1 + shade) + snow * 110);
+      img.data[k + 2] = Math.min(255, (52 + v * 60 + band) * (1 + shade) + snow * 120);
+      img.data[k + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    return (this.bg = c);
+  }
+  _fogCanvas() {
+    if (this._fogImg) return this._fogImg;
+    const c = this._fogC || (this._fogC = document.createElement("canvas")); c.width = c.height = N;
+    const g = c.getContext("2d"), img = g.createImageData(N, N);
+    for (let i = 0; i < N * N; i++) { const k = i * 4; img.data[k] = 12; img.data[k + 1] = 10; img.data[k + 2] = 8; img.data[k + 3] = this.fog[i] ? 0 : 238; }
+    g.putImageData(img, 0, 0);
+    return (this._fogImg = c);
+  }
+
+  draw() {
+    if (!this.isOpen) return;
+    const s = this.state?.(); if (!s) return;
+    this.resize();
+    const ctx = this.ctx, dpr = this.dpr, W = this.cv.clientWidth, Hh = this.cv.clientHeight, v = this.view;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = "#0c0a08"; ctx.fillRect(0, 0, W, Hh);
+    const X = (x) => W / 2 + (x - v.cx) * v.s, Y = (z) => Hh / 2 + (z - v.cz) * v.s;
+    const label = (txt, x, y, col = "#f6e2b0", size = 13) => {
+      ctx.font = `${size}px Georgia, serif`; ctx.textAlign = "left";
+      const w = ctx.measureText(txt).width; let tx = x + 8; if (tx + w > W - 6) tx = x - 8 - w;
+      ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,0.85)"; ctx.strokeText(txt, tx, y + 4); ctx.fillStyle = col; ctx.fillText(txt, tx, y + 4);
+    };
+    const title = this.el.querySelector(".wm-title"), legend = this.el.querySelector(".wm-legend");
+    if (s.mode === "overworld") {
+      title.textContent = s.title || "The Hills";
+      const bg = this._bg();
+      ctx.imageSmoothingEnabled = true;
+      if (bg) ctx.drawImage(bg, X(-HALF), Y(-HALF), N * CELL * v.s, N * CELL * v.s);
+      ctx.drawImage(this._fogCanvas(), X(-HALF), Y(-HALF), N * CELL * v.s, N * CELL * v.s);
+      if (s.stream) { ctx.strokeStyle = "rgba(110,190,220,0.8)"; ctx.lineWidth = 2; ctx.beginPath(); s.stream.forEach((p, i) => (i ? ctx.lineTo(X(p.x), Y(p.z)) : ctx.moveTo(X(p.x), Y(p.z)))); ctx.stroke(); }
+      // trail
+      if (this.trail.length > 1) {
+        ctx.strokeStyle = "rgba(255, 214, 140, 0.75)"; ctx.lineWidth = 2; ctx.setLineDash([4, 4]); ctx.beginPath();
+        let prev = null;
+        for (const p of this.trail) { const x = X(p[0]), y = Y(p[1]); if (prev && Math.hypot(p[0] - prev[0], p[1] - prev[1]) < 60) ctx.lineTo(x, y); else ctx.moveTo(x, y); prev = p; }
+        ctx.stroke(); ctx.setLineDash([]);
+      }
+      for (const t of s.towns || []) {
+        if (!this.seen(t.x, t.z) && !t.known) continue;
+        ctx.fillStyle = t.color; ctx.beginPath(); ctx.arc(X(t.x), Y(t.z), t.kind === "city" ? 7 : t.kind === "village" ? 5.5 : 4, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = "#1a1208"; ctx.lineWidth = 1.5; ctx.stroke();
+        label(t.name, X(t.x), Y(t.z), "#ffe3a8", t.kind === "city" ? 14 : 12);
+      }
+      for (const e of s.entrances || []) {
+        ctx.fillStyle = e.cave === "carlsbad" ? "#ffcf6a" : "#e8e0d0";
+        ctx.beginPath(); ctx.arc(X(e.x), Y(e.z), 5, Math.PI, 0); ctx.closePath(); ctx.fill();
+        label(e.name, X(e.x), Y(e.z), "#e8e0d0", 11);
+      }
+      for (const m of s.marks || []) { ctx.fillStyle = m.color; ctx.beginPath(); ctx.arc(X(m.x), Y(m.z), 4.5, 0, Math.PI * 2); ctx.fill(); if (m.label) label(m.label, X(m.x), Y(m.z), m.color, 12); }
+      for (const n of s.npcs || []) { if (!n.mark) continue; ctx.font = "bold 16px Georgia, serif"; ctx.textAlign = "center"; ctx.lineWidth = 3; ctx.strokeStyle = "#000"; ctx.strokeText(n.mark, X(n.x), Y(n.z) - 6); ctx.fillStyle = n.mark === "?" ? "#9fe3a8" : "#ffd36a"; ctx.fillText(n.mark, X(n.x), Y(n.z) - 6); }
+      legend.innerHTML = `<span class="lg-t">┄ your trail</span><span>● town</span><span>◓ cave</span><span style="color:#ffd36a">! quest</span><span style="color:#ff9a5a">◆ tracked</span>`;
+    } else {
+      title.textContent = s.title || "Cave";
+      ctx.strokeStyle = "rgba(196,174,140,0.75)"; ctx.lineCap = "round";
+      for (const l of s.legs || []) { ctx.lineWidth = Math.max(2, l.w * v.s); ctx.beginPath(); ctx.moveTo(X(l.ax), Y(l.az)); ctx.lineTo(X(l.bx), Y(l.bz)); ctx.stroke(); }
+      if (s.entrance) { ctx.fillStyle = "#8fd0a8"; ctx.beginPath(); ctx.arc(X(s.entrance.x), Y(s.entrance.z), 6, 0, Math.PI * 2); ctx.fill(); label("Way out", X(s.entrance.x), Y(s.entrance.z), "#8fd0a8"); }
+      legend.innerHTML = `<span>Explored passages only</span><span style="color:#8fd0a8">● way out</span>`;
+    }
+    if (s.target) {
+      const x = X(s.target.x), y = Y(s.target.z), inV = x > 8 && y > 50 && x < W - 8 && y < Hh - 30;
+      const cx2 = Math.max(14, Math.min(W - 14, x)), cy2 = Math.max(60, Math.min(Hh - 40, y));
+      ctx.fillStyle = "#ff9a5a"; ctx.strokeStyle = "#1a0e04"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(cx2, cy2 - 9); ctx.lineTo(cx2 + 7, cy2); ctx.lineTo(cx2, cy2 + 9); ctx.lineTo(cx2 - 7, cy2); ctx.closePath(); ctx.fill(); ctx.stroke();
+      if (inV) label(s.target.label, x, y - 16, "#ffb07a", 12);
+    }
+    if (s.player) {
+      ctx.save(); ctx.translate(X(s.player.x), Y(s.player.z)); ctx.rotate(-s.player.yaw);
+      ctx.fillStyle = "#9fe3a8"; ctx.strokeStyle = "#0a1a0c"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(0, -11); ctx.lineTo(7, 8); ctx.lineTo(0, 4); ctx.lineTo(-7, 8); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.restore();
+    }
+    // scale bar
+    const m = [10, 25, 50, 100, 250, 500, 1000].find((q) => q * v.s > 60) || 1000;
+    ctx.fillStyle = "#f6e2b0"; ctx.fillRect(14, Hh - 58, m * v.s, 3); ctx.font = "11px sans-serif"; ctx.textAlign = "left"; ctx.fillText(m >= 1000 ? "1 km" : m + " m", 14, Hh - 64);
+  }
+}

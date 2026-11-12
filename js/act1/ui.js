@@ -3,11 +3,12 @@
  * (+ phone Interact button), dialogue box, inventory / crafting / skills panel, choice dialogs,
  * title cards, toasts and the main menu. Built here so index.html stays small.
  */
-import { ITEMS, SKILLS, RECIPES } from "./survival.js";
+import { ITEMS, SKILLS, RECIPES, TREE, GEAR } from "./survival.js";
 import { StoryVoice } from "./voice.js";
 
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
-const ITEM_COLORS = { berries: "#7a1f3a", roots: "#8a6a3a", meat: "#9a3a34", cooked: "#8a5a2a", organ: "#6a1018", pelt: "#8a7a64", hide: "#7a5636", feather: "#4a4a54", skin: "#6a4a3c", blood: "#5a0808", morgan: "#3a0a2a" };
+const ITEM_COLORS = { berries: "#7a1f3a", roots: "#8a6a3a", meat: "#9a3a34", cooked: "#8a5a2a", organ: "#6a1018", pelt: "#8a7a64", hide: "#7a5636", feather: "#4a4a54", skin: "#6a4a3c", blood: "#5a0808", morgan: "#3a0a2a",
+  bone: "#cfc3a6", sinew: "#9a6a52", flint: "#6a7484", ochre: "#a8401c", herbs: "#4a7a3a", salve: "#8a7a4a" };
 
 export class StoryUI {
   constructor(root, { touch = false } = {}) {
@@ -34,7 +35,12 @@ export class StoryUI {
     this.tasksOpen = !touch; // desktop: open by default; phone: folded into the button
     this.obj.classList.toggle("open", this.tasksOpen);
     this.tasksBtn.addEventListener("click", (ev) => { ev.stopPropagation(); this.toggleTasks(); });
-    this.obj.addEventListener("click", (ev) => { ev.stopPropagation(); this.toggleTasks(false); });
+    this.obj.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const t = ev.target.closest?.("[data-track]");
+      if (t) { this.onTrack?.(t.dataset.track); this._objKey = null; return; } // round 16: pick the tracked quest
+      this.toggleTasks(false);
+    });
     this.dialog = el("div", "dialog hidden", `<div class="who"></div><div class="line"></div><div class="more">${touch ? "Tap" : "E / click"} to continue</div>`); root.appendChild(this.dialog);
     this.panel = el("div", "panel hidden", `<div class="tabs"><button data-t="inv">Inventory <kbd>I</kbd></button><button data-t="craft">Crafting <kbd>Tab</kbd></button><button data-t="skills">Skills <kbd>K</kbd></button><button class="close">✕</button></div><div class="body"></div>`);
     root.appendChild(this.panel);
@@ -60,6 +66,7 @@ export class StoryUI {
     this.meters.classList.toggle("hidden", !on);
     this.obj.classList.toggle("hidden", !on);
     this.rail.classList.toggle("hidden", !on);
+    this.tasksBtn.classList.remove("hidden");
     this.invBtn.classList.toggle("hidden", !on || !this.touch);
   }
 
@@ -85,15 +92,23 @@ export class StoryUI {
     if (on && autoClose) this._tasksT = setTimeout(() => this.toggleTasks(false), autoClose * 1000);
   }
 
-  setObjective(title, lines = []) {
-    const key = title + "|" + lines.map((l) => l[0] + (l[1] ? 1 : 0)).join("|");
+  /** Round 16: free play shows the pack button only (no tasks). */
+  setSandbox(on) {
+    this.rail.classList.toggle("hidden", !on);
+    this.tasksBtn.classList.toggle("hidden", on);
+    this.invBtn.classList.toggle("hidden", !on || !this.touch);
+    this.obj.classList.add("hidden");
+  }
+
+  setObjective(title, lines = [], extra = "") {
+    const key = title + "|" + lines.map((l) => l[0] + (l[1] ? 1 : 0)).join("|") + extra;
     if (key === this._objKey) return;
     const newStep = this._objTitle !== undefined && title !== this._objTitle;
     const changed = this._objKey !== undefined;
     this._objKey = key; this._objTitle = title;
     // a new task (or a ticked line): pop the panel open briefly on phones, badge the button
     if (changed && this.touch && !this.tasksOpen) { if (newStep) this.toggleTasks(true, 4.5); else this.tasksBtn.querySelector(".badge").classList.remove("hidden"); }
-    this.obj.innerHTML = `<div class="o-title">${title}</div>` + lines.map(([t, done]) => `<div class="o-line${done ? " done" : ""}">${done ? "✓" : "•"} ${t}</div>`).join("");
+    this.obj.innerHTML = `<div class="o-title">${title}</div>` + lines.map(([t, done]) => `<div class="o-line${done ? " done" : ""}">${done ? "✓" : "•"} ${t}</div>`).join("") + (extra ? `<div class="q-extra">${extra}</div>` : "");
   }
 
   setPrompt(text) {
@@ -184,16 +199,38 @@ export class StoryUI {
         const it = s.inv[i];
         if (!it) { h += `<div class="slot empty"></div>`; continue; }
         const d = ITEMS[it.id];
-        const act = d.food ? `<button data-a="eat" data-id="${it.id}">Eat</button>` : it.id === "morgan" ? `<button data-a="eatm" data-id="morgan">Eat</button>` : "";
+        const act = d.food ? `<button data-a="eat" data-id="${it.id}">Eat</button>` : it.id === "morgan" ? `<button data-a="eatm" data-id="morgan">Eat</button>` : d.heal ? `<button data-a="use" data-id="${it.id}">Use</button>` : "";
         h += `<div class="slot"><i style="background:${ITEM_COLORS[it.id] || "#555"}"></i><span>${d.name}</span><em>×${it.n}</em>${act}</div>`;
       }
-      body.innerHTML = h + "</div>";
+      h += "</div>";
+      // round 16: clothing (Wear / Remove)
+      const owned = Object.keys(GEAR).filter((g) => s.crafted.has(g));
+      if (owned.length) h += `<div class="inv-head">Clothing</div><div class="gear-row">` + owned.map((g) => `<button class="gear${s.wear.has(g) ? " on" : ""}" data-a="wear" data-id="${g}">${s.wear.has(g) ? "✓ " : ""}${GEAR[g]}</button>`).join("") + "</div>";
+      body.innerHTML = h;
     } else if (this.tab === "craft") {
-      body.innerHTML = RECIPES.map((r) => {
-        const done = s.crafted.has(r.id), can = s.canCraft(r);
-        const need = r.needs.map(([id, n]) => `${n} ${ITEMS[id].name} (${s.count(id)})`).join(r.anyOf ? " <em>or</em> " : " + ");
+      const known = RECIPES.filter((r) => s.knows(r)), locked = RECIPES.filter((r) => !s.knows(r));
+      body.innerHTML = known.map((r) => {
+        const done = r.once && s.crafted.has(r.id), can = s.canCraft(r);
+        const need = r.needs.map(([id, n]) => `<span class="${s.count(id) >= n ? "have" : "miss"}">${n} ${ITEMS[id].name} (${s.count(id)})</span>`).join(r.anyOf ? " <em>or</em> " : " + ");
         return `<div class="recipe${done ? " done" : ""}"><strong>${r.name}</strong><small>${r.desc}</small><small>Needs: ${need}${s.tools.knife ? "" : " · a knife"}</small>${done ? "<b>Made</b>" : `<button data-a="craft" data-id="${r.id}" ${can ? "" : "disabled"}>Craft</button>`}</div>`;
-      }).join("");
+      }).join("") + (locked.length ? `<div class="inv-head">Not learned yet (skills or quests teach these)</div>` + locked.map((r) => `<div class="recipe locked"><strong>${r.name}</strong><small>${r.desc}</small><b>🔒</b></div>`).join("") : "")
+        + `<div class="inv-head">Materials: animals (bone, sinew, hide, pelt), storage baskets in towns, flint / ochre in caves.</div>`;
+    } else if (this.tab === "skills" && this.questDone) {
+      // round 16: skill tree (4 branches x 3 tiers)
+      const lvl = s.level, into = s.xp % 100;
+      let h = `<div class="xp-line">Level ${lvl} · <i class="xpbar"><b style="width:${into}%"></b></i> ${into}/100 XP · <strong>${s.sp}</strong> skill point${s.sp === 1 ? "" : "s"}</div><div class="tree">`;
+      for (const [bid, b] of Object.entries(TREE)) {
+        h += `<div class="branch"><div class="b-name">${b.icon} ${b.name}</div>`;
+        for (const t of b.tiers) {
+          const why = s.learnBlock(t.id, this.questDone);
+          const has = s.skills.has(t.id);
+          h += `<div class="tier${has ? " on" : why ? " locked" : " can"}"><strong>${t.name}</strong><small>${t.desc}</small>${has ? "<b>Learned</b>" : why ? `<em>${why}</em>` : `<button data-a="learn" data-id="${t.id}">Learn (1 pt)</button>`}</div>`;
+        }
+        h += "</div>";
+      }
+      h += "</div>";
+      const base = Object.entries(SKILLS).filter(([id]) => s.skills.has(id)).map(([, k]) => k.name).join(" · ");
+      body.innerHTML = h + `<div class="skill stats"><small>Abilities: ${base || "none yet"}<br>Strength +${s.str} · Health bonus +${s.hpBonus} · Faces ${s.faces}</small></div>`;
     } else {
       body.innerHTML = Object.entries(SKILLS).map(([id, k]) => `<div class="skill${s.skills.has(id) ? " on" : ""}"><strong>${k.name}</strong><small>${k.desc}</small><b>${s.skills.has(id) ? "Learned" : "Locked"}</b></div>`).join("")
         + `<div class="skill stats"><small>Strength +${s.str} · Health bonus +${s.hpBonus} · Faces ${s.faces}</small></div>`;

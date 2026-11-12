@@ -5,7 +5,8 @@
  * cave, and death -> last save (faces / skills kept).
  */
 import * as THREE from "three";
-import { Survival, ITEMS, SKILLS, readSave, writeSave } from "./survival.js";
+import { Survival, ITEMS, SKILLS, RECIPES, TREE, GEAR, readSave, writeSave } from "./survival.js";
+import { QuestLog, QUESTS, QUEST, NPCS, fill } from "./quests.js";
 import { makeBody, markFaceTaken, bake } from "./camp.js";
 import { queryVolume } from "../volume.js";
 
@@ -67,7 +68,12 @@ export class Story {
     this.lastPromptT = 0;
     this.prompt = null;
     this._glyphTex = {};
+    this.quests = new QuestLog(); // round 16
+    this.sandbox = false; // round 16: free play keeps a pack (baskets, crafting) without the story
+    this.pickups = []; this.picked = {};
     env.ui.onPanelAction = (a, id) => this.panelAction(a, id);
+    env.ui.onTrack = (id) => { if (this.quests.state(id) === "active") { this.quests.tracked = id; this._objT = 0; } };
+    env.ui.questDone = (id) => this.quests.done(id);
   }
 
   _log(e) { this.log.push({ t: +(this.env.time() || 0).toFixed(1), ...e }); if (this.log.length > 120) this.log.shift(); }
@@ -75,9 +81,135 @@ export class Story {
   // ---------------- lifecycle ----------------
   newGame() {
     this.surv.reset();
-    this.flags = {}; this.glyphs = [];
-    this.active = true;
+    this.flags = {}; this.glyphs = []; this.picked = {};
+    this.quests.reset(); this.quests.start("m1", this.surv.stats);
+    this.active = true; this.sandbox = false;
     this._log({ e: "newGame" });
+  }
+
+  /** Round 16: free play: a pack, crafting and baskets, but no needs, quests or story. */
+  startSandbox() {
+    this.active = false; this.sandbox = true;
+    this.surv.reset(); this.surv.slots = 12; this.surv.tools = { knife: true, spear: true, spearDone: true };
+    for (const r of RECIPES) this.surv.recipes.add(r.id);
+  }
+
+  // ---------------- round 16: quests ----------------
+  get P() { return this.env.places?.() || null; }
+  near(key, r) { const p = this.place(key), f = this.env.feet(); return !!(p && f && this.env.mode() === "overworld" && Math.hypot(p.x - f.x, p.z - f.z) < r); }
+  place(key) {
+    const P = this.P; if (!P) return null;
+    if (key === "hall") { const h = (P.town.buildings || []).find((b) => b.kind === "hall"); return h ? { x: h.x, z: h.z } : P.town; }
+    if (key === "cave") return P.cave;
+    return P[key] || null;
+  }
+  npcVisible(id) { const n = NPCS[id]; return !n.after || this.quests.done(n.after); }
+  questReady(id) {
+    const d = QUEST[id]; if (!d) return false;
+    if (d.dynamic) return !!this.flags.actDone;
+    const c = this.quests.ctx(id);
+    return d.objectives.every((o) => o.ok(this, c));
+  }
+  questLines(id) {
+    const d = QUEST[id], c = this.quests.ctx(id), P = this.P;
+    if (d.dynamic) { const st = this.currentStep(); return st ? { title: `${d.title}: ${st.title}`, lines: st.lines } : { title: d.title, lines: [["Rest at the camp fire", false]] }; }
+    const lines = d.objectives.map((o) => [fill(o.t, P), !!o.ok(this, c)]);
+    if (d.turnIn) lines.push([`${lines.every((l) => l[1]) ? "Return to" : "Then speak with"} ${NPCS[d.turnIn].name}`, false]);
+    return { title: fill(d.title, P), lines };
+  }
+  /** Where the tracked quest points (minimap / map / compass), or null. */
+  questTarget(id = this.quests.tracked) {
+    const d = QUEST[id]; if (!d || d.dynamic || this.quests.state(id) !== "active") return null;
+    const c = this.quests.ctx(id);
+    for (const o of d.objectives) if (!o.ok(this, c)) { if (o.at) { const p = o.at(this); if (p) return { x: p.x, z: p.z, label: fill(o.t, this.P) }; } return null; }
+    const n = this.P?.npc[d.turnIn]; return n ? { x: n.x, z: n.z, label: n.name } : null;
+  }
+  /** "!" quest to offer, "?" quest to hand in, or "". */
+  npcMark(id) {
+    if (!this.active || !this.npcVisible(id)) return "";
+    if (this.quests.active().some((q) => QUEST[q].turnIn === id && this.questReady(q))) return "?";
+    if (QUESTS.some((d) => d.giver === id && !this.quests.state(d.id) && (d.req || []).every((r) => this.quests.done(r)))) return "!";
+    return "";
+  }
+  /** Add XP (toast on level up). */
+  xp(n, why = "") {
+    const g = this.surv.addXP(n);
+    if (g) { this.env.ui.toast(`Level ${this.surv.level}! +${g} skill point${g > 1 ? "s" : ""} (Pack → Skills)`, "skill"); this.env.audio.music?.duckFor?.(2, 0.5); }
+    this._log({ e: "xp", n, why });
+  }
+  giveReward(r = {}) {
+    const s = this.surv, ui = this.env.ui, got = [];
+    if (r.sp) { s.sp += r.sp; got.push(`+${r.sp} skill point${r.sp > 1 ? "s" : ""}`); }
+    if (r.recipe && !s.recipes.has(r.recipe)) { s.recipes.add(r.recipe); got.push("recipe: " + (RECIPES.find((x) => x.id === r.recipe)?.name || r.recipe)); }
+    for (const [id, n] of r.items || []) { const k = s.add(id, n); if (k) got.push(`${k} ${ITEMS[id].name.toLowerCase()}`); }
+    if (got.length) ui.toast("Reward: " + got.join(", "), "skill");
+    if (r.xp) this.xp(r.xp, "quest");
+    if (r.card) ui.titleCard(r.card[0], r.card[1], 4200);
+  }
+  _say(lines, done) {
+    const P = this.P;
+    this.env.audio.music?.duckFor?.(20, 0.35);
+    this.env.ui.say(lines.map((l) => ({ who: l.who, text: fill(l.text, P) })), done);
+  }
+  startQuest(id, silent = false) {
+    if (!this.quests.start(id, this.surv.stats)) return;
+    this._objT = 0;
+    if (!silent) this.env.ui.toast("New quest: " + fill(QUEST[id].title, this.P), "skill");
+    this._log({ e: "questStart", id });
+  }
+  completeQuest(id) {
+    const d = QUEST[id], s = this.surv;
+    for (const [it, n] of d.take || []) s.remove(it, n);
+    const end = () => {
+      this.quests.finish(id); this._objT = 0;
+      this.env.ui.toast("Quest complete: " + fill(d.title, this.P), "good");
+      this.giveReward(d.reward);
+      this._log({ e: "questDone", id });
+      this.save("auto");
+      // chain: the same person may have the next task straight away
+      const next = d.turnIn && QUESTS.find((q) => q.giver === d.turnIn && !this.quests.state(q.id) && (q.req || []).every((r) => this.quests.done(r)));
+      if (next) setTimeout(() => { if (!this.env.ui.modal) this.offerQuest(next); }, 900);
+    };
+    if (d.outro) this._say(d.outro, end); else end();
+  }
+  offerQuest(d) { this._say(d.intro || [], () => this.startQuest(d.id)); }
+  talkNPC(id) {
+    const n = NPCS[id], q = this.quests;
+    const ready = q.active().find((x) => QUEST[x].turnIn === id && this.questReady(x));
+    if (ready) return this.completeQuest(ready);
+    const offer = QUESTS.find((d) => d.giver === id && !q.state(d.id) && (d.req || []).every((r) => q.done(r)));
+    if (offer) return this.offerQuest(offer);
+    const pend = q.active().find((x) => QUEST[x].turnIn === id);
+    if (pend) { const L = this.questLines(pend).lines.find((l) => !l[1]); return this._say([{ who: n.name, text: L ? `Not yet. ${L[0]}.` : "Well?" }]); }
+    this._say([{ who: n.name, text: n.idle }]);
+  }
+  /** Per-frame quest bookkeeping (cheap; runs a few times a second). */
+  tickQuests() {
+    const q = this.quests;
+    if (q.state("m1") === "active" && this.flags.actDone) {
+      q.finish("m1"); this.giveReward(QUEST.m1.reward);
+      this.env.ui.toast("Quest complete: The Empty Camp", "good");
+    }
+    for (const d of QUESTS) if (d.auto && !q.state(d.id) && (d.req || []).every((r) => q.done(r)) && !this.env.ui.modal) { this.startQuest(d.id); if (d.intro) this._say(d.intro); }
+    const f = this.env.feet(), P = this.P;
+    if (q.state("m4") === "active" && f && P) {
+      const c = q.ctx("m4"), h = this.hallLocal(f);
+      if (h && Math.abs(h.along) < 10.4 && Math.abs(h.lat) < 3.6) c.flags.inHall = true;
+    }
+    if (q.state("m5") === "active" && this.env.mode() !== "overworld" && P?.cave && this.env.caveEntryId?.() === P.cave.id) {
+      const c = q.ctx("m5"); c.flags.entered = true; c.flags.explored = Math.max(c.flags.explored || 0, this.env.explored?.() || 0);
+    }
+  }
+  hallLocal(f) {
+    const P = this.P, h = P && (P.town.buildings || []).find((b) => b.kind === "hall"); if (!h) return null;
+    const ux = Math.sin(h.rot), uz = Math.cos(h.rot), dx = f.x - h.x, dz = f.z - h.z;
+    return { along: dx * ux + dz * uz, lat: -dx * uz + dz * ux };
+  }
+  questLogHTML() {
+    const q = this.quests, P = this.P;
+    const others = q.active().filter((id) => id !== q.tracked).map((id) => `<button class="q-other" data-track="${id}">${QUEST[id].main ? "◆" : "◇"} ${fill(QUEST[id].title, P)}</button>`).join("");
+    const done = q.completed();
+    return (others ? `<div class="q-sub">Other quests (tap to track)</div>${others}` : "") + (done.length ? `<div class="q-sub">Done: ${done.map((id) => fill(QUEST[id].title, P)).join(" · ")}</div>` : "");
   }
 
   /** Objective list (first unfinished group is shown). */
@@ -98,6 +230,12 @@ export class Story {
 
   // ---------------- per-frame ----------------
   update(dt) {
+    if (this.sandbox && !this.active) { // round 16: free play: prompts only (baskets, carcasses, pickups)
+      const ui = this.env.ui;
+      if (ui.modal) { ui.setPrompt(null); this.prompt = null; return; }
+      this.prompt = this.findInteraction(); ui.setPrompt(this.prompt ? this.prompt.label : null);
+      return;
+    }
     if (!this.active) return;
     const env = this.env, ui = env.ui, s = this.surv;
     const running = !env.player()?.mounted && env.player()?.runFrac > 0.3 && (env.player()?.speedNow || 0) > 2.6 ? 1 : 0; // the horse does the running
@@ -107,11 +245,12 @@ export class Story {
     }
     env.player() && (env.player().sprintAllowed = !s.exhausted);
     ui.meterUpdate(s);
-    const step = this.currentStep();
-    if (step !== this._shownStep || (this._objT = (this._objT || 0) - dt) <= 0) {
-      this._objT = 0.5; this._shownStep = step;
-      if (step) ui.setObjective(step.title, step.lines);
-      else ui.setObjective("Act I complete", [["The caves are calling. Explore freely.", true]]);
+    if ((this._objT = (this._objT || 0) - dt) <= 0) {
+      this._objT = 0.4;
+      this.tickQuests();
+      const tr = this.quests.tracked;
+      if (tr && this.quests.state(tr) === "active") { const v = this.questLines(tr); ui.setObjective(v.title, v.lines, this.questLogHTML()); }
+      else ui.setObjective(this.quests.done("m7") ? "Act II: Gathering Faces" : "No quest tracked", [["Explore, hunt, and look for people with a ! over their heads", true]], this.questLogHTML());
     }
     if (ui.modal) { ui.setPrompt(null); this.prompt = null; return; }
     this.prompt = this.findInteraction();
@@ -128,6 +267,17 @@ export class Story {
       // round 15: storage baskets inside a settlement's longhouse / lodges
       const box = env.container?.(f);
       if (box) return { label: box.searched ? "The basket is empty" : "Search the storage basket", act: () => this.searchBasket(box) };
+      if (this.sandbox && !this.active) {
+        const carc = env.wildlife()?.nearestCarcass(f, 2.6);
+        return carc ? { label: `Harvest the ${carc.kind}`, act: () => this.harvest(carc) } : null;
+      }
+      // round 16: people with something to say
+      const P = this.P;
+      if (P) for (const [id, n] of Object.entries(P.npc)) if (this.npcVisible(id) && d2(n) < 2.4) return { label: `Talk to ${n.name}`, act: () => this.talkNPC(id) };
+      if (this.quests.state("m4") === "active" && !this.quests.ctx("m4").flags.painting) {
+        const h = this.hallLocal(f);
+        if (h && Math.abs(h.along) < 5 && Math.abs(h.lat) > 1.7 && Math.abs(h.lat) < 3.6) return { label: "Study the wall painting", act: () => this.studyPainting() };
+      }
       if (!camp) return null;
       if (!fl.lumeDead && d2(camp.lume) < 2.8) return { label: "Kneel by Old Lume", act: () => this.talkLume() };
       const fireP = { x: camp.site.camp.x, z: camp.site.camp.z };
@@ -143,6 +293,9 @@ export class Story {
       for (const b of camp.bodies) if (d2(b) < 1.8) return { label: "The dead lie with their mouths open", act: () => env.ui.toast("Their mouths are frozen open. Something drank them out.") };
       return null;
     }
+    // round 16: flint / ochre / bone lying in the caves
+    for (const k of this.pickups) if (!k.taken && Math.hypot(k.x - f.x, k.z - f.z) < 1.6 && Math.abs(k.y - f.y) < 2) return { label: `Pick up ${ITEMS[k.id].name.toLowerCase()}`, act: () => this.takePickup(k) };
+    if (this.sandbox && !this.active) return null;
     // caves: drink only where the rendered stream / pool really is
     const wh = env.caveWater?.();
     if (wh && wh.waterDist && wh.waterDist(f.x, f.y, f.z) < 0.9) return { label: "Drink from the stream", act: () => this.drinkWater() };
@@ -160,7 +313,7 @@ export class Story {
 
   interact() {
     if (this.env.ui.advance()) return true;
-    if (!this.active || this.env.ui.modal) return false;
+    if ((!this.active && !this.sandbox) || this.env.ui.modal) return false;
     const p = this.prompt || this.findInteraction();
     if (!p) return false;
     this._log({ e: "interact", what: p.label });
@@ -174,7 +327,22 @@ export class Story {
     const got = [];
     for (const [id, n] of box.loot) { this.surv.add(id, n); got.push(`${n} ${(ITEMS[id]?.name || id).toLowerCase()}`); }
     this.env.ui.toast("Found: " + got.join(", "), "good");
+    if (this.active) this.xp(5, "basket");
     this._log({ e: "basket", loot: box.loot });
+  }
+
+  studyPainting() {
+    const c = this.quests.ctx("m4"); c.flags.painting = true;
+    this._say([{ who: "", text: "Handprints. A deer hunt. Spirals of old red. And at the end, a mouth: wide open, full of teeth, with small figures walking into it." },
+      { who: "", text: "Kra's skin crawls. He has seen those teeth before, in the dark behind the falls." }]);
+    this.xp(20, "painting");
+  }
+  takePickup(k) {
+    if (!this.surv.add(k.id, k.n)) { this.env.ui.toast("No room in your pack", "bad"); return; }
+    k.taken = true; if (k.obj) k.obj.visible = false;
+    (this.picked[k.cave] || (this.picked[k.cave] = [])).push(k.i);
+    this.env.ui.toast(`+${k.n} ${ITEMS[k.id].name}`, "good");
+    this._log({ e: "pickup", id: k.id });
   }
 
   talkLume() {
@@ -245,7 +413,8 @@ export class Story {
     const got = s.add(id, n);
     if (!got) { this.env.ui.toast("No room in your hands. Craft a backpack.", "bad"); return; }
     b.ready = false; b.fruit.visible = false; b.regrow = 240;
-    this.env.ui.toast(`+${got} ${ITEMS[id].name}`);
+    const herb = s.skills.has("surv1") ? s.add("herbs", 1) : 0;
+    this.env.ui.toast(`+${got} ${ITEMS[id].name}` + (herb ? ", +1 Healing herbs" : ""));
     this._log({ e: "gather", id, n: got });
   }
   drinkWater() { this.env.ui.toast(this.surv.drink()); this.env.audio.splash?.(); this._log({ e: "drink" }); }
@@ -253,7 +422,10 @@ export class Story {
   harvest(a) {
     const yields = this.env.wildlife().harvest(a);
     const got = [];
-    for (const [id, n] of yields) { const k = this.surv.add(id, n); if (k) got.push(`+${k} ${ITEMS[id].name}`); }
+    const big = a.kind === "deer" || a.kind === "boar" || a.kind === "goat", y2 = yields.slice();
+    y2.push(["bone", 1]); if (big) y2.push(["sinew", 1]);
+    if (this.surv.skills.has("hunt3")) y2.push(["meat", 1], ["bone", 1]);
+    for (const [id, n] of y2) { if (!ITEMS[id]) continue; const k = this.surv.add(id, n); if (k) got.push(`+${k} ${ITEMS[id].name}`); }
     this.surv.stats.harvested++;
     this.env.ui.toast(got.join(", ") || "Your hands are full", got.length ? "good" : "bad");
     this._log({ e: "harvest", kind: a.kind, got });
@@ -289,6 +461,7 @@ export class Story {
     if (!this.active) return;
     if (!a.alive) {
       if (a.kind === "deer") this.surv.stats.deer++; else this.surv.stats.small++;
+      this.xp(a.kind === "deer" || a.kind === "boar" ? 25 : 10, "kill");
       this.env.ui.toast(`You killed a ${a.kind}`, "good");
       if (!this.surv.skills.has("tracking")) { this.surv.skills.add("tracking"); this.env.ui.toast("Skill learned: Basic Tracking (animals on the map)", "skill"); }
     } else this.env.ui.toast(`The ${a.kind} is wounded and bolts!`);
@@ -300,13 +473,18 @@ export class Story {
     const s = this.surv, ui = this.env.ui;
     if (a === "eat") { const m = s.eat(id); if (m) ui.toast(m); this._log({ e: "eat", id }); }
     if (a === "eatm") this.bloodMemory();
+    if (a === "learn") {
+      if (s.learn(id, (q) => this.quests.done(q))) { const k = s.tierInfo(id); ui.toast(`Skill learned: ${k.t.name}`, "skill"); this.env.applyStats(); this._log({ e: "learn", id }); }
+    }
+    if (a === "wear") { if (s.wear.has(id)) s.wear.delete(id); else if (s.crafted.has(id)) s.wear.add(id); this.env.applyStats(); }
+    if (a === "use" && id === "salve") { if (this.env.heal?.(1)) { s.remove("salve", 1); ui.toast("The salve stings, then soothes. +1 heart", "good"); } else ui.toast("You are not hurt"); }
     if (a === "craft") {
       if (id === "backpack" && s.count("hide") && s.count("skin")) {
         ui.ask("Backpack", "Which skin will you sew?", [{ id: "hide", label: "Deer hide" }, { id: "skin", label: "Tor's skin" }], (use) => { const m = s.craft("backpack", use); if (m) ui.toast(m, "good"); ui.renderPanel(); });
         return;
       }
       const m = s.craft(id);
-      if (m) { ui.toast(m, "good"); this._log({ e: "craft", id }); }
+      if (m) { ui.toast(m, "good"); this._log({ e: "craft", id }); if (this.active) this.xp(15, "craft"); this.env.applyStats(); }
     }
   }
 
@@ -328,7 +506,23 @@ export class Story {
   }
 
   // ---------------- Waterfall Hollow ----------------
-  onCaveLoaded(kind) {
+  /** Round 16: a few flint / ochre / bone finds along the main passage of every cave. */
+  placePickups(key) {
+    const env = this.env, kinds = ["flint", "ochre", "flint", "bone", "flint", "ochre"];
+    this.pickups = [];
+    if (!this.active && !this.sandbox) return;
+    const taken = new Set(this.picked[key] || []);
+    const geo = this._pkGeo || (this._pkGeo = new THREE.DodecahedronGeometry(0.11, 0));
+    const mats = this._pkMat || (this._pkMat = { flint: new THREE.MeshLambertMaterial({ color: 0x8a96a8, emissive: 0x18202a }), ochre: new THREE.MeshLambertMaterial({ color: 0xb8401c, emissive: 0x2a0a04 }), bone: new THREE.MeshLambertMaterial({ color: 0xe8dcc0, emissive: 0x24201a }) });
+    kinds.forEach((id, i) => {
+      const sp = env.caveSpot(0.12 + i * 0.15); if (!sp) return;
+      const k = { id, n: id === "flint" ? 1 : 1, x: sp.x, y: sp.y, z: sp.z, i, cave: key, taken: taken.has(i) };
+      if (!k.taken) { const m = new THREE.Mesh(geo, mats[id]); m.position.set(sp.x, sp.y + 0.08, sp.z); m.scale.set(1.3, 0.7, 1); m.name = "pickup"; env.addCaveObject(m); k.obj = m; }
+      this.pickups.push(k);
+    });
+  }
+  onCaveLoaded(kind, key = kind) {
+    this.placePickups(key);
     if (!this.active || kind !== "hollow") { this.hunter = null; return; }
     this.flags.enteredHollow = true;
     const env = this.env;
@@ -348,7 +542,7 @@ export class Story {
 
   onMonsterKilled(m) {
     if (!this.active || m.kind !== "rat") return;
-    this.flags.ratKilled = true;
+    this.flags.ratKilled = true; this.xp(40, "rat");
     this.env.ui.toast("The rat-thing is dead. Its blood is still warm.", "good");
     this._log({ e: "ratKilled" });
   }
@@ -420,7 +614,7 @@ export class Story {
     const env = this.env, p = env.savePos();
     const camp = env.camp();
     return {
-      v: 1, kind, flags: { ...this.flags }, surv: this.surv.toJSON(), glyphs: this.glyphs.slice(),
+      v: 1, kind, flags: { ...this.flags }, surv: this.surv.toJSON(), glyphs: this.glyphs.slice(), quests: this.quests.toJSON(), picked: this.picked,
       pos: p, hours: env.atmo()?.hours, weather: env.atmo()?.weather,
       camp: camp ? { fireLit: camp.fireLit, tor: camp.tor.skinned } : null,
       health: env.health(),
@@ -431,16 +625,24 @@ export class Story {
   /** Restore a save. keep: carry over faces / skills / Blood Memory stats gained since (death rule). */
   load(snap = readSave(), { keep = false } = {}) {
     if (!snap) return false;
-    const prev = keep ? { faces: this.surv.faces, skills: new Set(this.surv.skills), str: this.surv.str, hpBonus: this.surv.hpBonus, glyphs: this.glyphs.slice(), flags: { ...this.flags } } : null;
+    const prev = keep ? { faces: this.surv.faces, skills: new Set(this.surv.skills), str: this.surv.str, hpBonus: this.surv.hpBonus, glyphs: this.glyphs.slice(), flags: { ...this.flags },
+      xp: this.surv.xp, sp: this.surv.sp, recipes: new Set(this.surv.recipes), quests: this.quests.toJSON() } : null;
     this.surv.fromJSON(snap.surv);
     this.flags = { ...snap.flags };
     this.glyphs = (snap.glyphs || []).slice();
+    this.quests.fromJSON(snap.quests); this.picked = snap.picked || {};
+    if (!this.quests.state("m1")) this.quests.start("m1", this.surv.stats); // pre-round-16 saves
+    this.sandbox = false;
     if (prev) {
       this.surv.faces = Math.max(this.surv.faces, prev.faces);
       for (const k of prev.skills) this.surv.skills.add(k);
       this.surv.str = Math.max(this.surv.str, prev.str); this.surv.hpBonus = Math.max(this.surv.hpBonus, prev.hpBonus);
       if (prev.glyphs.length > this.glyphs.length) this.glyphs = prev.glyphs;
       for (const k of ["faceTaken", "memory", "ratKilled", "ratHarvested", "enteredHollow"]) if (prev.flags[k]) this.flags[k] = true;
+      // round 16: XP, skill points, recipes and quest progress are kept too (no double rewards)
+      if (prev.xp >= this.surv.xp) { this.surv.xp = prev.xp; this.surv.sp = prev.sp; }
+      for (const k of prev.recipes) this.surv.recipes.add(k);
+      this.quests.fromJSON(prev.quests);
       this.surv.stamina = 100;
     }
     this.active = true;

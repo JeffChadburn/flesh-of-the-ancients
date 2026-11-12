@@ -28,6 +28,8 @@ import { Story } from "./act1/story.js";
 import { StoryUI } from "./act1/ui.js";
 import { gfxQuality, setGfxQuality } from "./realism.js";
 import { readSave, clearSave } from "./act1/survival.js";
+import { planPlaces, makeNPC, NPCS } from "./act1/quests.js";
+import { WorldMap } from "./worldmap.js";
 
 const errors = [];
 window.addEventListener("error", (e) => errors.push(String(e.message || e.error || e)));
@@ -248,7 +250,7 @@ function loadCave(nextCave, { fromEntrance = null } = {}) {
   deathEl?.classList.add("hidden");
   renderStatus();
   spawnMonster();
-  story.onCaveLoaded(cave.kind);
+  story.onCaveLoaded(cave.kind, fromEntrance ? "e" + fromEntrance.id : "s" + (cave.seed ?? cave.name ?? "x"));
   ready = true;
   window.__CAVE__.ready = true;
   window.__CAVE__.seed = cave.seed;
@@ -360,6 +362,14 @@ function ensureWorld() {
   world.people = new People(world.terrain, world.settleRoot, { lite: IS_TOUCH });
   world.settle.onBuild = (s) => world.people.spawnFor(s);
   world.settle.onDrop = (s) => world.people.despawnFor(s);
+  // Round 16: the named people who give quests (one small mesh each, near their fire)
+  world.places = planPlaces(world.terrain);
+  world.npcs = {};
+  if (world.places) for (const [id, n] of Object.entries(world.places.npc)) {
+    const g = makeNPC(n.look); g.name = "npc-" + id;
+    g.position.set(n.x, world.terrain.height(n.x, n.z), n.z); g.rotation.y = n.yaw; g.visible = false;
+    world.settleRoot.add(g); world.npcs[id] = g;
+  }
 }
 
 /** Where Kra wakes in Act 1: beside the cold fire, facing Old Lume. */
@@ -492,7 +502,7 @@ if (isTouchDevice()) {
   touchRoot.classList.remove("hidden");
   hintEl.textContent = "Drag right to look · pad to move (edge = run) · Stab to fight";
 } else {
-  hintEl.textContent = "Click to look · WASD walk · Shift run · F stab · E use · I pack · Tab craft · K skills · T/Y time/weather";
+  hintEl.textContent = "Click to look · WASD walk · Shift run · F stab · E use · I pack · Tab craft · K skills · M map · T/Y time/weather";
 }
 
 const musicBtn = document.getElementById("music-btn");
@@ -727,6 +737,10 @@ const story = new Story({
   monster: () => game.monster,
   caveKind: () => cave?.kind || null,
   container: (f) => (world.mode === "overworld" && world.settle ? world.settle.containerNear(f.x, f.z) : null),
+  places: () => world.places || null,
+  caveEntryId: () => (world.mode !== "overworld" && world.entrance ? world.entrance.id : null),
+  explored: () => explored.size,
+  heal: (n) => { if (game.health >= game.maxHealth) return false; game.health = Math.min(game.maxHealth, game.health + n); renderStatus(); return true; },
   caveWater: () => (world.mode !== "overworld" ? waterHandle : null),
   volume: () => (player && !player.terrain ? player.volume : null),
   paused: () => storyUI.modal || game.dead,
@@ -756,7 +770,11 @@ game.armed = true;
 function applyStats() {
   const s = story.surv;
   const prev = game.maxHealth;
-  game.maxHealth = 3 + (story.active ? s.faces + s.hpBonus : 0);
+  const pack = story.active || story.sandbox;
+  game.maxHealth = 3 + (story.active ? s.faces + s.hpBonus : 0) + (pack ? s.bonusHearts() : 0);
+  caveman.setGear(pack ? s.wear : new Set()); // round 16: clothing shows on Kra
+  caveman.torchBoost = pack && s.crafted.has("torch") ? 1.3 : 1;
+  if (caveman.light) caveman.light.distance = pack && s.crafted.has("torch") ? 58 : 45;
   if (game.maxHealth > prev) game.health += game.maxHealth - prev;
   game.health = Math.min(game.health, game.maxHealth);
   renderStatus();
@@ -780,6 +798,7 @@ function restoreFromSave(snap) {
 }
 function startNewGame() {
   clearSave();
+  if (world.terrain) wmap.clear(mapKey()); else wmap.pendingClear = true; // a new journey: the map starts dark again
   story.newGame();
   ensureWorld();
   world.atmo.setTime(6.0); world.atmo.setWeather("clear", true); world.atmo.nextChange = 2.5;
@@ -800,8 +819,8 @@ function continueGame() {
   showHint(8000, 600);
 }
 function startFreePlay() {
-  story.active = false;
-  storyUI.setStoryVisible(false);
+  story.startSandbox(); // round 16: a pack + crafting + baskets in free play too
+  storyUI.setStoryVisible(false); storyUI.setSandbox(true);
   game.armed = true; caveman.spear.visible = true;
   applyStats(); game.health = game.maxHealth; renderStatus();
   ensureWorld();
@@ -938,7 +957,7 @@ function resolveAttack() {
     res.d = +d.toFixed(2); res.dot = +dot.toFixed(2);
     if (d < 2.7 && dot > Math.cos((50 * Math.PI) / 180) && Math.abs(m.pos.y - f.y) < 1.7) {
       res.hit = true;
-      m.hit(f, 1 + (story.active ? story.surv.str : 0));
+      m.hit(f, 1 + (story.active ? story.surv.str : 0) + (story.active || story.sandbox ? story.surv.spearBonus() : 0));
     }
   }
   game.lastAttack = res;
@@ -1210,7 +1229,7 @@ function arrowTargets(p) {
   if (world.mode === "overworld" && world.wildlife) {
     const a = world.wildlife.bodyAt(p);
     if (a) {
-      world.wildlife.damage(a, 2, from);
+      world.wildlife.damage(a, 2 + (story.active || story.sandbox ? story.surv.arrowBonus() : 0), from);
       if (story.active) story.creditAnimal(a); else storyUI.toast(a.alive ? `The ${a.kind} is wounded and bolts!` : `You shot a ${a.kind}`, a.alive ? undefined : "good");
       if (!a.alive) { tally.kills += 1; saveTally(); renderStatus(); }
       audio.arrowHit?.(true);
@@ -1219,7 +1238,7 @@ function arrowTargets(p) {
   }
   const m = game.monster;
   if (m && m.alive && Math.hypot(m.pos.x - p.x, m.pos.y + 0.9 - p.y, m.pos.z - p.z) < 1.0) {
-    m.hit(from, 1 + (story.active ? story.surv.str : 0));
+    m.hit(from, 1 + (story.active ? story.surv.str : 0) + (story.active || story.sandbox ? story.surv.arrowBonus() : 0));
     audio.arrowHit?.(true);
     return "monster";
   }
@@ -1269,10 +1288,12 @@ window.addEventListener("keydown", (e) => {
   else if (e.code === "KeyE" || (e.code === "Space" && !storyUI.dialog.classList.contains("hidden"))) { e.preventDefault(); story.interact(); }
   else if (e.code === "Space" && !storyUI.modal && !game.dead) { e.preventDefault(); player?.jump(); }
   if (story.active && e.code === "KeyJ") storyUI.toggleTasks();
-  if (story.active && e.code === "KeyI") { storyUI.togglePanel("inv", story.surv); }
-  if (story.active && e.code === "KeyK") { storyUI.togglePanel("skills", story.surv); }
-  if (story.active && e.code === "Tab") { e.preventDefault(); storyUI.togglePanel("craft", story.surv); }
-  if (e.code === "Escape") { storyUI.closePanel(); storyUI.closeChoice(); }
+  const pk = story.active || story.sandbox;
+  if (pk && e.code === "KeyI") { storyUI.togglePanel("inv", story.surv); }
+  if (pk && e.code === "KeyK") { storyUI.togglePanel("skills", story.surv); }
+  if (pk && e.code === "Tab") { e.preventDefault(); storyUI.togglePanel("craft", story.surv); }
+  if (e.code === "KeyM" && ready && !storyUI.modal) openMap(true);
+  if (e.code === "Escape") { storyUI.closePanel(); storyUI.closeChoice(); if (wmap.isOpen) wmap.close(); }
   if (e.code === "KeyT" && world.atmo) { world.atmo.skip(e.shiftKey ? -1 : 1); storyUI.toast(`Time: ${world.atmo.label().clock}`); }
   if (e.code === "KeyY" && world.atmo) { storyUI.toast(`Weather: ${world.atmo.cycleWeather()}`); }
 });
@@ -1328,7 +1349,74 @@ function updateMountUI() {
 }
 storyUI.invBtn.addEventListener("click", () => storyUI.togglePanel("inv", story.surv));
 document.getElementById("menu-main-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); showMainMenu(); });
-document.getElementById("pack-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); if (story.active) storyUI.openPanel("inv", story.surv); });
+document.getElementById("pack-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); if (story.active || story.sandbox) storyUI.openPanel("inv", story.surv); });
+
+// ---------------- Round 16: full-screen map + cave exit ----------------
+const wmap = new WorldMap(gameEl, { touch: IS_TOUCH });
+function mapKey() { return `fota-map-${story.active ? "story" : "free"}-${world.terrain?.seed ?? 0}`; }
+function mapState() {
+  const p = camera.position, out = { mode: world.mode, player: { x: p.x, z: p.z, yaw: player?.yaw || 0 } };
+  const tgt = story.active ? story.questTarget() : null;
+  if (tgt) out.target = tgt;
+  if (world.mode === "overworld" && world.terrain) {
+    const t = world.terrain, site = t.act1;
+    out.title = "The Hills";
+    out.towns = (t.settlements || []).map((s) => ({ x: s.x, z: s.z, name: s.name, kind: s.kind, color: SETTLE_KIND[s.kind].color, known: false }));
+    out.entrances = t.entrances.filter((e) => world.discovered.has(e.id)).map((e) => ({ x: e.x, z: e.z, name: e.name, cave: e.cave }));
+    out.marks = site ? [{ x: site.camp.x, z: site.camp.z, color: "#ffb050", label: story.active ? "River-Tooth camp" : "Camp" }] : [];
+    if (site && story.active) out.stream = site.stream;
+    out.npcs = world.places ? Object.entries(world.places.npc).map(([id, n]) => ({ x: n.x, z: n.z, mark: story.npcMark(id) })) : [];
+  } else if (cave) {
+    out.title = nameEl?.textContent || "Cave";
+    const sm = stationMap(cave), seen = (id) => explored.has(id);
+    out.legs = [];
+    for (const leg of cave.legs) {
+      const a = sm.get(leg.from), b = sm.get(leg.to); if (!a || !b || (!seen(a.id) && !seen(b.id))) continue;
+      const pa = stationWorld(a), pb = stationWorld(b);
+      out.legs.push({ ax: pa.x, az: pa.z, bx: pb.x, bz: pb.z, w: Math.max(0.8, Math.min(a.left + a.right, b.left + b.right) * 0.6) });
+    }
+    const en = sm.get(cave.entranceId); if (en) { const w = stationWorld(en); out.entrance = { x: w.x, z: w.z }; }
+    delete out.target;
+  }
+  return out;
+}
+function openMap(toggle = false) {
+  if (!ready || !player) return;
+  if (document.pointerLockElement) document.exitPointerLock();
+  if (toggle) wmap.toggle(mapState); else wmap.open(mapState);
+}
+minimapCanvas.addEventListener("click", (e) => { e.stopPropagation(); openMap(); });
+minimapCanvas.addEventListener("pointerdown", (e) => e.stopPropagation());
+const mapBtn = document.createElement("button");
+mapBtn.id = "map-btn"; mapBtn.type = "button"; mapBtn.innerHTML = "&#128506;"; mapBtn.title = "Map (M)"; mapBtn.setAttribute("aria-label", "Open the map");
+gameEl.appendChild(mapBtn);
+mapBtn.addEventListener("click", (e) => { e.stopPropagation(); openMap(); });
+mapBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+const exitBtn = document.createElement("button");
+exitBtn.id = "exit-cave-btn"; exitBtn.type = "button"; exitBtn.className = "hidden"; exitBtn.innerHTML = "&#10548; Exit cave";
+gameEl.appendChild(exitBtn);
+exitBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+exitBtn.addEventListener("click", (e) => { e.stopPropagation(); askExitCave(); });
+function askExitCave() {
+  if (world.mode === "overworld" || !player || world.busy) return;
+  if (document.pointerLockElement) document.exitPointerLock();
+  const where = world.entrance ? `You come out at ${world.entrance.name}.` : "You go back to where you came in.";
+  storyUI.ask("Leave the cave?", `Stuck, or had enough? Kra finds his way back to the cave mouth. ${where} Nothing is lost.`, [{ id: "go", label: "⤴ Climb out", desc: "Safe, no penalty" }], (id) => {
+    if (id === "go") exitCaveNow();
+  });
+}
+function exitCaveNow() {
+  if (world.mode === "overworld" || !player) return false;
+  glog({ e: "exitCaveButton", entrance: world.entrance?.id ?? null });
+  if (world.entrance) returnToOverworld();
+  else { player.setStance("stand"); player.spawnAtEntrance(); game.invuln = 2; if (game.monster?.alive) game.monster.spawnFar(feetPos()); storyUI.toast("Back at the cave entrance."); }
+  return true;
+}
+let exitShown = null;
+function updateExitBtn() {
+  const want = world.mode !== "overworld" && ready && !!player && !game.dead;
+  if (want !== exitShown) { exitShown = want; exitBtn.classList.toggle("hidden", !want); }
+}
 
 let animSpeed = 0;
 // Round 13: HUD pointer to the nearest settlement (towns / villages preferred), with distance.
@@ -1336,17 +1424,20 @@ const compassEl = document.getElementById("compass");
 let compassKey = "";
 function updateCompass(p, inside) {
   if (!compassEl) return;
-  const n = world.settle?.nearest(p.x, p.z);
+  let n = world.settle?.nearest(p.x, p.z);
+  const qt = game.questTarget; // round 16: the tracked quest wins
+  if (qt) n = { s: { name: "◆ " + qt.label, x: qt.x, z: qt.z, kind: "quest" }, d: Math.hypot(qt.x - p.x, qt.z - p.z) };
   if (!n || inside || game.camOverride) { if (compassKey !== "off") { compassKey = "off"; compassEl.classList.add("hidden"); } return; }
   const dx = n.s.x - p.x, dz = n.s.z - p.z;
   const rel = Math.atan2(-dx, -dz) - player.yaw;
   const kind = n.s.kind === "city" ? "town" : n.s.kind;
+  const nm = n.s.kind === "quest" ? (n.s.name.length > 26 ? n.s.name.slice(0, 25) + "…" : n.s.name) : `${n.s.name} (${kind})`;
   const dist = n.d > 950 ? (n.d / 1000).toFixed(1) + " km" : Math.round(n.d / 10) * 10 + " m";
   const key = n.s.name + dist;
   if (key !== compassKey) {
     compassKey = key;
     compassEl.classList.remove("hidden");
-    compassEl.querySelector(".n").textContent = `${n.s.name} (${kind})`;
+    compassEl.querySelector(".n").textContent = nm;
     compassEl.querySelector(".d").textContent = dist;
   }
   compassEl.querySelector(".arr").style.transform = `rotate(${(-rel * 180) / Math.PI}deg)`;
@@ -1384,10 +1475,11 @@ function tick(now) {
     const steps = substepsFor(dt);
     let info;
     const before = camera.position.clone();
-    if (!game.dead && !storyUI.modal) for (let k = 0; k < steps; k++) info = player.update(dt / steps);
+    if (!game.dead && !storyUI.modal && !wmap.isOpen) for (let k = 0; k < steps; k++) info = player.update(dt / steps);
     else info = player.readout();
     stepGame(dt);
     stepWorld(dt);
+    updateExitBtn();
     updateArrows(dt);
     story.update(dt);
     if (STREAM || world.mode === "overworld") chunks.update(streamCtx());
@@ -1548,6 +1640,25 @@ function tickOverworld(dt, info, now) {
       extra.marks.push({ x: s.x, z: s.z, color: K.color, r: s.kind === "city" ? 0.034 : s.kind === "village" ? 0.026 : 0.018, label: d < 140 ? s.name : "", edge: true });
     }
   }
+  // Round 16: quest people + the tracked quest target; the map's fog / trail
+  const tgt = story.active ? story.questTarget() : null;
+  if (world.places) {
+    extra = extra || { marks: [], dots: [] };
+    if ((game.npcT = (game.npcT || 0) - dt) <= 0) {
+      game.npcT = 0.5;
+      for (const [id, g] of Object.entries(world.npcs)) {
+        const n = world.places.npc[id], d = Math.hypot(n.x - p.x, n.z - p.z);
+        g.visible = d < 170 && (story.active ? story.npcVisible(id) : !NPCS[id].after);
+        g.userData.setMark(g.visible && story.active ? story.npcMark(id) : "");
+      }
+    }
+    if (story.active) for (const [id, g] of Object.entries(world.npcs)) if (g.visible && g.userData.markCh) { const n = world.places.npc[id]; extra.marks.push({ x: n.x, z: n.z, color: g.userData.markCh === "?" ? "#9fe3a8" : "#ffd36a", r: 0.016 }); }
+    if (tgt) extra.marks.push({ x: tgt.x, z: tgt.z, color: "#ff9a5a", r: 0.024, edge: true, label: Math.hypot(tgt.x - p.x, tgt.z - p.z) < 140 ? "◆" : "" });
+  }
+  game.questTarget = tgt;
+  if (wmap.pendingClear) { wmap.pendingClear = false; wmap.clear(mapKey()); }
+  wmap.setWorld(t, mapKey());
+  wmap.record(p.x, p.z, dt, story.active && story.surv.skills.has("spirit2") ? 2 : 1);
   minimap.drawOverworld(t, p, player.yaw, world.discovered, extra);
   updateLowHint(info);
   const st = game.timeFrozen ? A.update(0, { eye: viewCam.position, elevation: elev, lights: { sun: moonLight, hemi: skyFill, ambient }, fog: scene.fog, renderer })
@@ -1563,7 +1674,7 @@ function tickOverworld(dt, info, now) {
     if (k > 0.01) {
       moonLight.intensity *= 1 - 0.9 * k; skyFill.intensity *= 1 - 0.85 * k; ambient.intensity *= 1 - 0.65 * k;
       // small lodges: walls sit an arm's length from the torch, so it burns lower there or the hide blows out
-      const inHut = sNear.buildings?.some((b) => b.kind === "hut" && Math.hypot(p.x - b.x, p.z - b.z) < b.r);
+      const inHut = sNear?.buildings?.some((b) => b.kind === "hut" && Math.hypot(p.x - b.x, p.z - b.z) < b.r);
       const want = TORCH_BASE * (inHut ? 0.25 : 0.85);
       caveman.baseIntensity += (want - caveman.baseIntensity) * k;
     }
@@ -1946,6 +2057,21 @@ window.__CAVE__ = {
     talkLume: () => story.talkLume(),
     advance: () => storyUI.advance(),
     give: (id, n = 1) => story.surv.add(id, n),
+    // round 16 test hooks
+    quests: () => ({ st: { ...story.quests.st }, tracked: story.quests.tracked, target: story.questTarget(), xp: story.surv.xp, sp: story.surv.sp, level: story.surv.level, skills: [...story.surv.skills], recipes: [...story.surv.recipes], wear: [...story.surv.wear], crafted: [...story.surv.crafted], places: world.places && { town: world.places.town.name, hold: world.places.hold.name, camp: world.places.camp.name, cave: world.places.cave?.name, caveId: world.places.cave?.id } }),
+    skipAct1: () => { Object.assign(story.flags, { lumeTalked: true, lumeDead: true, fireLit: true, enteredHollow: true, ratKilled: true, ratHarvested: true, faceTaken: true, memory: true, exitedHollow: true, actDone: true }); story.surv.tools.knife = true; story.surv.tools.spear = true; story.surv.tools.spearDone = true; story.surv.slots = 12; story.surv.crafted.add("backpack"); game.armed = true; caveman.setWeapon("spear", true); story.lumeDies(); return true; },
+    npcs: () => world.places && Object.fromEntries(Object.entries(world.places.npc).map(([id, n]) => [id, { x: +n.x.toFixed(2), z: +n.z.toFixed(2), name: n.name, visible: world.npcs[id].visible, mark: world.npcs[id].userData.markCh || "" }])),
+    toNPC: (id, d = 1.6) => { const n = world.places.npc[id]; const a = n.yaw; const x = n.x + Math.sin(a) * d, z = n.z + Math.cos(a) * d; player.setStance("stand"); player.setTerrain(world.terrain, x, z, Math.atan2(-(n.x - x), -(n.z - z))); player.pitch = -0.05; player.applyLook(); return { x, z }; },
+    tp: (x, z, yaw = 0) => { player.setTerrain(world.terrain, x, z, yaw); return true; },
+    learn: (id) => { story.panelAction("learn", id); return story.surv.skills.has(id); },
+    craft: (id) => { story.panelAction("craft", id); return story.surv.crafted.has(id); },
+    wear: (id) => { story.panelAction("wear", id); return story.surv.wear.has(id); },
+    map: (on = true) => { if (on) openMap(); else wmap.close(); return { open: wmap.isOpen, revealed: wmap.revealedCount(), trail: wmap.trail.length }; },
+    mapView: (cx, cz, s) => { Object.assign(wmap.view, { cx, cz, s }); wmap.draw(); },
+    exitCave: (confirm = true) => { askExitCave(); if (confirm) { const b = storyUI.choice.querySelector('.opt[data-id="go"]'); b?.click(); return !!b; } return true; },
+    exitBtn: () => !exitBtn.classList.contains("hidden"),
+    health: () => ({ health: game.health, max: game.maxHealth }),
+    frontCam: (d = 2.4, on = true) => { if (!on) { game.camOverride = null; return; } const c = camera.position, y = player.yaw, fx = -Math.sin(y), fz = -Math.cos(y); game.camOverride = [c.x + fx * d + fz * 0.6, c.y - 0.15, c.z + fz * d - fx * 0.6, c.x, c.y - 0.5, c.z]; },
     choose: (id) => { const b = document.querySelector(`.choice .opt[data-id="${id}"]`); if (!b) return false; b.click(); return true; },
     panel: (tab) => (tab ? storyUI.openPanel(tab, story.surv) : storyUI.closePanel()),
     panelAction: (a, id) => story.panelAction(a, id),

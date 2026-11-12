@@ -252,9 +252,37 @@ export class Caveman {
     root.traverse((o) => { if (o.isMesh) o.castShadow = false; });
   }
 
+  /** Round 16: crafted clothing shows on Kra. gear: Set of "boots" | "cloak" | "hat" | "paint". */
+  setGear(gear) {
+    const key = [...gear].sort().join(",");
+    if (key === this._gearKey) return; this._gearKey = key;
+    if (!this.gear) {
+      const hide = mat(0x6a4a30, 0.95), fur = mat(0x8a7356, 1);
+      const g = (this.gear = {});
+      // cloak: an open hide cone over the shoulders, hanging down the back
+      const cl = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.36, 0.78, 12, 1, true, Math.PI * 0.18, Math.PI * 1.64), hide);
+      cl.material = cl.material.clone(); cl.material.side = THREE.DoubleSide;
+      cl.position.set(0, 0.25, 0.03); cl.scale.z = 0.8; this.chest.add(cl); g.cloak = [cl];
+      // fur hat: a shaggy cap over the mane
+      const hat = new THREE.Mesh(shaggy(new THREE.SphereGeometry(0.16, 10, 6, 0, Math.PI * 2, 0, 1.45), 0.25, 31), fur);
+      hat.position.set(0, 0.22, 0.02); hat.scale.set(1.08, 0.95, 1.08); this.neck.add(hat); g.hat = [hat];
+      // boots: fur wraps on the shins + feet
+      g.boots = [];
+      for (const L of [this.legL, this.legR]) { const b = new THREE.Mesh(shaggy(new THREE.CylinderGeometry(0.068, 0.075, 0.26, 8), 0.15, 33), fur); b.position.y = -0.33; L.sh.add(b); g.boots.push(b); }
+      // face paint: red ochre stripes across the brow and cheeks
+      const red = mat(0x9a1e12, 0.7, { emissive: 0x2a0402, emissiveIntensity: 0.4 });
+      g.paint = [];
+      for (const [y, w] of [[0.165, 0.2], [0.115, 0.18]]) { const st = new THREE.Mesh(new THREE.BoxGeometry(w, 0.022, 0.03), red); st.position.set(0, y, -0.115); this.neck.add(st); g.paint.push(st); }
+      for (const m of [...g.cloak, ...g.hat, ...g.paint]) (g.cloak.includes(m) ? this.bodyParts : this.headParts).push(m);
+      this.legBoots = g.boots;
+    }
+    for (const [k, list] of Object.entries(this.gear)) for (const m of list) m.visible = gear.has(k) && !(this.fp && k !== "boots");
+  }
+
   setFirstPerson(fp) {
     this.fp = fp;
     for (const m of [...this.headParts, ...this.bodyParts]) m.visible = !fp;
+    if (this.gear) { const on = new Set(this._gearKey ? this._gearKey.split(",") : []); this._gearKey = null; this.setGear(on); }
     this.legL.th.visible = !fp;
     this.legR.th.visible = !fp;
   }
@@ -340,7 +368,7 @@ export class Caveman {
     this.root.updateMatrixWorld(true);
     this.flameAnchor.getWorldPosition(this.torchPos);
     const flick = 0.82 + 0.1 * Math.sin(t * 13.1) + 0.07 * Math.sin(t * 23.7 + 1.3) + 0.06 * Math.sin(t * 7.3 + Math.sin(t * 1.7) * 2);
-    this.light.intensity = this.baseIntensity * flick;
+    this.light.intensity = this.baseIntensity * flick * (this.torchBoost || 1);
     this.light.position.set(this.torchPos.x + Math.sin(t * 11) * 0.02, this.torchPos.y + 0.12, this.torchPos.z + Math.cos(t * 9) * 0.02);
     this.flame.position.copy(this.torchPos);
     this.embers.position.copy(this.torchPos);

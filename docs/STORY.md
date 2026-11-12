@@ -70,3 +70,16 @@ Side activities: legendary hunts, rare plants for medicine, optional caves with 
   - harmless cave fauna: bat flocks that scatter, fish, wall spiders (all huntable for small food)
   - rock arches around cave mouths
 - **Still to do:** see round 7's list (Acts 2–4, tribes and NPCs, the face suit model, the full skill tree).
+
+## Quest chain (round 16, 2026-11-12)
+Act I is quest 1, "The Empty Camp". After it, Kra sees smoke to the west and the chain continues with living people.
+In the default world, the town is Tako, the hold is Dunrin Hold, the travellers' camp is Kanatu Rest and the cave is Ash Gallery. Other seeds use their own nearest equivalents.
+1. **Smoke to the West:** travel to the lake town and speak with **Elder Haska** (old, slow voice), who sees the dead man's face on Kra.
+2. **Proof of the Hunt** (Haska): bring down 2 deer and bring their hides. Reward: the bone-arrow recipe.
+3. **The Painted Hall** (Haska): enter the long hall and study the painting of the open mouth. Story beat: the Mouth woke once before, and the old ones shut it with blood on stone.
+4. **Throat of Ash** (Haska): explore the nearby cave and bring back flint ("breathing walls; it is spreading west"). Reward: the flint-spear recipe.
+5. **Word to the Hold** (Haska): carry a notched message stick to **Warden Orrek**, who reports a stranger in a coat of faces. Reward: the hide-cloak pattern.
+6. **The Hunter of Faces** (Orrek): meet **the Ash-Walker** at the travellers' camp. He wears eleven faces and warns: "Wear too many and you open yourself to the First Mouth." **Act II: Gathering Faces** begins.
+Side quests: **Neka** (stew: roots and berries, which teaches the salve), **Brannoc** (rabbit pelts, which teaches the fur cap), **Mosi** (feathers for bone).
+The skill tree follows the "Skill trees" line above: Hunting, Crafting, Survival and Spirit (the Blood Rites branch, simplified for now).
+Next: the Ash-Walker's ally-or-rival choice, more faces, and the Living Cave.

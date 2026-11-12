@@ -11,6 +11,13 @@ const PROFILES = {
   "Old Lume": { prefer: ["Fred", "Ralph", "Albert", "Microsoft David", "Google US English", "Bruce", "Gordon", "Lee", "Tom"], pitch: 0.45, rate: 0.76, slot: 1 },
   // Kra (if he ever speaks): younger, rougher
   Kra: { prefer: ["Microsoft Mark", "Google UK English Male", "Evan", "Nathan", "Reed", "Rocko", "Thomas"], pitch: 0.85, rate: 0.95, slot: 2 },
+  // round 16: the people of the towns and camps
+  "Elder Haska": { prefer: ["Karen", "Moira", "Google UK English Female", "Microsoft Hazel", "Fiona", "Tessa", "Samantha"], pitch: 0.82, rate: 0.82, slot: 3 },
+  Neka: { prefer: ["Samantha", "Google US English", "Microsoft Zira", "Victoria", "Allison", "Ava"], pitch: 1.25, rate: 1.04, slot: 4 },
+  "Warden Orrek": { prefer: ["Microsoft Guy", "Google UK English Male", "Daniel", "Aaron", "Gordon"], pitch: 0.55, rate: 0.9, slot: 5 },
+  Brannoc: { prefer: ["Ralph", "Fred", "Albert", "Microsoft David", "Lee"], pitch: 0.7, rate: 0.8, slot: 6 },
+  "The Ash-Walker": { prefer: ["Whisper", "Bad News", "Microsoft Ryan", "Arthur", "Rishi", "Oliver"], pitch: 0.3, rate: 0.74, slot: 7 },
+  Mosi: { prefer: ["Tom", "Evan", "Google US English", "Microsoft Mark", "Nathan"], pitch: 1.12, rate: 1.08, slot: 8 },
 };
 const LS = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v === "1"; } catch { return d; } };
 const SAVE = (k, v) => { try { localStorage.setItem(k, v ? "1" : "0"); } catch {} };

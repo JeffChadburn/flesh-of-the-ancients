@@ -109,6 +109,12 @@ The overworld has continuous time (22 real minutes per day by default). Caves st
   - **"Something's near":** one huge braam, then near-total silence with a single clock tick, then the pulse returns harder.
   - **Phone cost:** about 20 persistent oscillators, reused with glides; one shared convolver; one shared braam distortion chain; short notes capped at about 28 voices.
 - **Town collision and interiors (round 15):** settlement colliders are circles plus thin segments (`{seg, ax, az, bx, bz, t}`, with a bounding circle for the grid). `colCore()` in terrain.js gives the nearest core point, shared by the player, people and the dismount check. Paths are laid out first, then fires and props are placed only where they keep a 2.6 m gap from every path. `indoorAt(settlement, x, z)` returns 0..1. While you're inside, daylight is dimmed and the torch takes over, burning lower in small huts so the hide walls don't blow out. Interiors (furs, baskets, pits, paintings) are instanced per settlement and built only when it streams in.
+- **Quests, skills and the map (round 16):** quests are data (`QUESTS` in `js/act1/quests.js`):
+  - objectives are small `ok(story, ctx)` checks, re-evaluated a few times a second;
+  - `turnIn` names the person you hand the quest in to;
+  - `take` lists items consumed at the hand-in, `reward` gives points, XP, a recipe, items or a title card;
+  - progress baselines (for example deer killed since the quest started) live in the saved quest log.
+  Skills and recipes live in `survival.js` (`TREE`, `RECIPES`, `GEAR`). The world map (`js/worldmap.js`) keeps a 160×160 fog grid of 16 m cells and a trail sampled every 8 m, and draws the terrain once into a 160 px image.
 
 ## Caveman, monster and combat
 
@@ -233,6 +239,28 @@ Draw calls go up slightly because each cell is its own mesh. The triangle count 
 
 ## Changelog
 
+- **Round 16: quests, skills, crafting, a real map and a way out of caves.**
+  - *Quest chain* (`js/act1/quests.js`): Act I ("The Empty Camp") is quest 1. Then come six more main quests into the start of Act II: travel to Tako, hunt for Elder Haska, find the open-mouth painting in the long hall, explore Ash Gallery for flint, carry a message stick to Warden Orrek at Dunrin Hold, and meet the Ash-Walker at Kanatu Rest. There are also three side quests: Neka's stew, Brannoc's fur cap and Mosi's feathers. The places are picked from the world, so other seeds work too.
+  - *People:* six named quest givers stand by their fires, with a floating **!** (quest to give) or **?** (ready to hand in). They speak through the existing voices with subtitles, each with their own voice and pitch.
+  - *Quest log:* the 📜 Tasks button shows the tracked quest's steps, the other active quests (tap one to track it) and the finished ones. The tracked target shows as an orange ◆ on the minimap, on the big map and in the compass pointer.
+  - *Skills:* XP comes from kills, crafting, quests, baskets and the painting; 100 XP = 1 skill point. Quests give points too. The tree in Pack → Skills has Hunting, Crafting, Survival and Spirit, 3 tiers each. Some tier-3 skills unlock through the story.
+  - *Crafting:* new materials (bone, sinew, flint, ochre, healing herbs). Recipes, unlocked by skills or taught in quests:
+    - bone arrows, flint-tipped spear
+    - hide boots, hide cloak, fur hat, red face paint
+    - healing salve (use it to heal a heart), resin torch
+  - *Where materials come from:* bone and sinew from carcasses; flint, ochre and bone lying in every cave; and storage baskets.
+  - *Clothing:* boots, cloak, hat and paint show on Kra. Wear or remove them in Pack → Inventory.
+  - *Free play:* has a pack and crafting now, and storage baskets can be searched outside story mode.
+  - *Map:* tap the minimap or 🗺 (M on desktop) for a full-screen map with pan and pinch or wheel zoom. It shows a fog of war that lifts where you go, the trail you walked (both saved per world in localStorage), towns, discovered caves, quest people and the tracked quest. Inside a cave it shows the passages explored so far and the way out.
+  - *Minimap labels:* they now stay inside the round minimap (flip left near the rim, outlined) instead of being cut off.
+  - *Exit cave:* a "⤴ Exit cave" button in every cave asks for a confirm, then puts Kra outside at that cave's mouth (or back at the entrance for caves loaded directly), with no penalty. The rescue system is unchanged.
+  - *Verified:* phone (390x844) and desktop bot runs: Act I skipped by a test hook, then the next three quests played through (travel and talk, hunt 2 deer and hand in the hides, walk into the hall and study the painting), plus a side quest. Also checked:
+    - learning skills, then crafting and wearing boots and face paint
+    - the map, in the overworld and in a cave
+    - entering Ash Gallery and using Exit cave
+    - free-play basket search
+    - Round 15 town walk, sprint, jump and horse paths: still 0 stuck and 0 missed
+    - no console errors
 - **Round 15: Towns you don't snag on, and buildings you can walk into.** (Fixes from Playtest Council report round 4.)
   - *Tako paths:* spokes now start past the longhouse and stop before the lake; the ring path breaks around the longhouse and the lake instead of running into them. The shore path ends on dry ground, about 1 m before the water.
   - *Water edge:* the lake collider now sits on the visible shoreline (computed from the basin shape), so the "hidden wall" out on the water is gone. The lake basin also blends into the flattened yard, which removes the lip that stopped you on the north spokes.

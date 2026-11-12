@@ -165,6 +165,17 @@ export class Minimap {
     void pad;
   }
 
+  /** Round 16: a label that stays inside the round map (flips left near the right rim, outlined). */
+  _label(txt, x, y, col) {
+    const c = this.canvas, ctx = this.ctx, w = c.width;
+    ctx.font = `${Math.round(Math.max(w * 0.055, 10.5 * (w / (c.clientWidth || w))))}px sans-serif`; /* round 13: readable on a 100 px phone map */
+    const tw = ctx.measureText(txt).width, r = w / 2 - 4, yy = Math.max(-r + 10, Math.min(r - 3, y - w / 2)) + w / 2;
+    const half = Math.sqrt(Math.max(0, r * r - (yy - w / 2) ** 2)); // chord half-width at this height
+    let tx = x + 6; if (tx + tw > w / 2 + half) tx = x - 6 - tw; tx = Math.max(w / 2 - half + 2, Math.min(w / 2 + half - tw - 2, tx));
+    ctx.textAlign = "left"; ctx.lineWidth = Math.max(2, w * 0.016); ctx.strokeStyle = "rgba(0,0,0,0.8)"; ctx.strokeText(txt, tx, yy);
+    ctx.fillStyle = col || "#f6e2b0"; ctx.fillText(txt, tx, yy);
+  }
+
   /** Overworld: player-centred 150 m map, contour-ish shading, cave mouths once discovered. */
   drawOverworld(terrain, playerPos, yaw, discovered, extra = null) {
     const c = this.canvas, ctx = this.ctx, w = c.width, h = c.height;
@@ -195,8 +206,7 @@ export class Minimap {
       const x = w / 2 + (e.x - playerPos.x) * scale, y = h / 2 + (e.z - playerPos.z) * scale;
       ctx.fillStyle = e.cave === "carlsbad" ? "#ffcf6a" : "#e8e0d0";
       ctx.beginPath(); ctx.arc(x, y, Math.max(3, w * 0.025), Math.PI, 0); ctx.closePath(); ctx.fill();
-      ctx.font = `${Math.round(Math.max(w * 0.055, 10.5 * (w / (c.clientWidth || w))))}px sans-serif`; /* round 13: readable on a 100 px phone map */
-      ctx.fillText(e.name.split(" ")[0], x + 6, y - 4);
+      this._label(e.name.split(" ")[0], x, y - 4, "#e8e0d0");
     }
     if (extra) {
       // stream line, camp / goal markers, tracked animals
@@ -213,7 +223,7 @@ export class Minimap {
           if (d > rim) { x = w / 2 + (dx / d) * rim; y = h / 2 + (dy / d) * rim; ctx.globalAlpha = 0.75; ctx.fillStyle = m.color; ctx.beginPath(); ctx.arc(x, y, Math.max(2, w * 0.014), 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1; continue; }
         }
         ctx.fillStyle = m.color; ctx.beginPath(); ctx.arc(x, y, Math.max(3, w * (m.r || 0.022)), 0, Math.PI * 2); ctx.fill();
-        if (m.label) { ctx.font = `${Math.round(Math.max(w * 0.055, 10.5 * (w / (c.clientWidth || w))))}px sans-serif`; /* round 13: readable on a 100 px phone map */ ctx.fillText(m.label, x + 6, y + 4); }
+        if (m.label) this._label(m.label, x, y + 4, m.color);
       }
       for (const d of extra.dots || []) { const [x, y] = P(d.x, d.z); ctx.fillStyle = d.color; ctx.fillRect(x - 2, y - 2, 4, 4); }
     }
