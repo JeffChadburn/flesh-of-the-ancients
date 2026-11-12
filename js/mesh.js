@@ -671,7 +671,9 @@ export function portalObjects(cave, { daylight = true } = {}) {
     const capR = Math.max(s.left, s.right, s.up) * 2.4 + 2;
     const cap = new THREE.Mesh(
       new THREE.CircleGeometry(capR, 24),
-      new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 1, metalness: 0, side: THREE.DoubleSide }),
+      // Round 12 (playtest r3): unlit and the same colour as CAVE_BG (0x0d0907), so the mouth light
+      // can't turn it into a faint grey "moon" when you look up the entrance from 15-16 m.
+      new THREE.MeshBasicMaterial({ color: 0x0d0907, side: THREE.DoubleSide, fog: true }),
     );
     cap.position.set(p.x + out.x * 3.4, p.y + 0.4, p.z + out.z * 3.4);
     cap.lookAt(p.x, p.y + 0.4, p.z);

@@ -372,6 +372,30 @@ export class CaveAudio {
     src.onended = () => { try { g.disconnect(); } catch (_) {} };
   }
 
+  /** Round 12: hoofbeat on turf (low thump + a short dull click); a gallop fires these in pairs. */
+  hoof(amp = 0.6) {
+    if (!this.started || this.muted || !this.ctx) return;
+    const ctx = this.ctx, t0 = ctx.currentTime;
+    if (!this._stepBuf) this.step(0, "stand");
+    const beats = amp > 0.6 ? [0, 0.07] : [0];
+    for (const off of beats) {
+      const t = t0 + off + Math.random() * 0.012;
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "sine"; o.frequency.setValueAtTime(95 + Math.random() * 20, t); o.frequency.exponentialRampToValueAtTime(48, t + 0.12);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.16 + amp * 0.22, t + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+      o.connect(g); g.connect(this.master); o.start(t); o.stop(t + 0.18);
+      o.onended = () => { try { g.disconnect(); } catch (_) {} };
+      if (this._stepBuf) {
+        const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g2 = ctx.createGain();
+        src.buffer = this._stepBuf; src.playbackRate.value = 0.5 + Math.random() * 0.15;
+        f.type = "lowpass"; f.frequency.value = 520 + amp * 300;
+        g2.gain.value = 0.12 + amp * 0.18;
+        src.connect(f); f.connect(g2); g2.connect(this.master); src.start(t);
+        src.onended = () => { try { g2.disconnect(); } catch (_) {} };
+      }
+    }
+  }
+
   /** Listener position + facing for positional sounds (the monster). */
   setEars(pos, yaw) {
     if (!this.started || !this.ctx) return;

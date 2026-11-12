@@ -206,7 +206,12 @@ export class Minimap {
         ctx.beginPath(); extra.stream.forEach((p, i) => { const [x, y] = P(p.x, p.z); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
       }
       for (const m of extra.marks || []) {
-        const [x, y] = P(m.x, m.z);
+        let [x, y] = P(m.x, m.z);
+        if (m.edge) {
+          // round 12: far settlements sit on the rim as a pointer
+          const dx = x - w / 2, dy = y - h / 2, d = Math.hypot(dx, dy), rim = Math.min(w, h) * 0.46;
+          if (d > rim) { x = w / 2 + (dx / d) * rim; y = h / 2 + (dy / d) * rim; ctx.globalAlpha = 0.75; ctx.fillStyle = m.color; ctx.beginPath(); ctx.arc(x, y, Math.max(2, w * 0.014), 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1; continue; }
+        }
         ctx.fillStyle = m.color; ctx.beginPath(); ctx.arc(x, y, Math.max(3, w * (m.r || 0.022)), 0, Math.PI * 2); ctx.fill();
         if (m.label) { ctx.font = `${Math.round(w * 0.055)}px sans-serif`; ctx.fillText(m.label, x + 6, y + 4); }
       }

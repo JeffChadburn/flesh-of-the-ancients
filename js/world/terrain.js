@@ -6,6 +6,7 @@
  */
 import { mulberry32 } from "../rng.js";
 import { caveName } from "../generator.js";
+import { planSettlements, settleMod, colliderGrid } from "./settlements.js";
 
 export const CHUNK = 64;
 const BOUND = 1400;
@@ -49,6 +50,10 @@ export class Terrain {
       this.mods = this.act1;
       for (const e of this.entrances) e.y = this.height(e.x, e.z);
     }
+    // Round 12: camps, villages and lakeside towns (flattened yards, lake basins, colliders).
+    this.settlements = planSettlements(this);
+    this.settleGrid = colliderGrid(this.settlements);
+    if (this.settlements.length) for (const e of this.entrances) e.y = this.height(e.x, e.z);
     const e0 = this.entrances[0];
     // Start a short walk downhill from the nearest entrance, looking at it.
     this.spawn = { x: e0.x + e0.fx * 24, z: e0.z + e0.fz * 24 };
@@ -58,7 +63,8 @@ export class Terrain {
   /** Ground height (m). Rolling hills + a mountain ridge ~450 m north. */
   height(x, z) {
     const h = this.baseHeight(x, z);
-    return this.mods ? h + this._mod(x, z, h) : h;
+    const hm = this.mods ? h + this._mod(x, z, h) : h;
+    return this.settlements?.length ? hm + settleMod(this.settlements, x, z, hm) : hm;
   }
 
   /** Act 1 carving: flat camp, plunge pool, stream bed (all smooth, so collision stays continuous). */
@@ -167,6 +173,12 @@ export class Terrain {
 
   /** Inside an Act 1 clearing (camp, stream banks, the falls) where no trees / rocks grow. */
   inClearing(x, z) {
+    if (this.settlements) for (const s of this.settlements) {
+      if (Math.abs(x - s.x) < s.R + 90 && Math.abs(z - s.z) < s.R + 90) {
+        if (Math.hypot(x - s.x, z - s.z) < s.R + 5) return true;
+        if (s.lake && Math.hypot(x - s.lake.x, z - s.lake.z) < s.lake.r + 6) return true;
+      }
+    }
     const a = this.act1; if (!a) return false;
     if (Math.hypot(x - a.camp.x, z - a.camp.z) < 24) return true;
     if (Math.hypot(x - a.pool.x, z - a.pool.z) < 12) return true;
@@ -280,6 +292,13 @@ export class Terrain {
       for (const t of sc.trees) if (Math.abs(t.x - x) < r + 1 && Math.abs(t.z - z) < r + 1) out.push({ x: t.x, z: t.z, r: 0.22 * t.s + 0.08 });
       for (const k of sc.rocks) if (k.s > 0.7 && Math.abs(k.x - x) < r + 3 && Math.abs(k.z - z) < r + 3) out.push({ x: k.x, z: k.z, r: k.s * 0.85 });
     }
+    if (this.settleGrid) {
+      const C = this.settleGrid.C, seen = new Set();
+      for (let ix = Math.floor((x - r) / C); ix <= Math.floor((x + r) / C); ix++) for (let iz = Math.floor((z - r) / C); iz <= Math.floor((z + r) / C); iz++) {
+        const a = this.settleGrid.get(ix + "," + iz); if (!a) continue;
+        for (const c of a) if (!seen.has(c) && Math.abs(c.x - x) < r + c.r && Math.abs(c.z - z) < r + c.r) { seen.add(c); out.push(c); }
+      }
+    }
     if (this.campColliders) for (const c of this.campColliders) if (Math.abs(c.x - x) < r + c.r && Math.abs(c.z - z) < r + c.r) out.push(c);
     const f = this.act1?.fall;
     if (f && Math.abs(f.x - x) < r + 6 && Math.abs(f.z - z) < r + 6) out.push({ x: f.x, z: f.z, r: 3.4 });
@@ -287,6 +306,18 @@ export class Terrain {
       if (Math.hypot(e.x - x, e.z - z) > 20 * e.scale) continue;
       for (const c of this.entranceGeometry(e).colliders) out.push(c);
     }
+    return out;
+  }
+
+  /** Round 12: hut / tent hide cones (and hall volumes) near a point, for the chase camera. */
+  conesNear(x, z, r = 6) {
+    const out = [];
+    if (this.campCones) for (const c of this.campCones) if (Math.abs(c.x - x) < r + c.r && Math.abs(c.z - z) < r + c.r) out.push(c);
+    if (this.settlements) for (const s of this.settlements) {
+      if (Math.abs(s.x - x) > s.R + r + 5 || Math.abs(s.z - z) > s.R + r + 5) continue;
+      for (const c of s.cones) if (Math.abs(c.x - x) < r + c.r && Math.abs(c.z - z) < r + c.r) out.push(c);
+    }
+    for (const c of out) if (c.y == null) c.y = this.height(c.x, c.z);
     return out;
   }
 

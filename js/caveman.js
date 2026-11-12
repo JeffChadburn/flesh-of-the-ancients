@@ -268,7 +268,7 @@ export class Caveman {
   /**
    * feet: world position of the feet; yaw/pitch of the view; speed m/s; runFrac 0..1; stance.
    */
-  update(dt, { feet, yaw, pitch, speed, runFrac, stance, eye }) {
+  update(dt, { feet, yaw, pitch, speed, runFrac, stance, eye, mounted = false }) {
     this.time += dt;
     const t = this.time;
     const r = this.root;
@@ -281,8 +281,9 @@ export class Caveman {
       r.position.z += Math.cos(yaw) * back;
       r.position.y = eye.y - (stance === "crawl" ? 0.55 : stance === "crouch" ? 1.25 : 1.6) + 0.02;
     }
-    const amp = Math.min(1, speed / 2.3);
-    const stride = stance === "crawl" ? 0.5 : stance === "crouch" ? 0.6 : 0.8 + runFrac * 0.45;
+    if (mounted) r.position.y += 0.74; // round 12: astride the horse's back
+    const amp = mounted ? 0 : Math.min(1, speed / 2.3);
+    const stride = stance === "crawl" ? 0.5 : stance === "crouch" ? 0.6 : 0.8 + runFrac * 2.1; // round 12: longer bounds at the 3x sprint
     this.phase += (speed * dt / stride) * Math.PI;
     const ph = this.phase;
     const sw = Math.sin(ph);
@@ -292,6 +293,10 @@ export class Caveman {
     let hipsY = 0.95, lean = -0.04 - runFrac * 0.18, thighBase = 0, kneeBase = 0;
     if (stance === "crouch") { hipsY = 0.6; lean = -0.45; thighBase = 1.1; kneeBase = -1.7; }
     if (stance === "crawl") { hipsY = 0.42; lean = -1.25; thighBase = 1.35; kneeBase = -1.55; }
+    if (mounted) { hipsY = 0.95; lean = -0.1 - runFrac * 0.3 + Math.sin(t * Math.max(2, speed * 0.9)) * 0.04 * Math.min(1, speed / 6); thighBase = 1.2; kneeBase = -1.45; }
+    const spread = mounted ? 0.42 : 0;
+    this.legL.th.rotation.z += (-spread - this.legL.th.rotation.z) * Math.min(1, dt * 10);
+    this.legR.th.rotation.z += (spread - this.legR.th.rotation.z) * Math.min(1, dt * 10);
     this.hips.position.y += (hipsY + Math.abs(sw) * 0.045 * amp * (stance === "stand" ? 1 : 0.4) - this.hips.position.y) * Math.min(1, dt * 12);
     this.chest.rotation.x += (lean - this.chest.rotation.x) * Math.min(1, dt * 8);
     this.chest.rotation.y = sw * 0.08 * amp;

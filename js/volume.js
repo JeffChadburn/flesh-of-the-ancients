@@ -10,8 +10,10 @@ export const CRAWL_EYE = 0.40;
 export const STEP_UP = 0.48;
 export const GRAVITY = 18;
 
+/** Round 12: riding a horse (eye on horseback, wider body, trot / gallop). */
+export const MOUNTED = { id: "stand", eye: 2.55, head: 0.2, radius: 0.5, speed: 5.5, sprint: 19.5 };
 export const STANCES = {
-  stand: { id: "stand", eye: STAND_EYE, head: 0.16, radius: 0.28, speed: 2.3, sprint: 4.6 },
+  stand: { id: "stand", eye: STAND_EYE, head: 0.16, radius: 0.28, speed: 2.6, sprint: 13.8 }, // round 12: run 3x (was speed 2.3, sprint 4.6)
   crouch: { id: "crouch", eye: CROUCH_EYE, head: 0.14, radius: 0.28, speed: 1.35, sprint: 1.35 },
   crawl: { id: "crawl", eye: CRAWL_EYE, head: 0.12, radius: 0.24, speed: 0.78, sprint: 0.78 },
 };

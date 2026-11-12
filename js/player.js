@@ -6,7 +6,7 @@ import { clamp } from "./rng.js";
 import {
   buildVolume, constrainToVolume, pointInside, queryVolume,
   PLAYER_RADIUS, STAND_EYE, GRAVITY, STEP_UP,
-  STANCES, stanceHeight, canFitStance, clearanceAhead, requiredStanceAt,
+  STANCES, MOUNTED, stanceHeight, canFitStance, clearanceAhead, requiredStanceAt,
 } from "./volume.js";
 
 export class Player {
@@ -50,6 +50,7 @@ export class Player {
    */
   setTerrain(terrain, x, z, yaw = 0) {
     this.terrain = terrain;
+    this.mounted = false;
     this.cave = null;
     this.smap = new Map();
     this.volume = null;
@@ -93,7 +94,11 @@ export class Player {
     if (this.volume) this.volume.obstacles = obstacles ? obstacles.slice() : [];
   }
 
+  /** Round 12: request a jump (applied on the next update if standing / mounted on the ground). */
+  jump() { this.jumpReq = true; }
+
   stanceDef() {
+    if (this.mounted) return MOUNTED;
     return STANCES[this.stance] || STANCES.stand;
   }
 
@@ -105,6 +110,7 @@ export class Player {
 
   setStance(name, { toggle = false } = {}) {
     if (!STANCES[name]) return false;
+    if (this.mounted && name !== "stand") return false; // get off the horse first
     if (toggle && this.stance === name) {
       // Rise as high as the current ceiling allows.
       if (name === "crawl") name = this.canUseStance("crouch") ? "crouch" : "crawl";
@@ -309,9 +315,9 @@ export class Player {
       if (this.keys.has("KeyA") || this.keys.has("ArrowLeft")) wish.x -= 1;
       if (this.keys.has("KeyD") || this.keys.has("ArrowRight")) wish.x += 1;
     }
-    const st = STANCES[this.stance] || STANCES.stand;
+    const st = this.mounted ? MOUNTED : STANCES[this.stance] || STANCES.stand;
     const keyMove = wish.lengthSq() > 1e-4;
-    const sprint = !wishOverride && this.stance === "stand" && (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight"));
+    const sprint = !wishOverride && (this.stance === "stand" || this.mounted) && (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight"));
     let target = 0;
     if (keyMove) {
       wish.normalize();
@@ -321,7 +327,7 @@ export class Player {
       target = Player.joySpeed(this.joy.mag, st);
     }
     if (wishOverride) target = st.speed;
-    if (this.sprintAllowed === false && target > st.speed) target = st.speed; // exhausted: no running
+    if (this.sprintAllowed === false && !this.mounted && target > st.speed) target = st.speed; // exhausted: no running
     this.speedTarget = target;
     // Smooth easing: speed up over ~0.3 s, stop a little quicker.
     const k = target > this.speedNow ? 7 : 11;
@@ -353,7 +359,8 @@ export class Player {
         if (again._inside) resolved = again; else { resolved.x = from.x; resolved.z = from.z; }
       }
       // Final guard: never end a step on the far side of a visible wall.
-      if (this.walls.crosses(from, resolved, Math.min(resolved._floor, from.y - st.eye), st)) { resolved.x = from.x; resolved.z = from.z; }
+      if (this.walls.crosses(from, resolved, Math.min(resolved._floor, from.y - st.eye), st)
+        || (this.grounded === false && this.walls.crosses(from, resolved, from.y - st.eye, st))) { resolved.x = from.x; resolved.z = from.z; }
     }
     const moved = Math.hypot(resolved.x - from.x, resolved.z - from.z);
     this.travelling += moved;
@@ -363,7 +370,9 @@ export class Player {
     // (no float-then-drop on slopes), bigger drops use gravity.
     let floorEye = resolved._floor + resolved._eye;
     const lastGround = this.groundEye != null ? this.groundEye : from.y;
-    if (floorEye - lastGround > STEP_UP && delta.lengthSq() > 0) {
+    // Round 12: airborne (jumping) you can land on anything up to STEP_UP below your current height.
+    const stepRef = this.grounded === false ? Math.max(lastGround, from.y) : lastGround;
+    if (floorEye - stepRef > STEP_UP && delta.lengthSq() > 0) {
       resolved.x = from.x;
       resolved.z = from.z;
       this.vy = 0;
@@ -374,14 +383,27 @@ export class Player {
       floorEye = resolved._floor + resolved._eye;
     }
     this.groundEye = floorEye;
+    // Round 12: jump (Space / Jump button). Standing or mounted, from the ground; the take-off speed
+    // is cut so the apex stays under the ceiling (caves), and no jump at all with < 0.25 m headroom.
+    if (this.jumpReq) {
+      this.jumpReq = false;
+      const canJump = this.grounded !== false && this.vy === 0 && (this.stance === "stand" || this.mounted);
+      if (canJump) {
+        const head = resolved._ceil - 0.12 - Math.max(from.y, floorEye) - 0.05;
+        const h = Math.min(this.mounted ? 1.2 : 1.0, head);
+        if (h >= 0.25) { this.vy = Math.sqrt(2 * GRAVITY * h); this.grounded = false; this.jumps = (this.jumps || 0) + 1; }
+      }
+    }
     let y;
     const gap = from.y - floorEye; // > 0: above the ground target
-    if (gap < 0) {
+    const rising = this.vy > 0; // jumping, on the way up: gravity branch only
+    if (!rising && gap < 0) {
       // Ease up (about 60 ms), never lagging more than 0.3 m below.
       y = Math.max(floorEye - 0.3, from.y + (floorEye - from.y) * Math.min(1, dt * 16));
       this.vy = 0;
       this.grounded = true;
-    } else if (this.grounded !== false && gap < 0.6 + Math.hypot(delta.x, delta.z) * 3) {
+    }
+    else if (!rising && this.grounded !== false && gap < 0.6 + Math.hypot(delta.x, delta.z) * 3) {
       // Walking downhill / small dips: stay on the ground; ease any residual step over a few frames.
       y = gap < 0.06 ? floorEye : Math.max(floorEye, from.y - Math.max(0.06, gap * Math.min(1, dt * 14)));
       this.vy = 0;
@@ -391,6 +413,7 @@ export class Player {
       y = from.y + this.vy * dt;
       this.grounded = false;
       if (y <= floorEye) {
+        if (this.vy < -3 && this.onLand) { try { this.onLand(Math.min(1, -this.vy / 8)); } catch (_) {} }
         y = floorEye;
         this.vy = 0;
         this.grounded = true;
@@ -415,7 +438,8 @@ export class Player {
     // Head bob + footsteps, scaled by real ground speed (none when blocked by a wall).
     const sp = Math.min(realSpeed, speed + 0.01);
     if (sp > 0.15 && this.vy === 0) {
-      const stride = this.stance === "crawl" ? 0.55 : this.stance === "crouch" ? 0.6 : 0.72 + this.runFrac * 0.38;
+      // Round 12: long strides at the 3x sprint (and on horseback) so steps don't machine-gun.
+      const stride = this.mounted ? 1.1 + this.runFrac * 1.6 : this.stance === "crawl" ? 0.55 : this.stance === "crouch" ? 0.6 : 0.72 + this.runFrac * 2.2;
       const prev = this.bobPhase;
       this.bobPhase += (sp * dt) / stride * Math.PI;
       if (Math.floor(prev / Math.PI) !== Math.floor(this.bobPhase / Math.PI) && this.onStep) {

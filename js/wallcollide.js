@@ -54,6 +54,9 @@ export class WallCollider {
     const r = Math.min(0.19, (st.radius || 0.28) * 0.7);
     const feet = Math.min(floor, from.y - st.eye);
     const hs = this.heights(st, ceil - feet);
+    // Round 12: mid-jump the body is higher than the floor band: test its real heights too.
+    const lift = from.y - st.eye - floor;
+    if (lift > 0.05) for (const h of this.heights(st, 9)) { const hh = h + lift; if (hh < ceil - feet - 0.05) hs.push(hh); }
     let px = from.x, pz = from.z, mx = to.x - from.x, mz = to.z - from.z, hit = false;
     for (let iter = 0; iter < 3; iter++) {
       const len = Math.hypot(mx, mz);

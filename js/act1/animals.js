@@ -8,6 +8,7 @@
  */
 import * as THREE from "three";
 import { mulberry32 } from "../rng.js";
+import { fbm2 } from "../world/terrain.js";
 
 function merged(parts) {
   const pos = [], nrm = [], col = [], c = new THREE.Color();
@@ -39,9 +40,13 @@ const SPEC = {
   boar:   { r: [4.5, 10, 15, 2.2], speed: 3.5, calm: 18, hits: 2, reach: 4.0, wander: 0.5, fleeT: 3 },  // was speed 6.8, calm 35
   goat:   { r: [5.5, 12, 18, 2.4], speed: 3.8, calm: 20, hits: 1, reach: 4.0, wander: 0.5, fleeT: 3, climb: true }, // was speed 7.4
   fox:    { r: [3.5, 7, 12, 1.8], speed: 4.0, calm: 15, hits: 1, reach: 3.8, wander: 0.7, fleeT: 2.5 }, // was speed 7.8
+  // Round 12: wild horses. Calm grazers: walking up only makes them watch you (so you can mount),
+  // running at them or hurting them makes the herd bolt.
+  horse:  { r: [2, 4.5, 16, 1.5], speed: 7.0, calm: 30, hits: 2, reach: 4.6, wander: 0.9, fleeT: 4, calmHerd: true },
 };
 const QUAD = { deer: { geo: "deerBody", leg: "leg", hip: 0.86, lx: 0.15, lz: 0.42 }, boar: { geo: "boarBody", leg: "legShort", hip: 0.42, lx: 0.16, lz: 0.36 },
-  goat: { geo: "goatBody", leg: "legGoat", hip: 0.6, lx: 0.12, lz: 0.3 }, fox: { geo: "foxBody", leg: "legFox", hip: 0.3, lx: 0.08, lz: 0.2 } };
+  goat: { geo: "goatBody", leg: "legGoat", hip: 0.6, lx: 0.12, lz: 0.3 }, fox: { geo: "foxBody", leg: "legFox", hip: 0.3, lx: 0.08, lz: 0.2 },
+  horse: { geo: "horseBay", geo2: "horseDun", leg: "legHorse", leg2: "legHorseDun", hip: 1.14, lx: 0.2, lz: 0.56 } };
 /** Roaming species per streamed 64 m cell: [kind, weight, group size range]. */
 const ROAM = [["rabbit", 0.24, [1, 3]], ["bird", 0.14, [2, 3]], ["deer", 0.16, [2, 4]], ["boar", 0.18, [1, 3]], ["goat", 0.12, [2, 3]], ["fox", 0.16, [1, 1]]];
 export const ANIMAL_YIELD = {
@@ -51,6 +56,7 @@ export const ANIMAL_YIELD = {
   boar: [["meat", 3], ["hide", 1], ["organ", 1]],
   goat: [["meat", 2], ["hide", 1]],
   fox: [["pelt", 1], ["meat", 1]],
+  horse: [["meat", 4], ["hide", 2], ["organ", 1]],
 };
 
 export class Wildlife {
@@ -79,6 +85,8 @@ export class Wildlife {
       for (let i = 0; i < (lite ? 10 : 15); i++) this._spawn("rabbit", C, 18, 80);
       for (let i = 0; i < (lite ? 8 : 12); i++) this._spawn("bird", C, 16, 70);
       for (let h = 0; h < (lite ? 2 : 3); h++) this._spawnHerd(C, lite ? 3 : 4);
+      // round 12: a wild-horse herd grazing within a short walk of the camp
+      this._spawnHorses(this._place(C, 45, 85), lite ? 3 : 4, "camp");
     }
   }
 
@@ -92,6 +100,17 @@ export class Wildlife {
     if (this.camp && Math.hypot(mx - this.camp.x, mz - this.camp.z) < 70) return list; // the camp has its own
     const groups = this.lite ? 3 + (rng() < 0.6 ? 1 : 0) : 4 + (rng() < 0.6 ? 1 : 0); // round 9: 3x (was 1-2)
     const cap = this.lite ? 110 : 280;
+    // round 12: wild-horse herds on open grassland (low forest density), ~1 cell in 4
+    const open = fbm2(mx / 120, mz / 120, 3, this.t.s + 11) < 0.5;
+    if (open && rng() < (this.lite ? 0.18 : 0.26) && this.list.length < cap - 5) {
+      for (let k = 0; k < 10; k++) {
+        const x = cx * S + 8 + rng() * (S - 16), z = cz * S + 8 + rng() * (S - 16);
+        if (this.t.slope(x, z).m > 0.4 || this.t.inClearing?.(x, z) || this.t.streamDist(x, z) < 4) continue;
+        if (this.t.entrances?.some((e) => Math.hypot(e.x - x, e.z - z) < 25)) continue;
+        for (const a of this._spawnHorses({ x, z }, 3 + Math.floor(rng() * 3), key, rng)) { a.cell = key; list.push(a); }
+        break;
+      }
+    }
     for (let g = 0; g < groups; g++) {
       if (this.list.length >= cap) break;
       let roll = rng(), kind = ROAM[0];
@@ -205,7 +224,24 @@ export class Wildlife {
     const legShort = merged([[T(new THREE.CylinderGeometry(0.045, 0.055, 0.42, 5), 0, -0.21, 0), 0x2a211b]]);
     const legGoat = merged([[T(new THREE.CylinderGeometry(0.03, 0.04, 0.6, 5), 0, -0.3, 0), 0x8f8676]]);
     const legFox = merged([[T(new THREE.CylinderGeometry(0.02, 0.025, 0.3, 4), 0, -0.15, 0), 0x2a1a12]]);
-    return { rab, birdBody, wing, deerBody, antlers, leg, boarBody, goatBody, foxBody, legShort, legGoat, legFox };
+    // Round 12: horse (Przewalski-like: stocky, upright dark mane), bay and dun coats; faces -z
+    const horse = (coat, dark, belly) => merged([
+      [S(T(new THREE.CapsuleGeometry(0.36, 1.05, 3, 8).rotateX(Math.PI / 2), 0, 1.36, 0), 1, 1.1, 1), coat],
+      [T(new THREE.CylinderGeometry(0.15, 0.25, 0.8, 7).rotateX(-0.63), 0, 1.72, -0.86), coat],
+      [T(new THREE.BoxGeometry(0.07, 0.86, 0.13).rotateX(-0.63), 0, 1.84, -0.78), dark],
+      [T(new THREE.BoxGeometry(0.22, 0.26, 0.62).rotateX(-0.7), 0, 1.86, -1.3), coat],
+      [T(new THREE.BoxGeometry(0.2, 0.17, 0.2).rotateX(-0.7), 0, 1.66, -1.53), 0x2a2220],
+      [T(new THREE.ConeGeometry(0.045, 0.16, 4), -0.07, 2.17, -1.1), dark],
+      [T(new THREE.ConeGeometry(0.045, 0.16, 4), 0.07, 2.17, -1.1), dark],
+      [T(new THREE.CylinderGeometry(0.03, 0.09, 0.85, 5).rotateX(-0.45), 0, 1.15, 1.0), dark],
+      [S(T(new THREE.SphereGeometry(0.3, 7, 5), 0, 1.14, 0), 1.0, 0.55, 2.1), belly],
+      [T(new THREE.SphereGeometry(0.028, 4, 3), -0.115, 1.95, -1.36), 0x111111],
+      [T(new THREE.SphereGeometry(0.028, 4, 3), 0.115, 1.95, -1.36), 0x111111],
+    ]);
+    const horseBay = horse(0x7a4a2a, 0x24170f, 0x8e6444), horseDun = horse(0xb3905e, 0x3a2a1c, 0xd0b58a);
+    const legH = (c) => merged([[T(new THREE.CylinderGeometry(0.065, 0.075, 1.0, 6), 0, -0.5, 0), c], [T(new THREE.CylinderGeometry(0.07, 0.085, 0.14, 6), 0, -1.07, 0), 0x1c1612]]);
+    const legHorse = legH(0x3a2618), legHorseDun = legH(0x4a3626);
+    return { rab, birdBody, wing, deerBody, antlers, leg, boarBody, goatBody, foxBody, legShort, legGoat, legFox, horseBay, horseDun, legHorse, legHorseDun };
   }
 
   _place(C, rmin, rmax) {
@@ -228,11 +264,12 @@ export class Wildlife {
       root.add(parts.wl, parts.wr);
     } else {
       const q = QUAD[kind];
-      parts.body = new THREE.Mesh(this.geos[q.geo], this.mat); root.add(parts.body);
-      if (buck) root.add(new THREE.Mesh(this.geos.antlers, this.mat));
+      const alt = kind === "horse" && buck; // horses: "buck" picks the dun coat
+      parts.body = new THREE.Mesh(this.geos[alt ? q.geo2 : q.geo], this.mat); root.add(parts.body);
+      if (buck && kind === "deer") root.add(new THREE.Mesh(this.geos.antlers, this.mat));
       parts.legs = [];
       for (const [x, z] of [[-q.lx, -q.lz], [q.lx, -q.lz], [-q.lx, q.lz], [q.lx, q.lz]]) {
-        const l = new THREE.Mesh(this.geos[q.leg], this.mat); l.position.set(x, q.hip, z); root.add(l); parts.legs.push(l);
+        const l = new THREE.Mesh(this.geos[alt ? q.leg2 : q.leg], this.mat); l.position.set(x, q.hip, z); root.add(l); parts.legs.push(l);
       }
     }
     root.traverse((o) => { o.userData.sharedGeometry = true; });
@@ -250,6 +287,36 @@ export class Wildlife {
     };
     this.list.push(a);
     return a;
+  }
+
+  _spawnHorses(c, n, tag, rng = this.rng) {
+    const herd = { id: "horses" + tag + (this.list.length), alert: 0 }, out = [];
+    for (let i = 0; i < n; i++) out.push(this._spawn("horse", null, 0, 0, { x: c.x + Math.cos(i * 2.4) * (2.5 + i * 1.3), z: c.z + Math.sin(i * 2.4) * (2.5 + i * 1.3) }, herd, rng() < 0.45));
+    return out;
+  }
+
+  /** Round 12: the rideable horse nearest to p within r (alive, not ridden), or null. */
+  mountable(p, r = 3.6) {
+    let best = null, bd = r;
+    for (const a of this.list) if (a.kind === "horse" && a.alive && !a.ridden) { const d = Math.hypot(a.pos.x - p.x, a.pos.z - p.z); if (d < bd) { bd = d; best = a; } }
+    return best;
+  }
+  /** Take a horse out of the streamed cells (so it travels with its rider) and mark it ridden. */
+  mount(a) {
+    if (a.cell) { const l = this.cells.get(a.cell); if (l) { const i = l.indexOf(a); if (i >= 0) l.splice(i, 1); } a.cell = null; }
+    a.ridden = true; a.state = "idle"; a.stateT = 0; a.herd = null;
+    this.log.push({ e: "mount", id: a.id });
+  }
+  dismount(a) {
+    a.ridden = false; a.state = "idle"; a.stateT = 0; a.tired = 6; a.home = { x: a.pos.x, z: a.pos.z };
+    this.log.push({ e: "dismount", id: a.id });
+  }
+  /** Pose a ridden horse under the rider each frame. */
+  ride(a, feet, yaw, speed, dt, time) {
+    a.pos.set(feet.x, Math.max(feet.y, this.t.height(feet.x, feet.z)), feet.z); a.yaw = yaw; a.dist = 0; // follows the rider's jumps
+    a.root.visible = true;
+    if (a.parts.legs && !a.legsOn) { a.legsOn = true; for (const l of a.parts.legs) l.visible = true; }
+    this._pose(a, dt, speed, time);
   }
 
   _spawnHerd(C, n) {
@@ -278,6 +345,7 @@ export class Wildlife {
       a.dist = dist;
       a.root.visible = dist < (a.cell ? (this.lite ? 85 : 120) : 140) && !a.harvested;
       if (a.parts.legs) { const lv = dist < 45; if (a.legsOn !== lv) { a.legsOn = lv; for (const l of a.parts.legs) l.visible = lv; } }
+      if (a.ridden) continue; // posed by ride()
       if (!a.alive) { a.deadT += dt; this._pose(a, dt, 0, time); if (a.harvested && a.deadT > 60 && dist > 60 && !a.cell && this.camp) this._respawn(a, P); continue; }
       if (dist > 220) continue; // far away: frozen
       const r = a.spec.r;
@@ -286,7 +354,13 @@ export class Wildlife {
       a.stateT += dt;
       let speed = 0;
       if (a.tired > 0) a.tired -= dt; // winded after a run: lets you close in
-      if (a.state !== "flee" && !(a.tired > 0) && dist < radius) {
+      if (a.spec.calmHerd && !player.mounted) {
+        // horses: watch a walker, bolt from a runner
+        if (a.state !== "flee" && player.running && dist < r[2] && !(a.tired > 0)) this._startFlee(a, P);
+        else if (a.state !== "flee" && dist < r[1] && a.state !== "alert") { a.state = "alert"; a.stateT = 0; }
+      } else if (a.spec.calmHerd) {
+        // another horse with a rider: the herd doesn't mind
+      } else if (a.state !== "flee" && !(a.tired > 0) && dist < radius) {
         const wary = a.kind === "deer" || a.kind === "goat" || a.kind === "boar";
         if (wary && a.state !== "alert") { a.state = "alert"; a.stateT = 0; }
         else if (!wary || a.stateT > 0.6 || dist < radius * 0.6) this._startFlee(a, P);
@@ -305,7 +379,7 @@ export class Wildlife {
         }
         case "alert":
           a.yaw = turn(a.yaw, Math.atan2(dx, dz) + Math.PI, dt * 4);
-          if (dist > radius * 1.3 && a.stateT > 2) { a.state = "idle"; a.stateT = 0; }
+          if (dist > (a.spec.calmHerd ? r[1] * 1.6 : radius * 1.3) && a.stateT > 2) { a.state = "idle"; a.stateT = 0; }
           break;
         case "flee": {
           let fx = a.flee.x, fz = a.flee.z;
@@ -338,7 +412,7 @@ export class Wildlife {
   _pose(a, dt, speed, time) {
     const { root, parts } = a;
     root.position.copy(a.pos); root.rotation.y = a.yaw;
-    a.phase += dt * (2 + speed * 2.6);
+    a.phase += dt * (2 + speed * (a.kind === "horse" ? 1.05 : 2.6));
     if (!a.alive) {
       root.rotation.z = Math.min(1.45, a.deadT * 4);
       if (parts.legs) parts.legs.forEach((l) => (l.rotation.x = 0.2));
@@ -352,6 +426,14 @@ export class Wildlife {
       parts.body.rotation.x = a.fly > 0.05 ? 0 : (a.state === "idle" ? Math.max(0, Math.sin(time * 3 + a.phase)) * 0.5 : 0);
     } else {
       const k = Math.min(1, speed / 3);
+      if (a.kind === "horse") {
+        // walk -> trot -> gallop: front/back pairs drift out of phase as speed rises, body rocks
+        const g = Math.min(1, speed / 12);
+        parts.legs.forEach((l, i) => { l.rotation.x = Math.sin(a.phase + (i % 2 ? Math.PI * (1 - g * 0.85) : 0) + (i > 1 ? 0.6 + g * 1.6 : 0)) * (0.35 + 0.5 * g) * k; });
+        parts.body.rotation.x = a.state === "idle" && !a.ridden && speed < 0.1 ? 0.16 : Math.sin(a.phase) * 0.05 * g;
+        parts.body.position.y = Math.abs(Math.sin(a.phase)) * 0.12 * g;
+        return;
+      }
       parts.legs.forEach((l, i) => { l.rotation.x = Math.sin(a.phase + (i % 2 ? Math.PI : 0) + (i > 1 ? 0.6 : 0)) * 0.6 * k; });
       parts.body.rotation.x = a.state === "idle" ? 0.12 : a.state === "alert" ? -0.06 : 0;
     }
@@ -370,7 +452,7 @@ export class Wildlife {
   tryHit(f, fx, fz, dmg = 1) {
     let best = null, bd = Infinity;
     for (const a of this.list) {
-      if (!a.alive) continue;
+      if (!a.alive || a.ridden) continue;
       const dx = a.pos.x - f.x, dz = a.pos.z - f.z, d = Math.hypot(dx, dz);
       if (d > a.spec.reach || Math.abs(a.pos.y - f.y) > 2.2) continue;
       const dot = d > 1e-3 ? (dx * fx + dz * fz) / d : 1;
@@ -391,10 +473,10 @@ export class Wildlife {
 
   /** Arrow test: the living animal whose body is within reach of point p (or null). */
   bodyAt(p) {
-    const R = { rabbit: 0.35, bird: 0.3, fox: 0.4, goat: 0.6, boar: 0.65, deer: 0.8 }, H = { rabbit: 0.25, bird: 0.15, fox: 0.35, goat: 0.8, boar: 0.6, deer: 1.1 };
+    const R = { rabbit: 0.35, bird: 0.3, fox: 0.4, goat: 0.6, boar: 0.65, deer: 0.8, horse: 1.0 }, H = { rabbit: 0.25, bird: 0.15, fox: 0.35, goat: 0.8, boar: 0.6, deer: 1.1, horse: 1.4 };
     let best = null, bd = Infinity;
     for (const a of this.list) {
-      if (!a.alive || !a.root.visible) continue;
+      if (!a.alive || !a.root.visible || a.ridden) continue;
       const d = Math.hypot(a.pos.x - p.x, a.pos.y + H[a.kind] - p.y, a.pos.z - p.z);
       if (d < R[a.kind] + 0.25 && d < bd) { bd = d; best = a; }
     }

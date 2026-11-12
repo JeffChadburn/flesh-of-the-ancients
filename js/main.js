@@ -22,6 +22,8 @@ import { OverworldLayer } from "./world/overworld.js";
 import { Atmosphere, WEATHERS } from "./world/atmosphere.js";
 import { Camp } from "./act1/camp.js";
 import { Wildlife } from "./act1/animals.js";
+import { SettlementLayer, SETTLE_KIND } from "./world/settlements.js";
+import { People } from "./world/people.js";
 import { Story } from "./act1/story.js";
 import { StoryUI } from "./act1/ui.js";
 import { readSave, clearSave } from "./act1/survival.js";
@@ -159,6 +161,7 @@ function setCaveLighting() {
   camFill.intensity = 6;
   if (world.camp) world.camp.fireLight.intensity = 0;
   if (world.wildlife) world.wildlife.setVisible(false);
+  if (world.settleRoot) world.settleRoot.visible = false;
   storyUI.setClock("Underground");
   scene.fog.color.set(0x000000);
   scene.background.set(CAVE_BG);
@@ -277,7 +280,7 @@ const walls = new WallCollider(caveWallMeshes);
 function ensurePlayer(c) {
   player = new Player(camera, c, canvas);
   player.walls = walls;
-  player.onStep = (amp, stance) => audio.step(amp, stance);
+  player.onStep = (amp, stance) => (player.mounted ? audio.hoof?.(Math.min(1, (player.speedNow || 0) / 12)) : audio.step(amp, stance));
   player.onExit = () => {
     // Linked cave (entered from the hills): the far exit brings you back outside.
     if (world.entrance) { returnToOverworld(); return; }
@@ -285,6 +288,7 @@ function ensurePlayer(c) {
     hintEl.classList.add("hidden");
   };
   player.onStance = syncStance;
+  player.onLand = (amp) => (player.mounted ? audio.hoof?.(Math.max(0.7, amp)) : audio.step(Math.max(0.6, amp), "stand"));
   const knob = document.getElementById("joy-knob");
   const joy = document.getElementById("joystick");
   if (joy && knob) player.attachJoystick(joy, knob);
@@ -337,6 +341,13 @@ function ensureWorld() {
     scene.add(world.camp.fireLight);
   }
   world.wildlife = new Wildlife(world.terrain, scene, { lite: IS_TOUCH });
+  // Round 12: settlements + their people (one group so caves can hide them in one go)
+  world.settleRoot = new THREE.Group(); world.settleRoot.name = "settlements";
+  scene.add(world.settleRoot);
+  world.settle = new SettlementLayer(world.terrain, world.settleRoot, { lite: IS_TOUCH });
+  world.people = new People(world.terrain, world.settleRoot, { lite: IS_TOUCH });
+  world.settle.onBuild = (s) => world.people.spawnFor(s);
+  world.settle.onDrop = (s) => world.people.despawnFor(s);
 }
 
 /** Where Kra wakes in Act 1: beside the cold fire, facing Old Lume. */
@@ -358,6 +369,7 @@ function enterOverworld(entrance = null, opts = {}) {
   const t = world.terrain;
   world.over.resident.visible = true;
   world.wildlife?.setVisible(true);
+  if (world.settleRoot) world.settleRoot.visible = true;
   chunks.addLayer(world.over);
   viewCam.near = 0.1; viewCam.far = 1000; viewCam.updateProjectionMatrix();
   audio.setOutdoor?.(true);
@@ -396,6 +408,7 @@ function enterOverworld(entrance = null, opts = {}) {
 }
 
 function enterEntrance(e, instant = false) {
+  if (game.horse) toggleMount(true); // leave the horse at the mouth
   world.transitions.push({ t: +game.time.toFixed(1), e: "enter", id: e.id, cave: e.cave });
   return transition(async () => {
     if (e.cave === "carlsbad") await loadCarlsbad({ fromEntrance: e });
@@ -1030,14 +1043,33 @@ function camWallLimit(eye, sx, sy, want) {
   }
   return Math.max(0.2, best);
 }
+/** Round 12 (playtest r3 minor): outdoors, keep the chase camera out of hut / tent hides (cones)
+ *  and the longhouse; sample the eye -> camera segment and stop just before the first hide. */
+function camHideLimit(eye, sx, sy, want) {
+  const cones = world.terrain?.conesNear(eye.x, eye.z, want + 1.5);
+  if (!cones || !cones.length) return want;
+  const N = 16;
+  for (let i = 1; i <= N; i++) {
+    const t = i / N;
+    _tmp.copy(eye).addScaledVector(_right, sx * t).addScaledVector(_back, want * t);
+    _tmp.y += sy * t;
+    for (const c of cones) {
+      const dy = _tmp.y - c.y;
+      if (dy > c.h + 0.25) continue;
+      const rad = (c.cyl ? c.r : c.r * Math.max(0, 1 - Math.max(0, dy) / c.h)) + 0.3;
+      if ((_tmp.x - c.x) ** 2 + (_tmp.z - c.z) ** 2 < rad * rad) return Math.max(0.2, want * (i - 1) / N - 0.1);
+    }
+  }
+  return want;
+}
 function updateView(dt) {
   const eye = camera.position;
   camera.updateMatrixWorld();
-  let fp = game.fp;
+  let fp = game.fp && !player.mounted; // round 12: always third person on horseback
   if (!fp) {
-    const st = player.stance;
-    const want = st === "crawl" ? 1.4 : st === "crouch" ? 2.0 : 2.7;
-    const sx = st === "crawl" ? 0.22 : 0.5, sy = st === "crawl" ? 0.3 : 0.32;
+    const st = player.stance, mt = !!player.mounted;
+    const want = mt ? 4.9 : st === "crawl" ? 1.4 : st === "crouch" ? 2.0 : 2.7;
+    const sx = mt ? 0.3 : st === "crawl" ? 0.22 : 0.5, sy = mt ? 1.3 : st === "crawl" ? 0.3 : 0.32;
     _right.setFromMatrixColumn(camera.matrixWorld, 0);
     _back.setFromMatrixColumn(camera.matrixWorld, 2);
     let allowed = want;
@@ -1050,6 +1082,7 @@ function updateView(dt) {
     // Round 10: the analytic volume is wider than the lumpy rendered rock, so also ray-cast the
     // eye->camera segment against the passage mesh (BVH) and pull the camera in front of any wall.
     if (world.mode === "cave") allowed = Math.min(allowed, camWallLimit(eye, sx, sy, want));
+    else if (world.mode === "overworld") allowed = Math.min(allowed, camHideLimit(eye, sx, sy, want));
     camDist += (allowed - camDist) * Math.min(1, dt * (allowed < camDist ? 20 : 2.5));
     const k = Math.min(1, camDist / want);
     _camOut.copy(eye).addScaledVector(_right, sx * k).addScaledVector(_back, camDist);
@@ -1182,7 +1215,9 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "KeyQ" || e.code === "KeyB") setWeapon(game.weapon === "bow" ? "spear" : "bow");
   if (e.code === "KeyV") toggleView();
   // Act 1: interact / inventory / skills / crafting; debug time + weather
-  if (e.code === "KeyE" || (e.code === "Space" && !storyUI.dialog.classList.contains("hidden"))) { e.preventDefault(); story.interact(); }
+  if (e.code === "KeyE" && storyUI.dialog.classList.contains("hidden") && canToggleMount()) { e.preventDefault(); toggleMount(); }
+  else if (e.code === "KeyE" || (e.code === "Space" && !storyUI.dialog.classList.contains("hidden"))) { e.preventDefault(); story.interact(); }
+  else if (e.code === "Space" && !storyUI.modal && !game.dead) { e.preventDefault(); player?.jump(); }
   if (story.active && e.code === "KeyI") { storyUI.togglePanel("inv", story.surv); }
   if (story.active && e.code === "KeyK") { storyUI.togglePanel("skills", story.surv); }
   if (story.active && e.code === "Tab") { e.preventDefault(); storyUI.togglePanel("craft", story.surv); }
@@ -1191,11 +1226,63 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "KeyY" && world.atmo) { storyUI.toast(`Weather: ${world.atmo.cycleWeather()}`); }
 });
 storyUI.actBtn.addEventListener("click", () => { armAudio(); story.interact(); });
+// ---------------- Round 12: riding ----------------
+const mountBtn = document.getElementById("btn-mount");
+document.getElementById("btn-jump")?.addEventListener("click", (e) => { e.stopPropagation(); armAudio(); if (!game.dead) player?.jump(); });
+mountBtn?.addEventListener("click", (e) => { e.stopPropagation(); armAudio(); if (canToggleMount()) toggleMount(); });
+function canToggleMount() {
+  if (world.mode !== "overworld" || !player || !world.wildlife || game.dead || world.busy) return false;
+  if (game.horse) return true;
+  return !!world.wildlife.mountable(feetPos());
+}
+function toggleMount(silent = false) {
+  if (game.horse) {
+    // step off to the left side, onto clear ground
+    const h = game.horse, t = world.terrain, f = feetPos();
+    let ox = f.x, oz = f.z;
+    for (const side of [1, -1, 0]) {
+      const lx = f.x - Math.cos(player.yaw) * 1.5 * side + (side ? 0 : Math.sin(player.yaw) * 2.6), lz = f.z + Math.sin(player.yaw) * 1.5 * side + (side ? 0 : Math.cos(player.yaw) * 2.6);
+      if (t.collidersNear(lx, lz, 0.5).every((c) => Math.hypot(c.x - lx, c.z - lz) > c.r + 0.35)) { ox = lx; oz = lz; break; }
+    }
+    player.mounted = false;
+    game.horse = null;
+    world.wildlife.dismount(h);
+    player.placeWorld(ox, 0, oz);
+    if (!silent) storyUI.toast("You slide off the horse.");
+    return true;
+  }
+  const a = world.wildlife.mountable(feetPos());
+  if (!a) return false;
+  player.setStance("stand");
+  world.wildlife.mount(a);
+  game.horse = a;
+  player.mounted = true;
+  player.yaw = a.yaw;
+  player.placeWorld(a.pos.x, 0, a.pos.z);
+  storyUI.toast(IS_TOUCH ? "You swing up onto the horse. Push the stick all the way to gallop; Dismount to get off." : "You swing up onto the horse. Hold Shift to gallop, Space to jump, E to get off.");
+  return true;
+}
+let mountShown = "";
+function updateMountUI() {
+  if (!mountBtn) return;
+  const want = world.mode !== "overworld" ? "" : game.horse ? "off" : world.wildlife?.mountable(feetPos()) ? "on" : "";
+  if (want === mountShown) return;
+  mountShown = want;
+  mountBtn.classList.toggle("hidden", !want);
+  mountBtn.innerHTML = want === "off" ? "Dismount <kbd>E</kbd>" : "Ride <kbd>E</kbd>";
+}
 storyUI.invBtn.addEventListener("click", () => storyUI.togglePanel("inv", story.surv));
 document.getElementById("menu-main-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); showMainMenu(); });
 document.getElementById("pack-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); if (story.active) storyUI.openPanel("inv", story.surv); });
 
 let animSpeed = 0;
+/** Round 12: substeps by time and by distance (sprint 13.8 m/s, gallop 19.5 m/s): <= ~0.15 m per
+ *  step so the wall BVH rays / circle colliders never get skipped; capped at 16 per frame. The
+ *  speed eases in over ~0.3 s, so the current speed + a margin bounds this frame's travel. */
+function substepsFor(dt) {
+  const vmax = (player?.speedNow || 0) + 1.5;
+  return Math.min(16, Math.max(1, Math.ceil(dt / 0.025), Math.ceil((dt * vmax) / 0.15)));
+}
 function revealAround(p) {
   for (const s of cave.stations) {
     if (explored.has(s.id)) continue;
@@ -1217,7 +1304,9 @@ function tick(now) {
   if (rawMs > 0 && rawMs < 500 && !navigator.webdriver) adaptResolution(rawMs);
   if (storyUI.modal && document.pointerLockElement) document.exitPointerLock();
   if (player && ready) {
-    const steps = Math.max(1, Math.ceil(dt / 0.025));
+    // Round 12: substep by distance too (sprint 13.8 m/s, gallop 19.5 m/s): <= ~0.15 m per step, so the
+    // wall BVH rays / colliders never get skipped (no tunnelling), capped at 16 steps per frame.
+    const steps = substepsFor(dt);
     let info;
     const before = camera.position.clone();
     if (!game.dead && !storyUI.modal) for (let k = 0; k < steps; k++) info = player.update(dt / steps);
@@ -1314,6 +1403,7 @@ function tick(now) {
       speed: game.dead ? 0 : animSpeed,
       runFrac: player.runFrac || 0,
       stance: player.stance,
+      mounted: !!player.mounted,
     });
     caveman.root.visible = !game.dead;
     void st;
@@ -1375,6 +1465,14 @@ function tickOverworld(dt, info, now) {
     const dots = story.active && story.surv.skills.has("tracking") ? world.wildlife.list.filter((a) => a.alive && a.dist < 140).map((a) => ({ x: a.pos.x, z: a.pos.z, color: a.kind === "deer" || a.kind === "boar" || a.kind === "goat" ? "#e0a060" : "#d8d0c0" })) : [];
     extra = { stream: site.stream, marks, dots };
   }
+  if (t.settlements?.length) {
+    extra = extra || { marks: [], dots: [] };
+    for (const s of t.settlements) {
+      const K = SETTLE_KIND[s.kind], d = Math.hypot(s.x - p.x, s.z - p.z);
+      if (d > 900) continue;
+      extra.marks.push({ x: s.x, z: s.z, color: K.color, r: s.kind === "city" ? 0.034 : s.kind === "village" ? 0.026 : 0.018, label: d < 140 ? s.name : "", edge: true });
+    }
+  }
   minimap.drawOverworld(t, p, player.yaw, world.discovered, extra);
   updateLowHint(info);
   const st = game.timeFrozen ? A.update(0, { eye: viewCam.position, elevation: elev, lights: { sun: moonLight, hemi: skyFill, ambient }, fog: scene.fog, renderer })
@@ -1392,21 +1490,32 @@ function tickOverworld(dt, info, now) {
   }
   if (world.wildlife) {
     const f = feetPos();
-    world.wildlife.update(dt, { pos: f, speed: speedSmooth, crouched: player.stance !== "stand", running: player.runFrac > 0.4 }, now / 1000);
+    world.wildlife.update(dt, { pos: f, speed: speedSmooth, crouched: player.stance !== "stand" && !player.mounted, running: player.runFrac > 0.4, mounted: !!player.mounted }, now / 1000);
+    if (game.horse) world.wildlife.ride(game.horse, f, player.yaw, animSpeed, dt, now / 1000);
   }
+  // Round 12: settlements stream in / out, people go about their day
+  let town = null;
+  if (world.settle) {
+    world.settle.update(dt, p);
+    world.people.update(dt, p);
+    town = world.settle.at(p.x, p.z);
+  }
+  if (game.horse && !player.mounted) { world.wildlife.dismount(game.horse); game.horse = null; } // teleported / respawned
+  updateMountUI();
   let near = null, nd = Infinity;
   for (const e of t.entrances) { const d = Math.hypot(e.x - p.x, e.z - p.z); if (d < nd) { nd = d; near = e; } }
-  const place = campD < 26 ? "River-Tooth Camp" : near && nd < 28 ? near.name : "";
+  const place = campD < 26 ? "River-Tooth Camp" : near && nd < 28 ? near.name : town ? town.name : "";
   if (place !== placeShown) { placeShown = place; placeEl.textContent = place; placeEl.classList.toggle("show", !!place); }
   const moved = Math.hypot(p.x - lastPos.x, p.z - lastPos.z) / Math.max(dt, 1e-3);
   lastPos.copy(p);
-  speedSmooth += (Math.min(moved, 5) - speedSmooth) * Math.min(1, dt * 3);
-  animSpeed += (Math.min(moved, 6) - animSpeed) * Math.min(1, dt * 10);
+  speedSmooth += (Math.min(moved, 25) - speedSmooth) * Math.min(1, dt * 3); // round 12: 3x sprint / gallop (was capped 5)
+  animSpeed += (Math.min(moved, 25) - animSpeed) * Math.min(1, dt * 10); // was capped 6
   if (audio.started) {
     audio.setEars?.(p, player.yaw);
+    const riding = !!player.mounted;
     audio.setAmbience?.({ night: st.night, dawn: st.dawn, day: st.day, rain: st.rain + st.snow * 0.2, wind: st.wind, storm: st.storm, water: Math.max(0, 1 - waterD / 14) });
     const zone = campD < 45 ? (st.dawn > 0.4 ? "dawn" : "camp") : "outdoor";
-    audio.setScene({ zone, move: Math.min(1, speedSmooth / 2.3), running: player.runFrac > 0.45 && speedSmooth > 2.6, runFrac: player.runFrac, depth: 0, tight: false, dark: 0.6, threat: 0, monster: false, dt });
+    audio.setScene({ zone, move: Math.min(1, speedSmooth / 2.3), running: !riding && player.runFrac > 0.45 && speedSmooth > 2.6, runFrac: riding ? 0 : player.runFrac, depth: 0, tight: false, dark: 0.6, threat: 0, monster: false, dt });
   }
 }
 
@@ -1761,6 +1870,70 @@ window.__CAVE__ = {
       game.camOverride = o;
     },
     weathers: WEATHERS,
+    // ---- round 12 hooks
+    settlements: () => world.terrain?.settlements.map((q) => ({ id: q.id, kind: q.kind, name: q.name, x: +q.x.toFixed(1), z: +q.z.toFixed(1), R: q.R, huts: q.huts.length, tents: q.tents.length, posts: q.posts.length, racks: q.racks.length, fires: q.fires.length, lake: !!q.lake, built: !!world.settle?.groups.has(q.id) })),
+    gotoSettle: (i, dist = null, ang = 0.6, pitch = -0.12) => {
+      const q = world.terrain.settlements[i]; if (!q) return false;
+      const d = dist ?? q.R + 14, x = q.x + Math.cos(ang) * d, z = q.z + Math.sin(ang) * d;
+      if (game.horse) toggleMount(true);
+      player.setTerrain(world.terrain, x, z, Math.atan2(-(q.x - x), -(q.z - z)));
+      player.pitch = pitch; player.applyLook();
+      return { x, z };
+    },
+    people: () => ({ count: world.people?.list.length || 0, visible: world.people?.visible || 0, cap: world.people?.cap, states: world.people?.list.reduce((o, p) => ((o[p.state] = (o[p.state] || 0) + 1), o), {}), carrying: world.people?.list.filter((p) => p.carry).length }),
+    nearestPerson: () => { const n = world.people?.nearest(camera.position.x, camera.position.z); return n && { x: n.p.x, z: n.p.z, d: +n.d.toFixed(2), state: n.p.state }; },
+    settleDraws: () => world.settle?.drawCalls(),
+    horses: () => world.wildlife?.list.filter((a) => a.kind === "horse").map((a) => ({ id: a.id, alive: a.alive, ridden: !!a.ridden, state: a.state, d: +(a.dist ?? -1).toFixed(1), x: +a.pos.x.toFixed(1), z: +a.pos.z.toFixed(1) })),
+    /** Walk up to the nearest live horse (stand 2 m away facing it); mount=true also gets on. */
+    toHorse: (mount = false) => {
+      const n = world.wildlife?.list.filter((a) => a.kind === "horse" && a.alive && !a.ridden).sort((a, b) => a.pos.distanceTo(camera.position) - b.pos.distanceTo(camera.position))[0];
+      if (!n) return null;
+      const x = n.pos.x + 2, z = n.pos.z + 0.5;
+      player.setTerrain(world.terrain, x, z, Math.atan2(-(n.pos.x - x), -(n.pos.z - z)));
+      if (mount) toggleMount();
+      return { id: n.id, mounted: !!game.horse };
+    },
+    mount: () => (canToggleMount() ? toggleMount() : false),
+    mounted: () => ({ mounted: !!player.mounted, horse: game.horse?.id || null, eye: +(camera.position.y - world.terrain.height(camera.position.x, camera.position.z)).toFixed(2), speed: +(player.speedNow || 0).toFixed(2), btn: mountShown }),
+    /** Deterministic movement sim (headless FPS is too low for real-time checks): hold keys for
+     *  n frames at dt, optional jump at frame j. Returns distance, top speed, max height over ground. */
+    sim: (n = 120, { keys = ["KeyW"], jumpAt = -1, dt = 1 / 60 } = {}) => {
+      const P = player, c = camera.position, x0 = c.x, z0 = c.z;
+      P.keys.clear(); for (const k of keys) P.keys.add(k);
+      let maxUp = 0, top = 0; const base = P.stanceDef().eye;
+      for (let f = 0; f < n; f++) {
+        if (f === jumpAt) P.jump();
+        const ns = substepsFor(dt); for (let j = 0; j < ns; j++) P.update(dt / ns);
+        const g = world.mode === "overworld" ? world.terrain.height(c.x, c.z) : c.y - base;
+        maxUp = Math.max(maxUp, c.y - g - base); top = Math.max(top, P.speedNow);
+        if (game.horse) world.wildlife.ride(game.horse, feetPos(), P.yaw, P.speedNow, dt, f * dt);
+      }
+      P.keys.clear();
+      return { dist: +Math.hypot(c.x - x0, c.z - z0).toFixed(2), topSpeed: +top.toFixed(2), maxJump: +maxUp.toFixed(2), jumps: P.jumps || 0, rescues: P.rescues || 0 };
+    },
+    /** Stand next to camp hut i with your back to the hide (the r3 chase-camera clip case). */
+    hutBack: (i = 0, d = 2.3, turn = 0) => {
+      const h = world.terrain.campCones?.[i]; if (!h) return null;
+      const t = world.terrain, x = h.x + d, z = h.z;
+      player.setTerrain(t, x, z, Math.atan2(-(x - h.x), -(z - h.z)) + Math.PI + turn);
+      // facing away from the hut: forward is +x, so the camera behind sits toward the hut
+      player.yaw = Math.atan2(-1, 0); player.yaw += turn; player.pitch = -0.1; player.applyLook();
+      return { hut: { x: h.x, z: h.z }, at: { x, z } };
+    },
+    camPos: () => ({ x: +viewCam.position.x.toFixed(2), y: +viewCam.position.y.toFixed(2), z: +viewCam.position.z.toFixed(2), camDist: +camDist.toFixed(2), fp: game.viewFP }),
+    /** CPU cost of the round-12 systems per frame (ms), averaged over n calls. */
+    r12cost: (n = 200) => {
+      const p = camera.position, t0 = performance.now();
+      for (let i = 0; i < n; i++) world.people.update(1 / 60, p);
+      const t1 = performance.now();
+      for (let i = 0; i < n; i++) world.settle.update(1 / 60, p);
+      const t2 = performance.now();
+      const f = feetPos();
+      for (let i = 0; i < n; i++) world.wildlife.update(1 / 60, { pos: f, speed: 0, crouched: false, running: false }, i / 60);
+      const t3 = performance.now();
+      return { peopleMs: +((t1 - t0) / n).toFixed(3), settleMs: +((t2 - t1) / n).toFixed(3), wildlifeMs: +((t3 - t2) / n).toFixed(3), people: world.people.list.length, peopleVisible: world.people.visible, animals: world.wildlife.list.length };
+    },
+    speeds: () => ({ walk: STANCES.stand.speed, sprint: STANCES.stand.sprint, now: +(player.speedNow || 0).toFixed(2) }),
     site: () => world.terrain?.act1 && { camp: world.terrain.act1.camp, pool: world.terrain.act1.pool, hollow: { x: world.terrain.act1.caveEntrance.x, z: world.terrain.act1.caveEntrance.z, id: world.terrain.act1.caveEntrance.id }, stream: world.terrain.act1.stream, h: (x, z) => world.terrain.height(x, z), entrances: world.terrain.entrances },
     /** Teleport next to a named target outdoors, facing it. */
     goto: (what, dist = 1.6, side = 0) => {
@@ -2005,10 +2178,10 @@ window.__CAVE__ = {
   gameLog: () => game.log.slice(-30),
   explored: () => explored.size,
   /** Bots shove into walls from many stations; counts frames whose move crossed a visible wall. */
-  wallPoke: (n = 40, frames = 150, seed = 1) => {
+  wallPoke: (n = 40, frames = 150, seed = 1, sub = true, jumpEvery = 0) => {
     let rs = seed; const rnd = () => ((rs = (rs * 16807) % 2147483647) / 2147483647);
     const P = player, cam = P.camera, sts = cave.stations.filter((s) => s.kind !== "entrance");
-    let crossings = 0, steps = 0, rescues0 = P.rescues || 0; const where = [];
+    let crossings = 0, steps = 0, subCross = 0, rescues0 = P.rescues || 0; const where = [];
     for (let k = 0; k < n; k++) {
       const s0 = sts[Math.floor(rnd() * sts.length)], p0 = stationWorld(s0);
       P.setStance("stand"); P.placeWorld(p0.x, p0.y - s0.down + STANCES.stand.eye, p0.z);
@@ -2019,14 +2192,21 @@ window.__CAVE__ = {
         if (f % 40 === 0) P.yaw += (rnd() - 0.5) * 2.5;
         if (P.blockedLow && P.stance !== "crawl") P.setStance(P.stance === "stand" ? "crouch" : "crawl");
         P.joy.active = true; P.joy.dx = 0; P.joy.dy = -1; P.joy.mag = 1;
+        if (jumpEvery && f % jumpEvery === 3) P.jump();
         const a = cam.position.clone(), st = STANCES[P.stance];
-        P.update(1 / 60); steps++;
+        if (sub) {
+          // per-substep check (each substep is one real collision move); the frame chord check below
+          // can flag a corner the path actually slid around, so it is reported separately
+          const ns = substepsFor(1 / 60);
+          for (let j = 0; j < ns; j++) { const a2 = cam.position.clone(); P.update(1 / 60 / ns); if (walls.crosses(a2, cam.position, a2.y - st.eye, st)) subCross++; }
+        } else P.update(1 / 60);
+        steps++;
         const b = cam.position;
         if (walls.crosses(a, b, a.y - st.eye, st)) { crossings++; if (where.length < 6) where.push({ st: s0.id, x: +b.x.toFixed(1), y: +b.y.toFixed(1), z: +b.z.toFixed(1) }); }
       }
     }
     P.joy.active = false; P.joy.mag = 0;
-    return { steps, crossings, where, rescues: (P.rescues || 0) - rescues0, wallHits: walls.hits, pushes: walls.pushes };
+    return { steps, crossings, subCross, jumps: P.jumps || 0, where, rescues: (P.rescues || 0) - rescues0, wallHits: walls.hits, pushes: walls.pushes };
   },
   /** Main path + a path from the entrance to every dead end (for walking tests). */
   paths: () => {
@@ -2102,7 +2282,7 @@ window.__CAVE__ = {
           else if (rk[need] < rk[P.stance] && frames % 20 === 0) P.setStance(need);
         }
         const y0 = cam.position.y - (P.bobY || 0);
-        P.update(dt);
+        if (opts.sub !== false) { const ns = substepsFor(dt); for (let j = 0; j < ns; j++) P.update(dt / ns); } else P.update(dt);
         frames++;
         if (opts.stream && world.caveLayer) {
           chunks.update(streamCtx());

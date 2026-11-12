@@ -198,6 +198,8 @@ export class Camp {
     // Round 11: camp props are solid. The fire ring (stones + logs, r 0.8) and the hide huts block
     // the player via the terrain's circle colliders (the torn shaman hut only at its centre poles).
     terrain.campColliders = [{ x: C.x, z: C.z, r: 0.95 }, ...this.huts.map((h) => ({ x: h.x, z: h.z, r: h.torn ? 0.9 : 1.75 }))];
+    // Round 12 (playtest r3): the hide cones (r 2.1, 3 m tall) for the chase-camera limiter.
+    terrain.campCones = this.huts.map((h) => ({ x: h.x, z: h.z, r: 2.15, h: 3.05 }));
     // ---- dead tribe members ----
     this.bodies = [];
     const poses = ["sprawl", "reach", "curl", "sprawl"];

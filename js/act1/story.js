@@ -100,7 +100,7 @@ export class Story {
   update(dt) {
     if (!this.active) return;
     const env = this.env, ui = env.ui, s = this.surv;
-    const running = env.player()?.runFrac > 0.3 && (env.player()?.speedNow || 0) > 2.6 ? 1 : 0;
+    const running = !env.player()?.mounted && env.player()?.runFrac > 0.3 && (env.player()?.speedNow || 0) > 2.6 ? 1 : 0; // the horse does the running
     if (!env.paused()) {
       const r = s.tick(dt, running);
       if (r.damage) { env.hurt(); ui.toast(s.hunger <= 0 ? "Starving..." : "Parched...", "bad"); }
