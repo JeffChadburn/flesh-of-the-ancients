@@ -8,12 +8,13 @@
 import * as THREE from "three";
 import { stationMap, stationWorld, neighborsOf } from "./cave-data.js";
 import { queryVolume, STAND_EYE } from "./volume.js";
+import { addDetail, smoothTree } from "./realism.js";
 
 const SPEED = { roam: 1.25, investigate: 2.1, chase: 3.4, flee: 4.4, lunge: 7.2 };
 const HEALTH = 3;
 
 function mat(color, rough = 0.5) {
-  return new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0, flatShading: true });
+  return addDetail(new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0 }), { scale: 6, amt: 0.25, sat: 0.7, ao: 0.15, bump: 0.08 }); // round 14: organic, smooth
 }
 function bumpy(geo, amt, seed) {
   const p = geo.attributes.position;
@@ -160,6 +161,7 @@ export class Monster {
         this.m.head.add(t);
       }
     }
+    smoothTree(this.m.root); // round 14: organic shading
     scene.add(this.m.root);
     this.pos = new THREE.Vector3();
     this.yaw = 0;

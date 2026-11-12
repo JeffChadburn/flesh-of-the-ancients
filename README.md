@@ -74,6 +74,13 @@ The overworld has continuous time (22 real minutes per day by default). Caves st
 
 ## Look and sound (design notes)
 
+**Round 14, surface realism:** every non-cave material can opt into `addDetail(material, {scale, amt, sat, ao, bump})` from `js/realism.js`.
+- It patches the built-in Lambert or Standard shader with world-space value-noise fbm. This varies the albedo, desaturates it, darkens low-frequency hollows, and on High adds a derivative bump.
+- The patch chains with any existing `onBeforeCompile` and keys the program cache by its options and the quality level.
+- `smoothNormals` / `smoothTree` average the normals of coincident vertices (with a 70° crease) once at load.
+- Cave rock keeps its own triplanar PBR shader from `mesh.js`.
+- Shadows and bloom are deliberately left out to protect phone frame rates.
+
 - **Rock surface:** world-space triplanar mapping of a tileable procedural limestone texture (two scales to hide tiling), so floors and big halls no longer stretch or streak. Mud tint on up-facing surfaces, glossy wet patches (low roughness), iron/grey strata in vertex colours, and bump detail from the texture height via screen-space derivatives (no tangents). `MeshStandardMaterial` (cheaper than the old physical/clearcoat material) to keep phones smooth.
 - **Walls:** displacement noise is sampled at each surface point's world position, so passages are lumpy all the way round and overlapping tubes share the same rock. Caverns use a boxier superellipse section plus large low-frequency lumps (alcoves, buttresses, ceiling pockets, stepped ledges). Hall walls only bulge outward, so they never intrude on the walkable (collision) area.
 - **Junctions:** every junction, sharp bend, wide room and dead end gets a lumpy inward-facing rock "hub" that fills the wedge gaps between tube ends; its triangles inside any nearby passage are dropped so openings stay clear. Dead ends are now rounded rock instead of flat caps (the old caps faced the wrong way and showed as dark holes). A dark back-face pass (no depth write) is drawn first, so any remaining sliver reads as shadowed rock rather than void. Collision is unchanged (still the LRUD tube/hub volume).
@@ -224,6 +231,20 @@ Draw calls go up slightly because each cell is its own mesh. The triangle count 
   - worst streaming frame 4.8 ms
 
 ## Changelog
+
+- **Round 14: A more natural, less cartoonish look.**
+  - *Surfaces* (`js/realism.js`): outdoor ground, rocks, trees, grass, the camp, settlement huts, paths, people, animals, Kra and the monster now get procedural detail mapped in world space, so there are no UVs and no stretching on slopes:
+    - noise-based mottling of soil, lichen on rock, bark, thatch and hide, and skin blotches
+    - darker hollows (a cheap stand-in for ambient occlusion)
+    - colours pulled toward muted, natural tones
+    - on **High**, distance-faded surface relief (bump)
+  - *Models:* Kra, the monster, people and animals use smooth averaged normals instead of flat facets, so their primitives shade as rounded, organic forms. The silhouettes and topology are unchanged.
+  - *Graphics quality:* a new **Graphics: Low / High** button in the ☰ menu, saved in the browser.
+    - **Low** (the phone default) uses two noise octaves, no relief, and caps phone resolution at 1.3x.
+    - **High** uses three octaves plus relief, with up to 1.75x on phones.
+    - The existing adaptive resolution still steps down if frames slow.
+  - *Frame:* a soft CSS vignette (no post-processing pass, so it costs nothing on phones). The torch light is slightly less orange.
+  - *Cost* (relative, measured with the headless software renderer at 390x844): about 11.3 → 10.2 fps on Low (roughly 10% more fragment work) and 6.9 fps on High. On a real phone GPU, expect a similar small hit on Low; High is meant for desktops and recent phones.
 
 - **Round 13: Running jumps, a phone-first HUD, findable towns, spoken story, cave unsticking.**
   - *Running jump:* Jump now works while walking or sprinting and keeps your momentum (about 11.5 m covered in a 0.8 s sprint jump), so you can clear rocks, logs and ledges up to about 1 m. There were two causes. On phones, the browser never sends a click for a second finger while the joystick is held, so the Jump button now fires on `pointerdown`. Running downhill, the ground-follow briefly read "airborne" and ate the jump. Added a 0.15 s coyote time and a 0.16 s jump buffer.

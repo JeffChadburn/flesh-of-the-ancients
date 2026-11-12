@@ -9,6 +9,7 @@
  */
 import * as THREE from "three";
 import { mulberry32 } from "../rng.js";
+import { addDetail } from "../realism.js";
 
 const SYL_A = ["Ka", "Ur", "Om", "Ta", "Bru", "Ma", "Ro", "Ash", "Ne", "Gor", "Ul", "Sa", "Ya", "Dun", "Ko", "Ri", "Vo"];
 const SYL_B = ["na", "rak", "lu", "mesh", "tu", "ga", "rin", "dal", "ko", "vey", "ru", "tha", "mo", "sk", "nek"];
@@ -287,13 +288,13 @@ function shared() {
   lh.push([T(new THREE.PlaneGeometry(1.4, 1.9), 0, 0.95, 10.72), 0x120c08]);
   lh.push([T(R(new THREE.PlaneGeometry(1.4, 1.9), 0, Math.PI, 0), 0, 0.95, -10.72), 0x120c08]);
   for (let i = 0; i < 4; i++) lh.push([T(new THREE.CylinderGeometry(0.1, 0.1, 1.3, 4), 0, 5.9, -9 + i * 6), 0x3a2817]);
-  const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  const mat = addDetail(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), { scale: 3.2, amt: 0.3, sat: 0.72, ao: 0.22, bump: 0.08 });
   const flameM = new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
   SHARED = {
     mat, flameM,
     hut: merged(hut), tent: merged(tent), fire: merged(fire), rack: merged(rack), canoe: merged(canoe), post: merged(post), longhouse: merged(lh),
     flame: T(new THREE.ConeGeometry(0.42, 1.25, 6), 0, 0.62, 0),
-    pathM: new THREE.MeshLambertMaterial({ color: 0x8a7556, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+    pathM: addDetail(new THREE.MeshLambertMaterial({ color: 0x8a7556, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), { scale: 1.4, amt: 0.35, sat: 0.7, ao: 0.2, bump: 0.1 }),
     waterM: new THREE.MeshStandardMaterial({ color: 0x2f5562, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.86 }),
   };
   return SHARED;

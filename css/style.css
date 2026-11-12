@@ -549,3 +549,7 @@ button:hover, .file-btn:hover { border-color: var(--accent); color: #fff; }
 .dialog.spoken .who::after { content: " \1F50A"; font-size: 0.85em; opacity: 0.75; }
 .dialog.spoken.narration .who::after { content: "\1F50A"; }
 #voice-btn.off, #subs-btn.off { opacity: 0.6; }
+/* Round 14: a soft vignette (free: CSS, no post pass) to settle the frame like a camera lens. */
+#game::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 45%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.32) 100%); }
+#game.gfx-high::before { background: radial-gradient(ellipse at 50% 45%, rgba(0,0,0,0) 50%, rgba(0,0,0,0.4) 100%); }

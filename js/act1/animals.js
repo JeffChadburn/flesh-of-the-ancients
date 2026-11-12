@@ -9,6 +9,7 @@
 import * as THREE from "three";
 import { mulberry32 } from "../rng.js";
 import { fbm2 } from "../world/terrain.js";
+import { addDetail, smoothNormals } from "../realism.js";
 
 function merged(parts) {
   const pos = [], nrm = [], col = [], c = new THREE.Color();
@@ -64,8 +65,9 @@ export class Wildlife {
     this.t = terrain;
     this.scene = scene;
     this.rng = mulberry32(terrain.seed ^ 0x0a11);
-    this.mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    this.mat = addDetail(new THREE.MeshLambertMaterial({ vertexColors: true }), { scale: 6, amt: 0.2, sat: 0.7, ao: 0.1, bump: 0.05 }); // round 14: fur / hide mottling, smooth shading
     this.geos = this._geos();
+    for (const g of Object.values(this.geos)) (Array.isArray(g) ? g : [g]).forEach((x) => x?.isBufferGeometry && smoothNormals(x)); // round 14: rounder bodies
     this.list = [];
     this.group = new THREE.Group();
     this.group.name = "wildlife";

@@ -7,6 +7,7 @@
  */
 import * as THREE from "three";
 import { mulberry32 } from "../rng.js";
+import { addDetail, smoothNormals } from "../realism.js";
 
 const TUNIC = [0x8a6a48, 0x7a5a3c, 0x9b7b55, 0x6e5034, 0xa38763, 0x5f4a36, 0x8c5a3c];
 const SKIN = [0xc79a74, 0xb5835c, 0xa87454, 0x8e5e40, 0xd2a983];
@@ -28,18 +29,18 @@ export class People {
     this.visR = lite ? 60 : 95;
     this.list = [];
     this.rng = mulberry32(terrain.seed ^ 0x9e0b1e);
-    const flat = (c) => new THREE.MeshLambertMaterial({ color: c, flatShading: true });
+    const flat = (c) => addDetail(new THREE.MeshLambertMaterial({ color: c }), { scale: 7, amt: 0.14, sat: 0.72, ao: 0.08, bump: 0.04 }); // round 14: smooth-shaded, muted
     const torso = new THREE.CylinderGeometry(0.2, 0.17, 0.62, 7).translate(0, 1.13, 0); torso.scale(1, 1, 0.72);
     const skirt = new THREE.CylinderGeometry(0.2, 0.27, 0.32, 7).translate(0, 0.8, 0); skirt.scale(1, 1, 0.8);
     const leg = new THREE.CylinderGeometry(0.065, 0.05, 0.82, 5).translate(0, -0.41, 0);
     const arm = new THREE.CylinderGeometry(0.055, 0.045, 0.6, 5).translate(0, -0.3, 0);
     const head = headGeo().translate(0, 1.6, 0);
     const bundle = new THREE.DodecahedronGeometry(0.24, 0).scale(1.2, 0.8, 0.9);
-    const mk = (geo, mat, n) => { const m = new THREE.InstancedMesh(geo, mat, n); m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); m.count = 0; m.frustumCulled = false; m.name = "people"; scene.add(m); return m; };
-    const white = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
+    const mk = (geo, mat, n) => { smoothNormals(geo); const m = new THREE.InstancedMesh(geo, mat, n); m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); m.count = 0; m.frustumCulled = false; m.name = "people"; scene.add(m); return m; };
+    const white = addDetail(new THREE.MeshLambertMaterial({ color: 0xffffff }), { scale: 7, amt: 0.14, sat: 0.72, ao: 0.08, bump: 0.04 });
     this.m = {
       torso: mk(torso, white, this.cap), skirt: mk(skirt, flat(0x5c4430), this.cap),
-      head: mk(head, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), this.cap),
+      head: mk(head, addDetail(new THREE.MeshLambertMaterial({ vertexColors: true }), { scale: 9, amt: 0.1, sat: 0.75, ao: 0.05, bump: 0.03 }), this.cap),
       leg: mk(leg, white, this.cap * 2), arm: mk(arm, white, this.cap * 2),
       bundle: mk(bundle, flat(0x7d6446), this.cap),
     };

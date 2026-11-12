@@ -13,6 +13,7 @@ import * as THREE from "three";
 import { CHUNK, fbm2 } from "./terrain.js";
 import { mulberry32 } from "../rng.js";
 import { fbm3 } from "../rng.js";
+import { addDetail } from "../realism.js";
 
 const RES = [32, 16, 8];
 const LOAD_RING = 4, KEEP_RING = 5;
@@ -116,10 +117,10 @@ export class OverworldLayer {
     this.name = "terrain";
     this.terrain = terrain;
     this.lite = lite;
-    this.groundMat = new THREE.MeshLambertMaterial({ vertexColors: true });
-    this.treeMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    this.groundMat = addDetail(new THREE.MeshLambertMaterial({ vertexColors: true }), { scale: 0.55, amt: 0.32, sat: 0.72, ao: 0.22, bump: 0.12 }); // round 14: soil / grass mottling
+    this.treeMat = addDetail(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), { scale: 2.6, amt: 0.3, sat: 0.7, ao: 0.25, bump: 0.08 });
     // A faint cold self-light keeps moon-shadowed rock off pure black, so cave mouths (true black) read as holes.
-    this.rockMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, emissive: 0x1a1e28 });
+    this.rockMat = addDetail(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, emissive: 0x1a1e28 }), { scale: 1.6, amt: 0.42, sat: 0.55, ao: 0.3, bump: 0.15 });
     this.grassUniforms = { uTime: { value: 0 }, uCenter: { value: new THREE.Vector3() } };
     this.grassMat = new THREE.MeshLambertMaterial({ vertexColors: true });
     this.grassMat.onBeforeCompile = (sh) => {
@@ -135,6 +136,7 @@ export class OverworldLayer {
           transformed.x += sin(uTime * 1.6 + gip.x * 0.35 + gip.z * 0.21) * 0.09 * position.y * gf;
           transformed.z += cos(uTime * 1.3 + gip.x * 0.17) * 0.05 * position.y * gf;`);
     };
+    addDetail(this.grassMat, { scale: 0.9, amt: 0.25, sat: 0.7, ao: 0.1, bump: 0 }); // round 14: varied, less candy-green blades
     this.entranceMat = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     this.mouthTubeMat = new THREE.MeshBasicMaterial({ color: 0x020202, side: THREE.BackSide });
     this.geos = {

@@ -26,6 +26,7 @@ import { SettlementLayer, SETTLE_KIND } from "./world/settlements.js";
 import { People } from "./world/people.js";
 import { Story } from "./act1/story.js";
 import { StoryUI } from "./act1/ui.js";
+import { gfxQuality, setGfxQuality } from "./realism.js";
 import { readSave, clearSave } from "./act1/survival.js";
 
 const errors = [];
@@ -53,7 +54,8 @@ const renderer = new THREE.WebGLRenderer({
   powerPreference: "high-performance",
 });
 // Phones: cap the pixel ratio (fill rate is the main cost of the rock shader), then adapt.
-const DPR_CAP = Math.min(window.devicePixelRatio || 1, IS_TOUCH ? 1.5 : 2);
+// Round 14: Graphics quality. Low (phone default) caps the pixel ratio lower and skips surface relief.
+let DPR_CAP = Math.min(window.devicePixelRatio || 1, IS_TOUCH ? (gfxQuality() === "high" ? 1.75 : 1.3) : 2);
 let dprNow = DPR_CAP;
 renderer.setPixelRatio(dprNow);
 renderer.setClearColor(0x050308, 1);
@@ -503,6 +505,18 @@ function syncMute() {
 }
 syncMute();
 // Round 13: spoken story voices + subtitles toggles (saved in localStorage).
+const gfxBtn = document.getElementById("gfx-btn");
+function syncGfx() { if (gfxBtn) gfxBtn.textContent = "Graphics: " + (gfxQuality() === "high" ? "High" : "Low"); document.getElementById("game")?.classList.toggle("gfx-high", gfxQuality() === "high"); }
+syncGfx();
+if (gfxBtn) {
+  gfxBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const q = setGfxQuality(gfxQuality() === "high" ? "low" : "high");
+    DPR_CAP = Math.min(window.devicePixelRatio || 1, IS_TOUCH ? (q === "high" ? 1.75 : 1.3) : 2);
+    dprNow = DPR_CAP; renderer.setPixelRatio(dprNow); resize(); syncGfx();
+  });
+  gfxBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+}
 const voiceBtn = document.getElementById("voice-btn"), subsBtn = document.getElementById("subs-btn");
 function syncVoice() {
   const v = storyUI.voice;

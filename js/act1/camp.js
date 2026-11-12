@@ -6,8 +6,9 @@
  */
 import * as THREE from "three";
 import { mulberry32 } from "../rng.js";
+import { addDetail } from "../realism.js";
 
-const lam = (color, o = {}) => new THREE.MeshLambertMaterial({ color, flatShading: true, ...o });
+const lam = (color, o = {}) => addDetail(new THREE.MeshLambertMaterial({ color, flatShading: true, ...o }), { scale: 3, amt: 0.28, sat: 0.72, ao: 0.2, bump: 0.08 });
 // shared body materials (so all static bodies merge into a few meshes)
 const BM = {};
 const bodyMat = (k, hex) => BM[k] || (BM[k] = lam(hex));

@@ -6,13 +6,15 @@
  * ember particles (one draw call each, animated in the vertex shader).
  */
 import * as THREE from "three";
+import { addDetail, smoothTree } from "./realism.js";
 
 const SKIN = 0xb98461, HIDE = 0x5e4129, FUR = 0x3b2a1d, HAIR = 0x22170f, WOOD = 0x6e4b2c, STONE = 0x77726b;
 
 function mat(color, rough = 0.85, extra = {}) {
   // faint warm self-glow stands in for torch bounce, so the back never reads as a pure black cut-out
   const c = new THREE.Color(color);
-  return new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0, flatShading: true, emissive: new THREE.Color(0x3a2010).multiply(c.clone().addScalar(0.35)), emissiveIntensity: 0.55, ...extra });
+  // round 14: smooth shading + skin / hide / fur micro-variation, slightly muted
+  return addDetail(new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0, flatShading: false, emissive: new THREE.Color(0x3a2010).multiply(c.clone().addScalar(0.35)), emissiveIntensity: 0.55, ...extra }), { scale: 9, amt: 0.16, sat: 0.8, ao: 0.08, bump: 0.05 });
 }
 function shaggy(geo, amt, seed = 1) {
   // Roughen a primitive so it reads as fur / hair / stone (deterministic).
@@ -231,13 +233,14 @@ export class Caveman {
     this.flameAnchor.position.y = -0.48;
     torch.add(this.flameAnchor);
     this.armL.grip.add(torch);
+    smoothTree(root); // round 14: rounder, organic shading on Kra
     this.flame = particles(40, "flame");
     this.embers = particles(22, "ember");
     // Flame and embers live in world space under the scene so they rise straight up.
     scene.add(this.flame);
     scene.add(this.embers);
 
-    this.light = new THREE.PointLight(0xffa05a, 26, 45, 1.0);
+    this.light = new THREE.PointLight(0xffb37d, 26, 45, 1.0); // round 14: less orange, closer to real firelight on limestone
     scene.add(this.light);
     this.torchPos = new THREE.Vector3();
 
