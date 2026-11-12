@@ -21,6 +21,7 @@ export const ITEMS = {
   ochre: { name: "Red ochre", stack: 8, icon: "●" },
   herbs: { name: "Healing herbs", stack: 8, icon: "🌿" },
   salve: { name: "Healing salve", stack: 4, icon: "🏺", heal: 1 },
+  logs: { name: "Deadwood logs", stack: 8, icon: "🪵" }, // round 19: raft building
 };
 export const SKILLS = {
   tools: { name: "Stone Tools", desc: "Knife and spear: harvest carcasses, craft simple gear." },
@@ -65,6 +66,7 @@ export const RECIPES = [
   { id: "hat", name: "Fur hat", desc: "Rabbit pelts sewn in a cap: +1 heart. (worn)", needs: [["pelt", 3], ["sinew", 1]], once: true, gear: true },
   { id: "paint", name: "Red face paint", desc: "Ochre and berry juice in the hunters' stripes: stamina back 30% faster. (worn)", needs: [["ochre", 2], ["berries", 1]], once: true, gear: true },
   { id: "salve", name: "Healing salve", desc: "Crushed herbs in fat. Use it to heal a heart.", needs: [["herbs", 2], ["berries", 1]] },
+  { id: "raft", name: "Log raft", desc: "Deadwood logs lashed with sinew. Build it at the water's edge, then board it (E / Board).", needs: [["logs", 4], ["sinew", 2]], skill: "surv1" },
   { id: "torch", name: "Resin torch", desc: "Pine pitch on a bone haft: a brighter torch that reaches further.", needs: [["bone", 1], ["sinew", 1]], once: true },
 ];
 
@@ -142,6 +144,7 @@ export class Survival {
     if (r.id === "spear" && !this.tools.spear) return false;
     if (r.spear && !this.tools.spear) return false;
     if (!this.knows(r)) return false;
+    if (r.skill && !this.skills.has(r.skill)) return false;
     return r.anyOf ? r.needs.some(([id, n]) => this.count(id) >= n) : r.needs.every(([id, n]) => this.count(id) >= n);
   }
   /** Craft; `use` picks the input for anyOf recipes. Returns message or null. */
@@ -162,6 +165,7 @@ export class Survival {
     if (id === "flintspear") { this.tools.spearDone = true; return "The flint head is bound on: +1 spear damage"; }
     if (id === "arrows") return "Bone arrows fletched: +1 arrow damage";
     if (id === "torch") return "Resin torch made: it burns brighter";
+    if (id === "raft") { this.crafted.delete("raft"); return "You lash the logs together: a raft, ready at the water's edge"; }
     return "Crafted";
   }
 

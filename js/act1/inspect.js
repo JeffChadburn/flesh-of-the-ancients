@@ -20,6 +20,7 @@ export const LORE = {
   morgan: { lore: "It is still twitching. The hunters said a man who eats one stops being only a man.", uses: "Eat it: Blood Memory (permanent strength and health).", from: "The creature in Waterfall Hollow.", special: true },
   bone: { lore: "Clean white bone, hard enough to take an edge. Nothing of a kill is wasted.", uses: "Arrows, the resin torch, spears.", from: "Animals, cave floors, storage baskets." },
   sinew: { lore: "Dried tendon, split into thread. It shrinks as it dries and binds tighter than any vine.", uses: "Binding and sewing: flint spear, boots, cloak, hat, torch.", from: "Larger animals and storage baskets." },
+  logs: { lore: "Dry, light deadwood, fallen limbs with the bark peeling. It floats high.", uses: "Four logs and two sinew make a raft (Survival: Herb Lore).", from: "Gather it under trees once you know Herb Lore." },
   flint: { lore: "Grey glassy stone that breaks into edges sharper than any knife you have known.", uses: "Knap a flint-tipped spear head.", from: "Cave floors and storage baskets." },
   ochre: { lore: "Red earth, the colour of the hunters' stripes and of the paintings in the halls.", uses: "Red face paint.", from: "Cave walls and storage baskets." },
   herbs: { lore: "Bitter leaves that numb a wound. The Herb-woman knows a dozen; you know this one.", uses: "Healing salve.", from: "Gathering bushes after learning Herb Lore." },

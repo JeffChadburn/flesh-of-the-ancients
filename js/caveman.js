@@ -219,6 +219,12 @@ export class Caveman {
     nock.position.y = -0.12; cant.add(nock);
     bow.visible = false;
     this.armR.grip.add(bow);
+    // Round 19: a paddle (in the same hand) shown while Kra is in a boat
+    const paddle = (this.paddle = new THREE.Group());
+    const pS = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.026, 1.7, 5), wood); pS.position.y = -0.35; paddle.add(pS);
+    const pB = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.48, 0.03), wood); pB.position.y = -1.1; paddle.add(pB);
+    paddle.visible = false;
+    this.armR.grip.add(paddle);
     this.weapon = "spear"; this.armed = true;
 
     // Torch in left hand: stick + charred head, flame + embers + light.
@@ -299,7 +305,7 @@ export class Caveman {
   /**
    * feet: world position of the feet; yaw/pitch of the view; speed m/s; runFrac 0..1; stance.
    */
-  update(dt, { feet, yaw, pitch, speed, runFrac, stance, eye, mounted = false }) {
+  update(dt, { feet, yaw, pitch, speed, runFrac, stance, eye, mounted = false, boat = false, stroke = 0 }) {
     this.time += dt;
     const t = this.time;
     const r = this.root;
@@ -313,7 +319,7 @@ export class Caveman {
       r.position.y = eye.y - (stance === "crawl" ? 0.55 : stance === "crouch" ? 1.25 : 1.6) + 0.02;
     }
     if (mounted) r.position.y += 0.74; // round 12: astride the horse's back
-    const amp = mounted ? 0 : Math.min(1, speed / 2.3);
+    const amp = mounted || boat ? 0 : Math.min(1, speed / 2.3);
     const stride = stance === "crawl" ? 0.5 : stance === "crouch" ? 0.6 : 0.8 + runFrac * 2.1; // round 12: longer bounds at the 3x sprint
     this.phase += (speed * dt / stride) * Math.PI;
     const ph = this.phase;
@@ -325,7 +331,8 @@ export class Caveman {
     if (stance === "crouch") { hipsY = 0.6; lean = -0.45; thighBase = 1.1; kneeBase = -1.7; }
     if (stance === "crawl") { hipsY = 0.42; lean = -1.25; thighBase = 1.35; kneeBase = -1.55; }
     if (mounted) { hipsY = 0.95; lean = -0.1 - runFrac * 0.3 + Math.sin(t * Math.max(2, speed * 0.9)) * 0.04 * Math.min(1, speed / 6); thighBase = 1.2; kneeBase = -1.45; }
-    const spread = mounted ? 0.42 : 0;
+    if (boat) { hipsY = 0.36; lean = -0.12; thighBase = 1.45; kneeBase = -0.5; } // round 19: sitting in a boat, legs forward
+    const spread = mounted ? 0.42 : boat ? 0.12 : 0;
     this.legL.th.rotation.z += (-spread - this.legL.th.rotation.z) * Math.min(1, dt * 10);
     this.legR.th.rotation.z += (spread - this.legR.th.rotation.z) * Math.min(1, dt * 10);
     this.hips.position.y += (hipsY + Math.abs(sw) * 0.045 * amp * (stance === "stand" ? 1 : 0.4) - this.hips.position.y) * Math.min(1, dt * 12);
@@ -363,6 +370,17 @@ export class Caveman {
     this.spear.position.y = -a * 0.25;
     this.bow.rotation.x = this.spear.rotation.x;
     this.bow.position.y = this.weapon === "bow" ? a * 0.12 : 0; // recoil on release
+    // Round 19: paddling. Reach forward, pull back along the side; the torso twists with the stroke.
+    if (boat !== !!this._boat) { this._boat = boat; this.paddle.visible = boat; if (boat) { this._sv = [this.spear.visible, this.bow.visible]; this.spear.visible = this.bow.visible = false; } else if (this._sv) { [this.spear.visible, this.bow.visible] = this._sv; } }
+    if (boat) {
+      this.padPh = (this.padPh || 0) + dt * (1.6 + Math.abs(stroke) * 2.4) * (stroke < 0 ? -1 : 1) * Math.min(1, Math.abs(stroke) * 3 + 0.05);
+      const k = Math.min(1, Math.abs(stroke) * 2), sp = Math.sin(this.padPh);
+      this.armR.sh.rotation.set(0.75 + sp * 0.55 * k, 0, 0.3 + 0.1 * k);
+      this.armR.el.rotation.x = 0.55 - Math.cos(this.padPh) * 0.25 * k;
+      this.chest.rotation.y = sp * 0.22 * k;
+      const ap = this.armR.sh.rotation.x + this.armR.el.rotation.x + this.chest.rotation.x;
+      this.paddle.rotation.set(-ap + 0.25 - sp * 0.35 * k, 0, 0.35);
+    }
 
     // Torch light + flame follow the torch head (world space).
     this.root.updateMatrixWorld(true);

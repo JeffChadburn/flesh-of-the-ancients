@@ -239,6 +239,28 @@ Draw calls go up slightly because each cell is its own mesh. The triangle count 
 
 ## Changelog
 
+- **Round 19: boats, plus ford, horse and camera fixes.**
+  - *Three kinds of boat* (`js/world/boats.js`):
+    - a dugout canoe for lakes and rivers;
+    - a reed raft for the marsh;
+    - a big skin boat (umiak) for the ocean and the north coast.
+  - *Where they are:* about 50 boats sit at small log jetties by the towns (Tako's canoe is a short walk from camp), the lakes, partway down and at the mouth of the rivers, along the coast every ~700 m, and in the marsh.
+  - *Getting in and out:* walk to a boat or the foot of its jetty and press E / **Board ⛵**. **Get out** works at the shore or a jetty. In open water it tells you to paddle closer.
+  - *Paddling:*
+    - phone: stick up / down paddles forward / back, left / right turns, and the further you push the faster you go;
+    - desktop: W / S paddle, A / D turn, Shift pulls hard (the 1 / 2 / 3 pace keys work too);
+    - Kra sits and paddles with a stroke animation and paddle splashes. The boat bobs and rolls (more at sea) and leaves a wake.
+  - *Water rules:*
+    - rivers carry you downstream;
+    - boats only float where the water is deep enough, stop at the shoreline and ease off the bank instead of pinning;
+    - if you ever push for ~2.5 s without moving, **⛵ Beach the boat** puts you ashore.
+  - *Maps:* boats show on the minimap and big map (new **Boats** filter). Your boat is always shown, labelled on the big map.
+  - *Build a raft* (Survival → Herb Lore): gather **deadwood logs** under trees (E), then craft **Log raft** (4 logs + 2 sinew) at the water's edge. It is launched right there.
+  - *Fixes:*
+    - rivers have a shallow **ford** every ~260 m (knee-deep, with gentle banks) so you can wade across, and river banks no longer have a lip at the water's edge;
+    - walking or riding into a tree trunk or boulder head-on now slides you round it (the alpine horse-ride snag);
+    - the chase camera stops short of tree crowns instead of sitting inside them.
+
 - **Round 18: a varied world, from southern Utah to Alaska (regions, rivers, lakes, ocean).**
   - *Bigger world:* ±3.2 km (was ±1.4 km). The start, the camp, Tako, the towns, cave mouths and quest places keep the familiar temperate ground (checked: none are in water or another region).
   - *Regions* (`js/world/biomes.js`, a biome map mixed smoothly by weight):

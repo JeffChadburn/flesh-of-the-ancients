@@ -67,14 +67,14 @@ const LOAD_RING = 4, KEEP_RING = 5;
 
 function lodForRing(r) { return r <= 1 ? 0 : r === 2 ? 1 : 2; }
 
-function colorize(geo, fn) {
+export function colorize(geo, fn) {
   const p = geo.attributes.position, cols = new Float32Array(p.count * 3), c = new THREE.Color();
   for (let i = 0; i < p.count; i++) { fn(c, p.getX(i), p.getY(i), p.getZ(i)); cols[i * 3] = c.r; cols[i * 3 + 1] = c.g; cols[i * 3 + 2] = c.b; }
   geo.setAttribute("color", new THREE.BufferAttribute(cols, 3));
   return geo;
 }
 
-function merge(parts) {
+export function merge(parts) {
   // tiny non-indexed merge (avoids the BufferGeometryUtils import)
   const pos = [], nrm = [], col = [];
   for (const g0 of parts) {

@@ -280,6 +280,22 @@ export class CaveAudio {
     s.connect(f); f.connect(g); g.connect(this.master); s.start(t);
   }
 
+  /** Round 19: a paddle stroke: a soft watery swish (stronger at speed). */
+  paddle(amp = 0.5) {
+    if (!this.ctx || this.muted || !this.started) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    if (!this._padBuf) {
+      const n = Math.floor(ctx.sampleRate * 0.35); this._padBuf = ctx.createBuffer(1, n, ctx.sampleRate);
+      const d = this._padBuf.getChannelData(0);
+      for (let i = 0; i < n; i++) { const u = i / n; d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * Math.min(1, u * 4)) * Math.exp(-u * 4); }
+    }
+    const s = ctx.createBufferSource(); s.buffer = this._padBuf; s.playbackRate.value = 0.8 + Math.random() * 0.3;
+    const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 700 + amp * 600 + Math.random() * 200; f.Q.value = 0.8;
+    const g = ctx.createGain(); g.gain.value = 0.08 + amp * 0.12;
+    s.connect(f); f.connect(g); g.connect(this.master); s.start(t);
+    s.onended = () => { try { g.disconnect(); } catch (_) {} };
+  }
+
   /** Bow release: a short plucked twang plus a breathy whoosh. */
   bowShot() {
     if (!this.ctx || this.muted) return;

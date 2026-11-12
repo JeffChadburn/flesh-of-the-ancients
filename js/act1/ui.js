@@ -9,7 +9,7 @@ import { Inspector } from "./inspect.js";
 
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 const ITEM_COLORS = { berries: "#7a1f3a", roots: "#8a6a3a", meat: "#9a3a34", cooked: "#8a5a2a", organ: "#6a1018", pelt: "#8a7a64", hide: "#7a5636", feather: "#4a4a54", skin: "#6a4a3c", blood: "#5a0808", morgan: "#3a0a2a",
-  bone: "#cfc3a6", sinew: "#9a6a52", flint: "#6a7484", ochre: "#a8401c", herbs: "#4a7a3a", salve: "#8a7a4a" };
+  bone: "#cfc3a6", sinew: "#9a6a52", flint: "#6a7484", ochre: "#a8401c", herbs: "#4a7a3a", salve: "#8a7a4a", logs: "#7a5a3a" };
 
 export class StoryUI {
   constructor(root, { touch = false } = {}) {

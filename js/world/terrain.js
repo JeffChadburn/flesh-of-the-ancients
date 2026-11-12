@@ -365,6 +365,22 @@ export class Terrain {
     return out;
   }
 
+  /** Round 19: tree crowns (and hoodoos) near a point as cones, so the chase camera stops short of them. */
+  treeCones(x, z, r = 6) {
+    const out = [];
+    for (let cx = Math.floor((x - r) / CHUNK); cx <= Math.floor((x + r) / CHUNK); cx++) for (let cz = Math.floor((z - r) / CHUNK); cz <= Math.floor((z + r) / CHUNK); cz++) {
+      for (const t of this.scatter(cx, cz).trees) {
+        if (Math.abs(t.x - x) > r + 3 || Math.abs(t.z - z) > r + 3) continue;
+        const s = t.s;
+        if (t.type === 0) out.push({ x: t.x, z: t.z, y: t.y + 1.2 * s, r: 1.7 * s, h: 5.6 * s, under: true });
+        else if (t.type === 1) out.push({ x: t.x, z: t.z, y: t.y + 0.9 * s, r: 1.15 * s, h: 2.6 * s, under: true });
+        else if (t.type === 2) out.push({ x: t.x, z: t.z, y: t.y + 0.7 * s, r: 1.15 * s, h: 6.6 * s, under: true });
+        else if (t.type === 5) out.push({ x: t.x, z: t.z, y: t.y, r: 0.9 * s, h: 5 * s, cyl: true });
+      }
+    }
+    return out;
+  }
+
   /** Round 12: hut / tent hide cones (and hall volumes) near a point, for the chase camera. */
   conesNear(x, z, r = 6) {
     const out = [];

@@ -50,7 +50,7 @@ export class Player {
    */
   setTerrain(terrain, x, z, yaw = 0) {
     this.terrain = terrain;
-    this.mounted = false; this.jumping = false; this.jumpBuf = 0;
+    this.mounted = false; this.jumping = false; this.jumpBuf = 0; this.boating = false;
     this.cave = null;
     this.smap = new Map();
     this.volume = null;
@@ -110,7 +110,7 @@ export class Player {
 
   setStance(name, { toggle = false } = {}) {
     if (!STANCES[name]) return false;
-    if (this.mounted && name !== "stand") return false; // get off the horse first
+    if ((this.mounted || this.boating) && name !== "stand") return false; // get off the horse (or out of the boat) first
     if (toggle && this.stance === name) {
       // Rise as high as the current ceiling allows.
       if (name === "crawl") name = this.canUseStance("crouch") ? "crouch" : "crawl";
@@ -406,7 +406,7 @@ export class Player {
     // angle, a corner, a low lip), try the same step turned 30 / 55 / 80 degrees either way, shortened
     // by the cosine, and keep whichever makes the most progress in the wanted direction.
     const dl = delta.length();
-    if (dl > 1e-5 && !this.terrain) {
+    if (dl > 1e-5) { // round 19: outdoors too (a trunk / boulder met head-on slides you round it)
       const prog = (r) => ((r.x - from.x) * delta.x + (r.z - from.z) * delta.z) / dl;
       let best = prog(resolved);
       const lastG = this.groundEye != null ? this.groundEye : from.y;

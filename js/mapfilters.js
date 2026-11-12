@@ -5,7 +5,7 @@
 const KEY = "fota-mapfilters-v1";
 export const FILTERS = [
   ["towns", "Towns & villages", true], ["caves", "Cave mouths", true], ["people", "Quest people (! ?)", true],
-  ["quest", "Quest / hint marker", true], ["places", "Camp & falls", true], ["water", "Streams", true],
+  ["quest", "Quest / hint marker", true], ["places", "Camp & falls", true], ["water", "Streams", true], ["boats", "Boats", true],
   ["trail", "Your trail (big map)", true], ["labels", "Names", true], ["animals", "Animals (tracking)", false], ["monsters", "Cave creature (close)", false],
 ];
 export const mapFilters = Object.fromEntries(FILTERS.map(([k, , d]) => [k, d]));

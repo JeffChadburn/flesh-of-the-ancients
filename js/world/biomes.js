@@ -181,9 +181,19 @@ export class Biomes {
       let rim = Infinity; for (let a = 0; a < 12; a++) rim = Math.min(rim, pre(x + Math.cos(a * 0.52) * r, z + Math.sin(a * 0.52) * r));
       this._lake(pre, x, z, r, rim - 0.4);
     }
+    // Round 19: shallow fords every ~260 m along each river (wade across instead of swimming)
+    for (const r of this.rivers) {
+      let d = 0; const P = r.pts, tot = P.reduce((a, p, i) => a + (i ? Math.hypot(p.x - P[i - 1].x, p.z - P[i - 1].z) : 0), 0);
+      for (let i = 0; i < P.length; i++) {
+        if (i) d += Math.hypot(P[i].x - P[i - 1].x, P[i].z - P[i - 1].z);
+        const c = 150 + Math.round((d - 150) / 260) * 260;
+        P[i].f = d < 100 || d > tot - 160 ? 0 : 1 - smooth(5, 14, Math.abs(d - c));
+      }
+      r.fords = P.filter((p, i) => p.f > 0.99 && !(P[i - 1]?.f > 0.99)).map((p) => ({ x: p.x, z: p.z }));
+    }
     // spatial grid of river segments for quick lookups
     for (const r of this.rivers) for (let i = 0; i < r.pts.length - 1; i++) {
-      const a = r.pts[i], b = r.pts[i + 1], pad = 16;
+      const a = r.pts[i], b = r.pts[i + 1], pad = 16 + Math.max(a.f || 0, b.f || 0) * 28;
       const x0 = Math.floor((Math.min(a.x, b.x) - pad) / this.G), x1 = Math.floor((Math.max(a.x, b.x) + pad) / this.G);
       const z0 = Math.floor((Math.min(a.z, b.z) - pad) / this.G), z1 = Math.floor((Math.max(a.z, b.z) + pad) / this.G);
       for (let gx = x0; gx <= x1; gx++) for (let gz = z0; gz <= z1; gz++) { const k = gx + "," + gz; let L = this.grid.get(k); if (!L) this.grid.set(k, (L = [])); L.push([r, i]); }
@@ -204,7 +214,7 @@ export class Biomes {
       const a = r.pts[i], b = r.pts[i + 1], q = segInfo(x, z, a.x, a.z, b.x, b.z);
       if (!best || q.d < best.d) {
         const l = Math.hypot(b.x - a.x, b.z - a.z) || 1;
-        best = { d: q.d, y: lerp(a.y, b.y, q.t), w: lerp(a.w, b.w, q.t), fx: (b.x - a.x) / l, fz: (b.z - a.z) / l };
+        best = { d: q.d, y: lerp(a.y, b.y, q.t), w: lerp(a.w, b.w, q.t), fx: (b.x - a.x) / l, fz: (b.z - a.z) / l, f: lerp(a.f || 0, b.f || 0, q.t) };
       }
     }
     return best;
@@ -217,11 +227,11 @@ export class Biomes {
   /** Carve rivers and lake basins into a height. */
   carve(x, z, h) {
     const rv = this.river(x, z);
-    if (rv && rv.d < rv.w + 12) {
-      const bed = rv.y - 0.4 - Math.min(1.8, rv.w * 0.25) * (1 - smooth(0, rv.w, rv.d));
-      const bank = Math.min(h, rv.y + 0.5 + Math.max(0, rv.d - rv.w) * 0.6);
+    if (rv && rv.d < rv.w + 12 + rv.f * 28) {
+      const bed = lerp(rv.y - 0.4 - Math.min(1.8, rv.w * 0.25) * (1 - smooth(0, rv.w, rv.d)), rv.y - 0.45, rv.f); // round 19: fords
+      const bank = Math.min(h, rv.y - 0.4 + Math.max(0, rv.d - rv.w) * (0.75 - 0.4 * rv.f)); // round 19: no lip at the water's edge; fords get a gentle ramp
       const target = rv.d < rv.w ? bed : bank;
-      h = lerp(h, Math.min(h, target), 1 - smooth(rv.w + 4, rv.w + 12, rv.d));
+      h = lerp(h, Math.min(h, target), 1 - smooth(rv.w + 4 + rv.f * 14, rv.w + 12 + rv.f * 28, rv.d));
     }
     const lk = this.lake(x, z);
     if (lk) {

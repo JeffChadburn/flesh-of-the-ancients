@@ -31,6 +31,7 @@ import { readSave, clearSave } from "./act1/survival.js";
 import { planPlaces, makeNPC, NPCS } from "./act1/quests.js";
 import { WorldMap } from "./worldmap.js";
 import { mapFilters, toggleFilters } from "./mapfilters.js";
+import { Boats } from "./world/boats.js";
 
 const errors = [];
 window.addEventListener("error", (e) => errors.push(String(e.message || e.error || e)));
@@ -372,6 +373,7 @@ function ensureWorld() {
   scene.add(world.settleRoot);
   world.settle = new SettlementLayer(world.terrain, world.settleRoot, { lite: IS_TOUCH });
   world.people = new People(world.terrain, world.settleRoot, { lite: IS_TOUCH });
+  world.boats = new Boats(world.terrain, world.settleRoot, { lite: IS_TOUCH }); // round 19
   world.settle.onBuild = (s) => world.people.spawnFor(s);
   world.settle.onDrop = (s) => world.people.despawnFor(s);
   // Round 16: the named people who give quests (one small mesh each, near their fire)
@@ -754,6 +756,16 @@ const story = new Story({
   explored: () => explored.size,
   heal: (n) => { if (game.health >= game.maxHealth) return false; game.health = Math.min(game.maxHealth, game.health + n); renderStatus(); return true; },
   caveWater: () => (world.mode !== "overworld" ? waterHandle : null),
+  // round 19: a crafted raft goes into the nearest water (check = true: only test there is some)
+  launchRaft: (check = false) => {
+    if (world.mode !== "overworld" || !world.boats || !player) return false;
+    const f = feetPos(), sp = world.boats.spot(f.x, f.z, 24, 0.45);
+    if (!sp || check) return !!sp;
+    const b = world.boats.add("raft", sp.x, sp.z, Math.atan2(-(sp.x - f.x), -(sp.z - f.z)), { home: "yours" });
+    b.dock = { x: sp.shore.x, z: sp.shore.z };
+    game.myBoat = b;
+    return true;
+  },
   floorAt: (x, y, z) => { if (!player?.volume) return null; const q = queryVolume(player.volume, x, y, z, 0.05, 0); return q.inside ? q.floor : null; },
   caveExit: () => { if (!cave) return null; const st = stationMap(cave).get(cave.entranceId); if (!st) return null; const w = stationWorld(st); return { x: w.x, z: w.z }; },
   volume: () => (player && !player.terrain ? player.volume : null),
@@ -1143,8 +1155,9 @@ function camWallLimit(eye, sx, sy, want) {
 /** Round 12 (playtest r3 minor): outdoors, keep the chase camera out of hut / tent hides (cones)
  *  and the longhouse; sample the eye -> camera segment and stop just before the first hide. */
 function camHideLimit(eye, sx, sy, want) {
-  const cones = world.terrain?.conesNear(eye.x, eye.z, want + 1.5);
-  if (!cones || !cones.length) return want;
+  const t0 = world.terrain; if (!t0) return want;
+  const cones = t0.conesNear(eye.x, eye.z, want + 1.5).concat(t0.treeCones(eye.x, eye.z, want + 1.5)); // round 19: tree crowns too
+  if (!cones.length) return want;
   const N = 16;
   for (let i = 1; i <= N; i++) {
     const t = i / N;
@@ -1152,7 +1165,7 @@ function camHideLimit(eye, sx, sy, want) {
     _tmp.y += sy * t;
     for (const c of cones) {
       const dy = _tmp.y - c.y;
-      if (dy > c.h + 0.25) continue;
+      if (dy > c.h + 0.25 || (c.under && dy < -0.3)) continue;
       const rad = (c.cyl ? c.r : c.r * Math.max(0, 1 - Math.max(0, dy) / c.h)) + 0.3;
       if ((_tmp.x - c.x) ** 2 + (_tmp.z - c.z) ** 2 < rad * rad) return Math.max(0.2, want * (i - 1) / N - 0.1);
     }
@@ -1162,10 +1175,10 @@ function camHideLimit(eye, sx, sy, want) {
 function updateView(dt) {
   const eye = camera.position;
   camera.updateMatrixWorld();
-  let fp = game.fp && !player.mounted; // round 12: always third person on horseback
+  let fp = game.fp && !player.mounted && !game.boat; // round 12: always third person on horseback (round 19: and in a boat)
   if (!fp) {
-    const st = player.stance, mt = !!player.mounted;
-    const want = mt ? 4.9 : st === "crawl" ? 1.4 : st === "crouch" ? 2.0 : 2.7;
+    const st = player.stance, mt = !!player.mounted || !!game.boat;
+    const want = game.boat ? (game.boat.kind === "umiak" ? 6.2 : 5.2) : mt ? 4.9 : st === "crawl" ? 1.4 : st === "crouch" ? 2.0 : 2.7;
     const sx = mt ? 0.3 : st === "crawl" ? 0.22 : 0.5, sy = mt ? 1.3 : st === "crawl" ? 0.3 : 0.32;
     _right.setFromMatrixColumn(camera.matrixWorld, 0);
     _back.setFromMatrixColumn(camera.matrixWorld, 2);
@@ -1336,10 +1349,13 @@ mountBtn?.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPro
 mountBtn?.addEventListener("click", (e) => e.stopPropagation());
 function canToggleMount() {
   if (world.mode !== "overworld" || !player || !world.wildlife || game.dead || world.busy) return false;
-  if (game.horse) return true;
+  if (game.horse || game.boat) return true;
+  if (boatNear()) return true;
   return !!world.wildlife.mountable(feetPos());
 }
 function toggleMount(silent = false) {
+  if (game.boat) return leaveBoat();
+  if (!game.horse) { const b = boatNear(); if (b) { boardBoat(b); return true; } }
   if (game.horse) {
     // step off to the left side, onto clear ground
     const h = game.horse, t = world.terrain, f = feetPos();
@@ -1369,11 +1385,11 @@ function toggleMount(silent = false) {
 let mountShown = "";
 function updateMountUI() {
   if (!mountBtn) return;
-  const want = world.mode !== "overworld" ? "" : game.horse ? "off" : world.wildlife?.mountable(feetPos()) ? "on" : "";
+  const want = world.mode !== "overworld" ? "" : game.boat ? "out" : game.horse ? "off" : boatNear() ? "boat" : world.wildlife?.mountable(feetPos()) ? "on" : "";
   if (want === mountShown) return;
   mountShown = want;
   mountBtn.classList.toggle("hidden", !want);
-  mountBtn.innerHTML = want === "off" ? "Dismount <kbd>E</kbd>" : "Ride <kbd>E</kbd>";
+  mountBtn.innerHTML = want === "out" ? "Get out <kbd>E</kbd>" : want === "boat" ? "Board ⛵ <kbd>E</kbd>" : want === "off" ? "Dismount <kbd>E</kbd>" : "Ride <kbd>E</kbd>";
 }
 storyUI.invBtn.addEventListener("click", () => storyUI.togglePanel("inv", story.surv));
 document.getElementById("menu-main-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); showMainMenu(); });
@@ -1402,6 +1418,7 @@ function mapState() {
     out.entrances = t.entrances.filter((e) => world.discovered.has(e.id)).map((e) => ({ x: e.x, z: e.z, name: e.name, cave: e.cave }));
     out.marks = site ? [{ x: site.camp.x, z: site.camp.z, color: "#ffb050", label: story.active ? "River-Tooth camp" : "Camp" }] : [];
     if (site && story.active) out.stream = site.stream;
+    if (world.boats) out.boats = world.boats.list.map((b) => ({ x: b.x, z: b.z, yaw: b.yaw, kind: b.kind, mine: b === game.boat || b === game.myBoat, riding: b === game.boat }));
     out.npcs = world.places ? Object.entries(world.places.npc).map(([id, n]) => ({ x: n.x, z: n.z, mark: story.npcMark(id) })) : [];
   } else if (cave) {
     out.title = nameEl?.textContent || "Cave";
@@ -1537,7 +1554,8 @@ function tick(now) {
     const steps = substepsFor(dt);
     let info;
     const before = camera.position.clone();
-    if (!game.dead && !storyUI.modal && !wmap.isOpen) for (let k = 0; k < steps; k++) info = player.update(dt / steps);
+    if (game.boat && world.mode === "overworld") { if (!game.dead && !storyUI.modal && !wmap.isOpen) boatStep(dt); info = player.readout(); } // round 19
+    else if (!game.dead && !storyUI.modal && !wmap.isOpen) for (let k = 0; k < steps; k++) info = player.update(dt / steps);
     else info = player.readout();
     stepGame(dt);
     stepWorld(dt);
@@ -1631,12 +1649,14 @@ function tick(now) {
     caveman.update(dt, {
       feet: feetPos(),
       eye: camera.position,
-      yaw: player.yaw,
+      yaw: game.boat ? game.boat.yaw : player.yaw,
       pitch: player.pitch,
       speed: game.dead ? 0 : animSpeed,
       runFrac: player.runFrac || 0,
       stance: player.stance,
       mounted: !!player.mounted,
+      boat: !!game.boat,
+      stroke: game.boat && game.boatInp ? Math.max(Math.abs(game.boatInp.fwd), Math.abs(game.boatInp.turn) * 0.7) * (game.boatInp.fwd < -0.1 ? -1 : 1) : 0,
     });
     caveman.root.visible = !game.dead;
     void st;
@@ -1684,6 +1704,85 @@ window.addEventListener("keydown", (e) => {
 });
 document.getElementById("debug-btn")?.addEventListener("click", (e) => { e.stopPropagation(); setDebug(!debugOn); });
 document.getElementById("hills-btn")?.addEventListener("click", (e) => { e.stopPropagation(); transition(() => enterOverworld()); });
+
+// ---------------- Round 19: boats ----------------
+function boatNear() {
+  if (world.mode !== "overworld" || !world.boats || !player || game.horse || game.boat || game.dead || world.busy) return null;
+  return world.boats.near(feetPos());
+}
+function placeInBoat(b) {
+  const st = player.stanceDef();
+  camera.position.set(b.x, b.y + (b.bobY || 0) - b.K.draft * 0.45 + b.K.seat + st.eye, b.z);
+  player.water = 0;
+}
+function boardBoat(b) {
+  player.setStance("stand");
+  game.boat = b; game.myBoat = b; b.taken = true; b.v = 0; b.yr = 0; b.stuckT = 0;
+  player.boating = true;
+  player.yaw = b.yaw; player.applyLook();
+  placeInBoat(b);
+  storyUI.toast(IS_TOUCH ? `You climb into the ${b.K.name}. Stick up / down to paddle, left / right to turn; Get out at the shore.` : `You climb into the ${b.K.name}. W / S paddle, A / D turn, Shift pulls hard, E gets out at the shore.`);
+  audio.splash?.();
+  glog({ e: "board", kind: b.kind, id: b.id });
+  return true;
+}
+/** Step ashore (dry ground within reach; a jetty reaches further). force: the Beach button. */
+function leaveBoat(force = false) {
+  const b = game.boat; if (!b) return false;
+  const B = world.boats, dock = B.docks.find((d) => Math.hypot(d.end.x - b.x, d.end.z - b.z) < 6);
+  let L = dock && B.dryOK(dock.shore.x, dock.shore.z) ? dock.shore : B.landing(b.x, b.z, 7); // at a jetty: walk up it to the bank
+  if (!L && force) L = B.landing(b.x, b.z, 30);
+  if (!L && !force) { storyUI.toast("Too far from the shore. Paddle up to land (or a jetty) to get out."); return false; }
+  player.boating = false; game.boat = null; b.taken = false; b.v = 0; b.yr = 0; b.stuckT = 0;
+  if (L) player.setTerrain(world.terrain, L.x, L.z, player.yaw);
+  else { player.setTerrain(world.terrain, b.x, b.z, player.yaw); rescueToShore("You run the boat aground and wade to the shore."); }
+  if (L) storyUI.toast(force ? "You beach the boat and climb out." : "You step out onto the shore.");
+  updateBeachBtn(false);
+  glog({ e: "leaveBoat", kind: b.kind, force });
+  return true;
+}
+function boatInput() {
+  if (game.boatAuto) return game.boatAuto;
+  const k = player.keys; let fwd = 0, turn = 0, boost = false;
+  if (k.has("KeyW") || k.has("ArrowUp")) fwd += 1;
+  if (k.has("KeyS") || k.has("ArrowDown")) fwd -= 1;
+  if (k.has("KeyA") || k.has("ArrowLeft")) turn += 1;
+  if (k.has("KeyD") || k.has("ArrowRight")) turn -= 1;
+  if (fwd > 0) fwd *= (player.pace || 1) >= 3 ? 1 : player.pace === 2 ? 0.8 : 0.6;
+  boost = k.has("ShiftLeft") || k.has("ShiftRight");
+  if (boost && fwd > 0) fwd = 1;
+  if (!fwd && !turn) {
+    const j = player.joy;
+    if (j && j.active && j.mag >= 0.1) { fwd = Math.max(-1, Math.min(1, -j.dy)); turn = Math.max(-1, Math.min(1, -j.dx)); boost = j.mag > 0.9 && fwd > 0.5; }
+    else if (player.pad && player.pad.mag > 0) { fwd = -player.pad.dy; turn = -player.pad.dx; boost = player.pad.run; }
+  }
+  return { fwd, turn, boost };
+}
+function boatStep(dt) {
+  const b = game.boat;
+  if (!player.boating) { b.taken = false; game.boat = null; return; } // teleported / respawned
+  player._pollPad?.(dt);
+  const inp = boatInput(), y0 = b.yaw, n = Math.max(1, Math.ceil(dt / 0.034));
+  for (let i = 0; i < n; i++) world.boats.steer(b, inp, dt / n);
+  player.yaw += b.yaw - y0; player.applyLook();
+  player.speedNow = Math.abs(b.v);
+  game.boatInp = inp;
+  placeInBoat(b);
+  const ph = Math.floor((caveman.padPh || 0) / Math.PI);
+  if (ph !== game.padK) { game.padK = ph; if (Math.abs(inp.fwd) > 0.15 || Math.abs(inp.turn) > 0.3) audio.paddle?.(Math.min(1, Math.abs(b.v) / 4)); }
+  if (b.bump) { b.bump = false; game.shake = Math.max(game.shake || 0, 0.12); audio.step?.(0.8, "stand"); }
+  updateBeachBtn(b.stuckT > 2.5);
+}
+let beachBtn = null;
+function updateBeachBtn(on) {
+  if (!beachBtn) {
+    beachBtn = document.createElement("button"); beachBtn.id = "beach-btn"; beachBtn.type = "button"; beachBtn.className = "hidden"; beachBtn.textContent = "⛵ Beach the boat";
+    beachBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+    beachBtn.addEventListener("click", (e) => { e.stopPropagation(); leaveBoat(true); });
+    gameEl.appendChild(beachBtn);
+  }
+  if (beachBtn._on !== on) { beachBtn._on = on; beachBtn.classList.toggle("hidden", !on); }
+}
 
 // ---------------- Round 18: regions (fog / sky tint, region name) and the swim rescue ----------------
 const REGION_TINT = { temperate: [0x9aa4a8, 0, 1], red: [0xe0a070, 0.32, 0.85], salt: [0xe8dcc0, 0.28, 0.8], swamp: [0x8a9a70, 0.4, 1.8], alpine: [0xb8c8e0, 0.18, 1.0], tundra: [0xccd6e2, 0.32, 1.3], ocean: [0x9ec0d4, 0.22, 1.1] };
@@ -1746,7 +1845,7 @@ function updateSwimBtn(on) {
 function tickOverworld(dt, info, now) {
   const p = camera.position, t = world.terrain, A = world.atmo;
   const elev = t.height(p.x, p.z);
-  depthEl.textContent = `Elevation ${fmt(elev)} m${player?.water > 1.1 ? " · swimming" : player?.water > 0.3 ? " · wading" : ""}`;
+  depthEl.textContent = game.boat ? `Elevation ${fmt(game.boat.y)} m · in the ${game.boat.K.name}` : `Elevation ${fmt(elev)} m${player?.water > 1.1 ? " · swimming" : player?.water > 0.3 ? " · wading" : ""}`;
   distEl.textContent = `Travelled ${fmt(info.travelled)} m`;
   const camp = world.camp, site = t.act1;
   let extra = null;
@@ -1786,6 +1885,14 @@ function tickOverworld(dt, info, now) {
   wmap.record(p.x, p.z, dt, story.active && story.surv.skills.has("spirit2") ? 2 : 1);
   const hn = game.hint && game.hint.until > game.time && game.hint.mode === "overworld" ? game.hint : null;
   if (hn) { extra = extra || { marks: [], dots: [] }; extra.marks.push({ x: hn.x, z: hn.z, color: "#ffe36a", r: 0.03 + 0.012 * Math.sin(game.time * 6), edge: true, label: "💡" }); }
+  if (world.boats && (mapFilters.boats || game.boat)) { // round 19: boats (yours always)
+    extra = extra || { marks: [], dots: [] };
+    for (const b of world.boats.list) {
+      const mine = b === game.boat || b === game.myBoat;
+      if (!mine && (!mapFilters.boats || Math.abs(b.x - p.x) > 400 || Math.abs(b.z - p.z) > 400)) continue;
+      extra.marks.push({ x: b.x, z: b.z, color: mine ? "#ffe0a0" : "#c8955a", r: mine ? 0.016 : 0.011, label: mine && b !== game.boat ? "⛵" : "" });
+    }
+  }
   if (extra) extra.noLabels = !mapFilters.labels;
   minimap.drawOverworld(t, p, player.yaw, mapFilters.caves ? world.discovered : new Set(), extra);
   updateLowHint(info);
@@ -1830,6 +1937,8 @@ function tickOverworld(dt, info, now) {
     updateCompass(p, town);
   }
   if (game.horse && !player.mounted) { world.wildlife.dismount(game.horse); game.horse = null; } // teleported / respawned
+  if (game.boat && !player.boating) { game.boat.taken = false; game.boat = null; updateBeachBtn(false); }
+  world.boats?.update(dt, now / 1000, p, game.boat);
   updateMountUI();
   let near = null, nd = Infinity;
   for (const e of t.entrances) { const d = Math.hypot(e.x - p.x, e.z - p.z); if (d < nd) { nd = d; near = e; } }
@@ -2205,6 +2314,60 @@ window.__CAVE__ = {
     lakes: () => world.terrain.bio.lakes.map((l) => ({ x: Math.round(l.x), z: Math.round(l.z), r: Math.round(l.r), y: +l.y.toFixed(1) })),
     riverPt: (id, i) => { const r = world.terrain.bio.rivers[id]; const q = r.pts[Math.min(r.pts.length - 1, i)]; return { x: q.x, z: q.z, y: q.y, n: r.pts.length }; },
     rescue: () => rescueToShore(),
+    // round 19: boats
+    boats: () => { const c = camera.position; return { planMs: +(world.boats?.planMs || 0).toFixed(1), docks: world.boats?.docks.length || 0, list: (world.boats?.list || []).map((b) => ({ id: b.id, kind: b.kind, home: b.home, x: +b.x.toFixed(1), z: +b.z.toFixed(1), taken: b.taken, w: b.wkind, d: +Math.hypot(b.x - c.x, b.z - c.z).toFixed(0) })) }; },
+    toBoat: (id) => { const b = world.boats.list[id]; if (!b) return null; const L = b.dock ? { ...b.dock, d: Math.hypot(b.dock.x - b.x, b.dock.z - b.z) } : world.boats.landing(b.x, b.z, 14); if (!L) return null; player.setTerrain(world.terrain, L.x, L.z, Math.atan2(-(b.x - L.x), -(b.z - L.z))); return { x: +L.x.toFixed(1), z: +L.z.toFixed(1), d: +L.d.toFixed(1), near: !!boatNear(), btn: (updateMountUI(), mountShown) }; },
+    board: () => { const b = boatNear(); return b ? boardBoat(b) && { id: b.id, kind: b.kind, btn: (updateMountUI(), mountShown) } : null; },
+    boatState: () => { const b = game.boat; if (!b) return null; return { id: b.id, kind: b.kind, x: +b.x.toFixed(1), z: +b.z.toFixed(1), v: +b.v.toFixed(2), speed: +(b.speed || 0).toFixed(2), yaw: +b.yaw.toFixed(2), water: b.wkind, depth: +world.boats.depth(b.x, b.z).toFixed(2), stuck: +(b.stuckT || 0).toFixed(1), beach: !!beachBtn?._on, btn: mountShown, eyeAbove: +(camera.position.y - b.y).toFixed(2) }; },
+    boatDrive: (fwd = 0, turn = 0, boost = false) => { game.boatAuto = fwd || turn ? { fwd, turn, boost } : null; return true; },
+    /** Steer toward (x, z) for up to `secs` (sim, 1/30 s steps); returns path stats. */
+    boatTo: (x, z, secs = 60, boost = false) => {
+      const b = game.boat; if (!b) return null;
+      let t = 0, dry = 0, maxStuck = 0; const dt = 1 / 30;
+      while (t < secs) {
+        const dx = x - b.x, dz = z - b.z, d = Math.hypot(dx, dz); if (d < 6) break;
+        const want = Math.atan2(-dx, -dz), da = Math.atan2(Math.sin(want - b.yaw), Math.cos(want - b.yaw));
+        game.boatAuto = { fwd: Math.abs(da) > 1.2 ? 0.2 : 1, turn: Math.max(-1, Math.min(1, da * 2)), boost };
+        boatStep(dt); world.boats.update(dt, t, camera.position, b); t += dt;
+        if (world.boats.depth(b.x, b.z) < b.K.draft * 0.9) dry++;
+        maxStuck = Math.max(maxStuck, b.stuckT || 0);
+      }
+      game.boatAuto = null;
+      return { t: +t.toFixed(1), x: +b.x.toFixed(1), z: +b.z.toFixed(1), left: +Math.hypot(x - b.x, z - b.z).toFixed(1), dry, maxStuck: +maxStuck.toFixed(1), beach: !!beachBtn?._on };
+    },
+    /** Drift / paddle along for `secs` with fixed input (sim); returns distance and how far it went along a river's flow. */
+    boatSim: (fwd = 0, turn = 0, secs = 10) => {
+      const b = game.boat; if (!b) return null;
+      const x0 = b.x, z0 = b.z, dt = 1 / 30; let dry = 0, kinds = new Set();
+      game.boatAuto = { fwd, turn, boost: false };
+      for (let t = 0; t < secs; t += dt) { boatStep(dt); kinds.add(b.wkind); if (world.boats.depth(b.x, b.z) < b.K.draft * 0.9) dry++; }
+      game.boatAuto = null;
+      return { moved: +Math.hypot(b.x - x0, b.z - z0).toFixed(1), x: +b.x.toFixed(1), z: +b.z.toFixed(1), dry, kinds: [...kinds], stuck: +(b.stuckT || 0).toFixed(1) };
+    },
+    /** Paddle down the nearest river for `secs` (steering along its centre line, sim). */
+    boatDownRiver: (secs = 30, fwd = 0.5) => {
+      const b = game.boat; if (!b) return null;
+      const R = world.terrain.bio.rivers, dt = 1 / 30, x0 = b.x, z0 = b.z; let dry = 0, maxStuck = 0, run = 0, cur = 0;
+      for (let t = 0; t < secs; t += dt) {
+        let best = null; for (const r of R) for (let i = 0; i < r.pts.length; i += 2) { const q = r.pts[i], d = Math.abs(q.x - b.x) + Math.abs(q.z - b.z); if (!best || d < best.d) best = { d, r, i }; }
+        const tg = best.r.pts[Math.min(best.r.pts.length - 1, best.i + 6)];
+        const want = Math.atan2(-(tg.x - b.x), -(tg.z - b.z)), da = Math.atan2(Math.sin(want - b.yaw), Math.cos(want - b.yaw));
+        game.boatAuto = { fwd, turn: Math.max(-1, Math.min(1, da * 2)), boost: false };
+        const px = b.x, pz = b.z; boatStep(dt);
+        const w = world.boats.water(b.x, b.z); if (w && w.kind === "river") cur += ((b.x - px) * w.fx + (b.z - pz) * w.fz);
+        if (world.boats.depth(b.x, b.z) < b.K.draft * 0.9) dry++;
+        maxStuck = Math.max(maxStuck, b.stuckT || 0); run = t;
+      }
+      game.boatAuto = null;
+      return { moved: +Math.hypot(b.x - x0, b.z - z0).toFixed(1), downstream: +cur.toFixed(1), x: +b.x.toFixed(1), z: +b.z.toFixed(1), water: b.wkind, dry, maxStuck: +maxStuck.toFixed(1) };
+    },
+    diagAt: (x, z) => { const t = world.terrain; return { cols: t.collidersNear(x, z, 3).map((c) => ({ x: +c.x?.toFixed(1), z: +c.z?.toFixed(1), r: +(c.r || c.t || 0).toFixed(2), top: c.top, seg: !!c.seg })), h: +t.height(x, z).toFixed(2), wd: +t.waterDepth(x, z).toFixed(2), block: player.lastBlock, eye: +(camera.position.y - t.height(camera.position.x, camera.position.z)).toFixed(2), pos: [+camera.position.x.toFixed(2), +camera.position.z.toFixed(2)] }; },
+    fords: () => { const t = world.terrain, out = []; for (const r of t.bio.rivers) for (const f of r.fords || []) { const rv = t.bio.river(f.x, f.z); out.push({ x: +f.x.toFixed(1), z: +f.z.toFixed(1), depth: +t.waterDepth(f.x, f.z).toFixed(2), w: +rv.w.toFixed(1), fx: rv.fx, fz: rv.fz, nx: -rv.fz, nz: rv.fx }); } return out; },
+    raftKit: () => { const s = story.surv; s.tools.knife = true; s.skills.add("surv1"); s.slots = 12; s.add("sinew", 2); return true; },
+    interactNow: (go = true) => { const i = story.findInteraction(); if (i && go) i.act(); return i?.label || null; },
+    treesNear: (r = 60) => { const c = camera.position, t = world.terrain, out = []; for (let cx = Math.floor((c.x - r) / 64); cx <= Math.floor((c.x + r) / 64); cx++) for (let cz = Math.floor((c.z - r) / 64); cz <= Math.floor((c.z + r) / 64); cz++) for (const q of t.scatter(cx, cz).trees) if (q.type <= 3 && Math.hypot(q.x - c.x, q.z - c.z) < r) out.push({ x: q.x, z: q.z, d: Math.hypot(q.x - c.x, q.z - c.z) }); return out.sort((a, b) => a.d - b.d).slice(0, 4); },
+    leaveBoat: (force = false) => { const r = leaveBoat(force); const c = camera.position; return { ok: r, boating: !!game.boat, x: +c.x.toFixed(1), z: +c.z.toFixed(1), depth: +world.terrain.waterDepth(c.x, c.z).toFixed(2) }; },
+    riverPts: (id) => world.terrain.bio.rivers[id]?.pts.filter((_, i) => i % 10 === 0).map((p) => ({ x: +p.x.toFixed(1), z: +p.z.toFixed(1), w: +p.w.toFixed(1) })) || null,
     placesCheck: () => { const t = world.terrain, out = []; const chk = (name, x, z) => out.push([name, t.biomeAt(x, z), +t.waterDepth(x, z).toFixed(2), Math.round(Math.hypot(x, z))]);
       for (const q of t.settlements) chk(q.name, q.x, q.z); for (const e of t.entrances) chk(e.name, e.x, e.z); if (t.act1) chk("camp", t.act1.camp.x, t.act1.camp.z);
       for (const [k, v] of Object.entries(world.places || {})) if (v && v.x != null) chk(k, v.x, v.z); else if (v && typeof v === "object") for (const [k2, v2] of Object.entries(v)) if (v2?.x != null) chk(k + "." + k2, v2.x, v2.z);

@@ -189,8 +189,16 @@ export class WorldMap {
         if (F.labels) label(e.name, X(e.x), Y(e.z), "#e8e0d0", 11);
       }
       for (const m of F.places ? s.marks || [] : []) { ctx.fillStyle = m.color; ctx.beginPath(); ctx.arc(X(m.x), Y(m.z), 4.5, 0, Math.PI * 2); ctx.fill(); if (m.label) label(m.label, X(m.x), Y(m.z), m.color, 12); }
+      for (const b of s.boats || []) { // round 19: boats you've seen (yours always)
+        if (!b.mine && (!F.boats || !this.seen(b.x, b.z))) continue;
+        const x = X(b.x), y = Y(b.z), L = b.kind === "umiak" ? 7 : b.kind === "raft" ? 4.5 : 5.5;
+        ctx.save(); ctx.translate(x, y); ctx.rotate(-b.yaw);
+        ctx.fillStyle = b.mine ? "#ffe0a0" : "#c8955a"; ctx.strokeStyle = "#1a1208"; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.ellipse(0, 0, b.kind === "raft" ? 3.2 : 2.4, L, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.restore();
+        if (b.mine && !b.riding && F.labels) label("Your boat", x, y, "#ffe0a0", 11);
+      }
       for (const n of F.people ? s.npcs || [] : []) { if (!n.mark) continue; ctx.font = "bold 16px Georgia, serif"; ctx.textAlign = "center"; ctx.lineWidth = 3; ctx.strokeStyle = "#000"; ctx.strokeText(n.mark, X(n.x), Y(n.z) - 6); ctx.fillStyle = n.mark === "?" ? "#9fe3a8" : "#ffd36a"; ctx.fillText(n.mark, X(n.x), Y(n.z) - 6); }
-      legend.innerHTML = `<span class="lg-t">┄ your trail</span><span>● town</span><span>◓ cave</span><span style="color:#ffd36a">! quest</span><span style="color:#ff9a5a">◆ tracked</span>`;
+      legend.innerHTML = `<span class="lg-t">┄ your trail</span><span>● town</span><span>◓ cave</span><span style="color:#c8955a">⬮ boat</span><span style="color:#ffd36a">! quest</span><span style="color:#ff9a5a">◆ tracked</span>`;
     } else {
       title.textContent = s.title || "Cave";
       ctx.strokeStyle = "rgba(196,174,140,0.75)"; ctx.lineCap = "round";

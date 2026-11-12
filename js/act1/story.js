@@ -279,6 +279,11 @@ export class Story {
       // round 15: storage baskets inside a settlement's longhouse / lodges
       const box = env.container?.(f);
       if (box) return { label: box.searched ? "The basket is empty" : "Search the storage basket", act: () => this.searchBasket(box) };
+      // round 19: deadwood for a raft (Survival: Herb Lore)
+      if (s.skills.has("surv1") && t?.scatter) {
+        const k = this.deadwoodNear(f, t);
+        if (k) return { label: "Gather deadwood logs", act: () => this.gatherWood(k) };
+      }
       if (this.sandbox && !this.active) {
         const carc = env.wildlife()?.nearestCarcass(f, 2.6);
         return carc ? { label: `Harvest the ${carc.kind}`, act: () => this.harvest(carc) } : null;
@@ -437,6 +442,19 @@ export class Story {
     this.env.ui.toast(`+${got} ${ITEMS[id].name}` + (herb ? ", +1 Healing herbs" : ""));
     this._log({ e: "gather", id, n: got });
   }
+  deadwoodNear(f, t) {
+    this.woodTaken = this.woodTaken || new Set();
+    const sc = t.scatter(Math.floor(f.x / 64), Math.floor(f.z / 64));
+    for (const tr of sc.trees) if (tr.type <= 3 && Math.hypot(tr.x - f.x, tr.z - f.z) < 2.4) { const k = `${tr.x | 0},${tr.z | 0}`; if (!this.woodTaken.has(k)) return k; }
+    return null;
+  }
+  gatherWood(k) {
+    const got = this.surv.add("logs", 2);
+    if (!got) { this.env.ui.toast("No room for the logs. Craft a backpack.", "bad"); return; }
+    this.woodTaken.add(k);
+    this.env.ui.toast(`+${got} Deadwood logs`);
+    this._log({ e: "gather", id: "logs", n: got });
+  }
   drinkWater() { this.env.ui.toast(this.surv.drink()); this.env.audio.splash?.(); this._log({ e: "drink" }); }
 
   harvest(a) {
@@ -503,7 +521,9 @@ export class Story {
         ui.ask("Backpack", "Which skin will you sew?", [{ id: "hide", label: "Deer hide" }, { id: "skin", label: "Tor's skin" }], (use) => { const m = s.craft("backpack", use); if (m) ui.toast(m, "good"); ui.renderPanel(); });
         return;
       }
+      if (id === "raft" && !this.env.launchRaft?.(true)) { ui.toast("Stand at the water's edge (a lake, river, marsh or the sea) to build a raft.", "bad"); return; }
       const m = s.craft(id);
+      if (m && id === "raft") this.env.launchRaft?.();
       if (m) { ui.toast(m, "good"); this._log({ e: "craft", id }); if (this.active) this.xp(15, "craft"); this.env.applyStats(); }
     }
   }
