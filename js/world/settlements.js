@@ -143,21 +143,56 @@ function layout(s) {
       if (da < 2.4 / PR) continue;
       s.posts.push({ ...rel(Math.cos(a) * PR, Math.sin(a) * PR), h: 2.6 + rng() * 0.7, r: 0.16 });
     }
-    s.paths.push([rel(0, 0), rel(Math.cos(s.gate) * (s.R + 6), Math.sin(s.gate) * (s.R + 6))]);
+    // round 15 (playtest r4): the gate road starts a few metres off the hearth, not in the fire
+    s.paths.push([rel(Math.cos(s.gate) * 3.2, Math.sin(s.gate) * 3.2), rel(Math.cos(s.gate) * (s.R + 6), Math.sin(s.gate) * (s.R + 6))]);
+    // round 15: nothing stands on the gate road (huts / racks placed before the gate was chosen)
+    { const P = s.paths[s.paths.length - 1], clear = (o, r) => segD(o.x, o.z, P[0].x, P[0].z, P[1].x, P[1].z) > r + 1.3;
+      s.huts = s.huts.filter((h) => clear(h, h.r)); s.racks = s.racks.filter((r) => clear(r, 0.6)); }
   } else {
     // city: plaza + longhouse in the middle, lake on one side
     const la = s.lake.a, ca = Math.cos(la + Math.PI / 2), sa = Math.sin(la + Math.PI / 2);
     s.longhouse = { x: s.x - Math.cos(la) * 9, z: s.z - Math.sin(la) * 9, rot: Math.atan2(ca, sa), L: 22, W: 8 };
-    s.fires.push(rel(Math.cos(la) * 4, Math.sin(la) * 4));
-    for (let i = 0; i < 3; i++) { const a = la + 1.3 + i * 1.6, d = 26 + rng() * 8; s.fires.push(rel(Math.cos(a) * d, Math.sin(a) * d)); }
-    // radial paths + a ring path; huts line them
+    // Round 15 (playtest r4): one shoreline radius for the water mesh AND its collider, so you stop
+    // at the visible water's edge (not 5 m out on the water at a hidden wall).
+    // The visible water's edge is where the carved basin (settleMod) dips 0.7 m, to the water level.
+    s.lake.shore = (() => { for (let dl = s.lake.r + 3; dl > 1; dl -= 0.1) if (3.4 * (1 - smooth(s.lake.r * 0.35, s.lake.r + 3, dl)) >= 0.7) return dl; return s.lake.r - 2.4; })();
+    const lakeD = (x, z) => Math.hypot(x - s.lake.x, z - s.lake.z);
+    // radial paths + a ring path; huts line them. Paths never run through the hall or into the
+    // lake basin: a spoke starts past the longhouse (+1.6 m) and ends before the basin lip.
     const spokes = [];
     for (let i = 0; i < 6; i++) spokes.push(la + Math.PI / 6 + (i / 6) * Math.PI * 2);
-    for (const a of spokes) s.paths.push([rel(Math.cos(a) * 5, Math.sin(a) * 5), rel(Math.cos(a) * 30, Math.sin(a) * 30), rel(Math.cos(a) * (s.R + 4), Math.sin(a) * (s.R + 4))]);
+    const blockedAt = (x, z) => inLonghouse(s.longhouse, x, z, 1.6) || lakeD(x, z) < s.lake.shore + 6;
+    for (const a of spokes) {
+      let d0 = 5, d1 = s.R + 4;
+      for (let d = 5; d <= 30; d += 0.5) if (blockedAt(s.x + Math.cos(a) * d, s.z + Math.sin(a) * d)) d0 = d + 1;
+      for (let d = 30; d <= s.R + 4; d += 0.5) if (lakeD(s.x + Math.cos(a) * d, s.z + Math.sin(a) * d) < s.lake.shore + 6) { d1 = d - 1; break; }
+      if (d0 > 26 || d1 < d0 + 4) continue;
+      const pts = [rel(Math.cos(a) * d0, Math.sin(a) * d0)];
+      if (d0 < 29 && d1 > 31) pts.push(rel(Math.cos(a) * 30, Math.sin(a) * 30));
+      pts.push(rel(Math.cos(a) * d1, Math.sin(a) * d1));
+      s.paths.push(pts);
+    }
     const ring = []; for (let i = 0; i <= 28; i++) { const a = (i / 28) * Math.PI * 2; ring.push(rel(Math.cos(a) * 30, Math.sin(a) * 30)); }
-    s.paths.push(ring);
-    s.paths.push([rel(0, 0), rel(Math.cos(la) * (s.R + 2), Math.sin(la) * (s.R + 2))]); // to the shore
-    const onPath = (x, z) => s.paths.some((P) => P.some((q, i) => i > 0 && segD(x, z, P[i - 1].x, P[i - 1].z, q.x, q.z) < 2.6));
+    // the ring skips the stretch inside the lake basin
+    let run = [];
+    for (const q of ring) { if (lakeD(q.x, q.z) < s.lake.shore + 6 || inLonghouse(s.longhouse, q.x, q.z, 1.6)) { if (run.length > 1) s.paths.push(run); run = []; } else run.push(q); }
+    if (run.length > 1) s.paths.push(run);
+    { // to the shore: from the plaza edge to dry ground just short of the water
+      const dx = s.lake.x - s.x, dz = s.lake.z - s.z, L = Math.hypot(dx, dz) || 1, end = L - s.lake.shore - 1.2;
+      if (end > 4) s.paths.push([rel((dx / L) * 2.5, (dz / L) * 2.5), rel((dx / L) * end, (dz / L) * end)]);
+    }
+    const pathD = (x, z) => Math.min(...s.paths.map((P) => Math.min(...P.map((q, i) => (i > 0 ? segD(x, z, P[i - 1].x, P[i - 1].z, q.x, q.z) : Infinity)))));
+    const onPath = (x, z) => pathD(x, z) < 2.6;
+    // fires keep off every path (round 15: the plaza fire used to sit on the shore road, ring fires on the ring)
+    const fireOk = (x, z) => pathD(x, z) > 2.6 && !inLonghouse(s.longhouse, x, z, 2.2) && lakeD(x, z) > s.lake.shore + 3;
+    for (const [a0, d] of [[la + 1.05, 4.5], [la - 1.05, 4.5], [la + 2.1, 5.5], [la - 2.1, 5.5]]) { const p = rel(Math.cos(a0) * d, Math.sin(a0) * d); if (fireOk(p.x, p.z)) { s.fires.push(p); break; } }
+    for (let i = 0; i < 3; i++) {
+      for (let k = 0; k < 24; k++) {
+        const a = la + 1.3 + i * 1.6 + (k % 2 ? 1 : -1) * Math.floor(k / 2) * 0.06, d = (i % 2 ? 23.5 : 36) + rng() * 1.5;
+        const p = rel(Math.cos(a) * d, Math.sin(a) * d);
+        if (fireOk(p.x, p.z) && s.fires.every((f) => Math.hypot(f.x - p.x, f.z - p.z) > 8)) { s.fires.push(p); break; }
+      }
+    }
     const n = 38 + Math.floor(rng() * 14);
     for (let k = 0, placed = 0; k < 2000 && placed < n; k++) {
       const a = rng() * Math.PI * 2, d = 13 + Math.sqrt(rng()) * (s.R - 15);
@@ -173,7 +208,23 @@ function layout(s) {
       if (Math.hypot(p.x - s.lake.x, p.z - s.lake.z) < s.lake.r + 3 || onPath(p.x, p.z) || !free(p.x, p.z, 0.7)) continue;
       s.racks.push({ ...p, rot: a }); placed++;
     }
-    for (let i = 0; i < 4; i++) { const a = la + (i - 1.5) * 0.35, d = s.lake.r + 1.2; s.racks.push({ x: s.lake.x - Math.cos(a) * d, z: s.lake.z - Math.sin(a) * d, rot: a, canoe: i % 2 === 0 }); }
+    for (let i = 0; i < 4; i++) { const a = la + (i - 1.5) * 0.35, d = s.lake.shore + 1.1; s.racks.push({ x: s.lake.x - Math.cos(a) * d, z: s.lake.z - Math.sin(a) * d, rot: a, canoe: i % 2 === 0 }); }
+  }
+  // Round 15: enterable buildings. The longhouse and the larger huts (r >= 2.0) are hollow: wall
+  // segment colliders with a doorway gap, a dark torch-lit interior and a few furnishings.
+  s.buildings = [];
+  const lootRng = mulberry32(s.seed ^ 0xb0b);
+  const LOOT = [["berries", 3], ["roots", 2], ["cooked", 1], ["hide", 1], ["feather", 2], ["pelt", 1]];
+  const loot = () => { const a = LOOT[Math.floor(lootRng() * LOOT.length)], b = LOOT[Math.floor(lootRng() * LOOT.length)]; return a === b ? [a] : [a, b]; };
+  for (const h of s.huts) if (h.r >= 2.0) {
+    h.big = true;
+    const dx = Math.sin(h.rot), dz = Math.cos(h.rot); // door faces the settlement centre
+    s.buildings.push({ kind: "hut", x: h.x, z: h.z, r: h.r, rot: h.rot, inner: h.r * 0.62 - 0.32,
+      boxes: [{ x: h.x - dx * h.r * 0.3 + dz * 0.45, z: h.z - dz * h.r * 0.3 - dx * 0.45, loot: loot(), searched: false }] });
+  }
+  if (s.longhouse) {
+    const L = s.longhouse, ux = Math.sin(L.rot), uz = Math.cos(L.rot), at = (a, b) => ({ x: L.x + ux * a - uz * b, z: L.z + uz * a + ux * b });
+    s.buildings.push({ kind: "hall", ...L, boxes: [at(-8, 2.6), at(2, -2.7), at(8.5, 2.6)].map((p) => ({ ...p, loot: loot(), searched: false })), pits: [at(-4.5, 0), at(4.5, 0)] });
   }
   // places people go: doors, fires, racks, plaza
   for (const h of [...s.huts, ...s.tents]) s.spots.push({ x: h.x + Math.sin(h.rot) * (h.r + 1.0), z: h.z + Math.cos(h.rot) * (h.r + 1.0), kind: "door" });
@@ -181,18 +232,55 @@ function layout(s) {
   if (s.lake) s.spots.push({ x: s.x + Math.cos(s.lake.a) * (s.R + 1), z: s.z + Math.sin(s.lake.a) * (s.R + 1), kind: "shore" });
   // hide cones / hall volumes the chase camera must stay out of (round 12 + playtest r3)
   s.cones = [...s.huts.map((h) => ({ x: h.x, z: h.z, r: h.r * 1.04, h: 3.1 * (0.95 + h.tint * 0.2) })), ...s.tents.map((h) => ({ x: h.x, z: h.z, r: 1.45, h: 2.25 }))];
-  if (s.longhouse) { const L = s.longhouse, ux = Math.sin(L.rot), uz = Math.cos(L.rot); for (let k = -2; k <= 2; k++) s.cones.push({ x: L.x + ux * k * 4.4, z: L.z + uz * k * 4.4, r: 4.3, h: 5.9, cyl: true }); }
+  for (const c of s.cones) { const h = s.huts.find((u) => u.x === c.x && u.z === c.z); if (h?.big) c.h *= BIG_HUT_Y; }
+  // round 15 (playtest r4 minor): hall cones reach the eaves (roof is 9.4 m wide), so the camera stays out
+  if (s.longhouse) { const L = s.longhouse, ux = Math.sin(L.rot), uz = Math.cos(L.rot); for (let k = -2; k <= 2; k++) s.cones.push({ x: L.x + ux * k * 4.4, z: L.z + uz * k * 4.4, r: 4.95, h: 6.1, cyl: true }); }
   s.colliders = [];
-  for (const h of s.huts) s.colliders.push({ x: h.x, z: h.z, r: h.r * 0.86 });
+  const seg = (ax, az, bx, bz, t = 0.14) => s.colliders.push({ seg: true, ax, az, bx, bz, t, x: (ax + bx) / 2, z: (az + bz) / 2, r: Math.hypot(bx - ax, bz - az) / 2 + t });
+  const ringWall = (h, R, gap) => {
+    const n = 16, door = Math.atan2(Math.cos(h.rot), Math.sin(h.rot)); // angle of the door direction (x = sin rot, z = cos rot)
+    for (let i = 0; i < n; i++) {
+      const a0 = (i / n) * Math.PI * 2, a1 = ((i + 1) / n) * Math.PI * 2;
+      const da = Math.abs(((((a0 + a1) / 2 - door) % (Math.PI * 2)) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
+      if (da < gap / R + (Math.PI / n) * 0.8) continue; // any segment overlapping the doorway goes (opening >= ~2 x gap)
+      seg(h.x + Math.cos(a0) * R, h.z + Math.sin(a0) * R, h.x + Math.cos(a1) * R, h.z + Math.sin(a1) * R);
+    }
+  };
+  for (const h of s.huts) {
+    if (!h.big) { s.colliders.push({ x: h.x, z: h.z, r: h.r * 0.86 }); continue; }
+    ringWall(h, h.r * 0.86, 0.85); // outside: the hide skirt
+    ringWall(h, h.r * 0.62, 0.7); // inside: where the cone gets lower than your head
+  }
+  for (const b of s.buildings) for (const x of b.boxes) s.colliders.push({ x: x.x, z: x.z, r: 0.3 });
   for (const h of s.tents) s.colliders.push({ x: h.x, z: h.z, r: h.r * 0.86 });
   for (const f of s.fires) s.colliders.push({ x: f.x, z: f.z, r: 0.9 });
   for (const r of s.racks) s.colliders.push({ x: r.x, z: r.z, r: 0.45 });
-  for (const p of s.posts) s.colliders.push({ x: p.x, z: p.z, r: 0.3 });
+  for (const p of s.posts) s.colliders.push({ x: p.x, z: p.z, r: 0.17 }); // round 15: matches the ~0.15 m post (was 0.3)
   if (s.longhouse) {
-    const L = s.longhouse, ux = Math.sin(L.rot), uz = Math.cos(L.rot);
-    for (let k = -2; k <= 2; k++) s.colliders.push({ x: L.x + ux * k * 4.4, z: L.z + uz * k * 4.4, r: 4.0 });
+    // round 15: hollow hall. Four wall segments with a 1.6 m doorway in each end wall (+ fire pits).
+    const L = s.longhouse, ux = Math.sin(L.rot), uz = Math.cos(L.rot), at = (a, b) => [L.x + ux * a - uz * b, L.z + uz * a + ux * b];
+    const hl = 10.7, hw = 3.8, dw = 0.8;
+    seg(...at(-hl, -hw), ...at(hl, -hw)); seg(...at(-hl, hw), ...at(hl, hw));
+    for (const e of [-hl, hl]) { seg(...at(e, -hw), ...at(e, -dw)); seg(...at(e, dw), ...at(e, hw)); }
+    for (const b of s.buildings) if (b.pits) for (const q of b.pits) s.colliders.push({ x: q.x, z: q.z, r: 0.75 });
   }
-  if (s.lake) s.colliders.push({ x: s.lake.x, z: s.lake.z, r: s.lake.r - 2.5 });
+  if (s.lake) s.colliders.push({ x: s.lake.x, z: s.lake.z, r: s.lake.shore - 0.1 }); // round 15: = the visible shoreline
+}
+const BIG_HUT_Y = 1.5; // round 15: enterable huts are taller lodges (headroom inside)
+/** Round 15: 0..1, how far inside an enterable building a point is (for the dark interior). */
+export function indoorAt(s, x, z) {
+  let k = 0;
+  for (const b of s.buildings || []) {
+    if (b.kind === "hall") {
+      const ux = Math.sin(b.rot), uz = Math.cos(b.rot), dx = x - b.x, dz = z - b.z;
+      const a = Math.abs(dx * ux + dz * uz), c = Math.abs(-dx * uz + dz * ux);
+      if (c < 3.8 && a < 11.2) k = Math.max(k, Math.min(1, (11.2 - a) / 1.6));
+    } else {
+      const d = Math.hypot(x - b.x, z - b.z);
+      if (d < b.r * 0.86) k = Math.max(k, Math.min(1, (b.r * 0.86 - d) / 0.7));
+    }
+  }
+  return k;
 }
 function inLonghouse(L, x, z, pad) {
   const ux = Math.sin(L.rot), uz = Math.cos(L.rot), dx = x - L.x, dz = z - L.z;
@@ -210,18 +298,21 @@ export function settleMod(list, x, z, h) {
   for (const s of list) {
     const dx = x - s.x, dz = z - s.z;
     const far = s.R + SETTLE_KIND[s.kind].flat;
+    // Round 15 (playtest r4 minor): the yard and the lake basin blend (max weight) instead of the
+    // basin zone replacing the yard flattening, which left a lip / step where the two met.
+    let wl = 0, dip = 0;
     if (s.lake) {
       const dl = Math.hypot(x - s.lake.x, z - s.lake.z);
       if (dl < s.lake.r + 22) {
-        const w = 1 - smooth(s.lake.r + 4, s.lake.r + 22, dl);
-        d += (s.level - h - d) * w;
-        if (dl < s.lake.r + 3) d -= 3.4 * (1 - smooth(s.lake.r * 0.35, s.lake.r + 3, dl));
-        continue;
+        wl = 1 - smooth(s.lake.r + 4, s.lake.r + 22, dl);
+        if (dl < s.lake.r + 3) dip = 3.4 * (1 - smooth(s.lake.r * 0.35, s.lake.r + 3, dl));
       }
     }
-    if (Math.abs(dx) > far || Math.abs(dz) > far) continue;
-    const dc = Math.hypot(dx, dz);
-    if (dc < far) d += (s.level - h) * (1 - smooth(s.R + 2, far, dc));
+    let wy = 0;
+    if (Math.abs(dx) <= far && Math.abs(dz) <= far) { const dc = Math.hypot(dx, dz); if (dc < far) wy = 1 - smooth(s.R + 2, far, dc); }
+    const w = Math.max(wl, wy);
+    if (w > 0) d += (s.level - h - d) * w;
+    d -= dip;
   }
   return d;
 }
@@ -284,14 +375,25 @@ function shared() {
   const roof = new THREE.ExtrudeGeometry(tri, { depth: 22.6, bevelEnabled: false });
   roof.translate(0, 1.85, -11.3);
   lh.push([roof, 0x8c6c48]);
-  lh.push([T(new THREE.BoxGeometry(7.6, 2.0, 21.4), 0, 1.0, 0), 0x6e5236]);
-  lh.push([T(new THREE.PlaneGeometry(1.4, 1.9), 0, 0.95, 10.72), 0x120c08]);
-  lh.push([T(R(new THREE.PlaneGeometry(1.4, 1.9), 0, Math.PI, 0), 0, 0.95, -10.72), 0x120c08]);
+  // round 15: hollow hall: thin side walls, end walls with a real 1.6 m doorway (no painted door)
+  lh.push([T(new THREE.BoxGeometry(0.2, 2.0, 21.4), -3.7, 1.0, 0), 0x6e5236]);
+  lh.push([T(new THREE.BoxGeometry(0.2, 2.0, 21.4), 3.7, 1.0, 0), 0x6e5236]);
+  for (const ez of [-10.6, 10.6]) {
+    lh.push([T(new THREE.BoxGeometry(2.9, 2.0, 0.2), -2.25, 1.0, ez), 0x6e5236]);
+    lh.push([T(new THREE.BoxGeometry(2.9, 2.0, 0.2), 2.25, 1.0, ez), 0x6e5236]);
+    lh.push([T(new THREE.BoxGeometry(1.6, 0.14, 0.22), 0, 1.93, ez), 0x4a3422]); // lintel
+  }
+  // packed-earth floor inside
+  lh.push([T(R(new THREE.PlaneGeometry(7.2, 21.0), -Math.PI / 2, 0, 0), 0, 0.12, 0), 0x3d2e22]);
   for (let i = 0; i < 4; i++) lh.push([T(new THREE.CylinderGeometry(0.1, 0.1, 1.3, 4), 0, 5.9, -9 + i * 6), 0x3a2817]);
   const mat = addDetail(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), { scale: 3.2, amt: 0.3, sat: 0.72, ao: 0.22, bump: 0.08 });
+  // round 15: buildings you can walk into show their inner faces (lit only by your torch inside)
+  const matIn = addDetail(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide }), { scale: 3.2, amt: 0.3, sat: 0.72, ao: 0.22, bump: 0.08 });
+  const fur = [[T(new THREE.BoxGeometry(1.0, 0.1, 1.9), 0, 0.05, 0), 0xffffff], [T(R(new THREE.CylinderGeometry(0.2, 0.2, 0.9, 7), 0, 0, Math.PI / 2), 0, 0.16, -0.78), 0xd8d0c8]]; // hide + rolled pillow
+  const basket = [[T(new THREE.CylinderGeometry(0.32, 0.25, 0.5, 9), 0, 0.25, 0), 0x8a6a3e], [T(new THREE.CylinderGeometry(0.33, 0.33, 0.06, 9), 0, 0.5, 0), 0x6e5232]];
   const flameM = new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
   SHARED = {
-    mat, flameM,
+    mat, matIn, flameM, fur: merged(fur), basket: merged(basket), paintM: paintingMaterial(),
     hut: merged(hut), tent: merged(tent), fire: merged(fire), rack: merged(rack), canoe: merged(canoe), post: merged(post), longhouse: merged(lh),
     flame: T(new THREE.ConeGeometry(0.42, 1.25, 6), 0, 0.62, 0),
     pathM: addDetail(new THREE.MeshLambertMaterial({ color: 0x8a7556, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), { scale: 1.4, amt: 0.35, sat: 0.7, ao: 0.2, bump: 0.1 }),
@@ -300,6 +402,29 @@ function shared() {
   return SHARED;
 }
 const HIDE = [0xa48462, 0x8f6e4e, 0xb59673, 0x7d5f43, 0x9d8a6a];
+const FURS = [0x4a3826, 0x5e4a36, 0x3a2c20, 0x6b5a48];
+
+/** Round 15: ochre / blood wall paintings for the longhouse (one small canvas, shared): handprints,
+ *  a deer hunt, spirals and an open mouth (the tribe's fear in docs/STORY.md). */
+function paintingMaterial() {
+  const c = document.createElement("canvas"); c.width = 512; c.height = 128;
+  const g = c.getContext("2d");
+  const ink = (col, a) => { g.fillStyle = col; g.strokeStyle = col; g.globalAlpha = a; g.lineWidth = 5; g.lineCap = "round"; };
+  ink("#8a2a14", 0.85);
+  for (let i = 0; i < 5; i++) { // hands
+    const x = 30 + i * 22, y = 40 + (i % 2) * 34; g.beginPath(); g.ellipse(x, y, 7, 9, 0, 0, 7); g.fill();
+    for (let f = 0; f < 5; f++) { const a = -2.4 + f * 0.42; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * 17, y + Math.sin(a) * 17); g.stroke(); }
+  }
+  ink("#b4652a", 0.8); // deer + hunters
+  for (const [x, y] of [[190, 60], [250, 70]]) { g.beginPath(); g.ellipse(x, y, 22, 9, 0, 0, 7); g.fill(); for (const lx of [-14, -8, 10, 16]) { g.beginPath(); g.moveTo(x + lx, y + 5); g.lineTo(x + lx, y + 26); g.stroke(); } g.beginPath(); g.moveTo(x + 20, y - 4); g.lineTo(x + 30, y - 18); g.lineTo(x + 24, y - 30); g.moveTo(x + 30, y - 18); g.lineTo(x + 38, y - 28); g.stroke(); }
+  for (const x of [300, 320]) { g.beginPath(); g.moveTo(x, 50); g.lineTo(x, 85); g.moveTo(x - 9, 100); g.lineTo(x, 85); g.lineTo(x + 9, 100); g.moveTo(x - 12, 62); g.lineTo(x + 26, 54); g.stroke(); g.beginPath(); g.arc(x, 44, 6, 0, 7); g.fill(); }
+  ink("#6e1a10", 0.9); // spirals
+  for (const cx of [380, 470]) { g.beginPath(); for (let t = 0; t < 18; t += 0.2) g.lineTo(cx + Math.cos(t) * t * 2.2, 64 + Math.sin(t) * t * 2.2); g.stroke(); }
+  ink("#2a0a06", 0.9); g.beginPath(); g.ellipse(425, 64, 16, 24, 0, 0, 7); g.fill(); // the open mouth
+  ink("#d8c8a8", 0.9); for (let k = 0; k < 8; k++) { const a = (k / 8) * 6.28; g.fillRect(425 + Math.cos(a) * 13 - 1.5, 64 + Math.sin(a) * 20 - 3, 3, 6); }
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.MeshLambertMaterial({ map: tex, transparent: true, alphaTest: 0.2, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide });
+}
 
 /** Build one settlement's render group (a handful of instanced draws). */
 export function buildSettlementGroup(s, terrain) {
@@ -314,7 +439,9 @@ export function buildSettlementGroup(s, terrain) {
     g.add(m); return m;
   };
   const Y = (x, z) => terrain.height(x, z);
-  inst(S.hut, s.huts, (h) => { v.set(h.x, Y(h.x, h.z) - 0.05, h.z); sc.set(h.r / 2, 0.95 + h.tint * 0.2, h.r / 2); }, (h) => HIDE[Math.floor(h.tint * HIDE.length)]);
+  inst(S.hut, s.huts.filter((h) => !h.big), (h) => { v.set(h.x, Y(h.x, h.z) - 0.05, h.z); sc.set(h.r / 2, 0.95 + h.tint * 0.2, h.r / 2); }, (h) => HIDE[Math.floor(h.tint * HIDE.length)]);
+  const bigM = inst(S.hut, s.huts.filter((h) => h.big), (h) => { v.set(h.x, Y(h.x, h.z) - 0.05, h.z); sc.set(h.r / 2, (0.95 + h.tint * 0.2) * BIG_HUT_Y, h.r / 2); }, (h) => HIDE[Math.floor(h.tint * HIDE.length)]);
+  if (bigM) bigM.material = S.matIn;
   inst(S.tent, s.tents, (h) => { v.set(h.x, Y(h.x, h.z) - 0.05, h.z); sc.set(1, 1, 1); }, (h) => HIDE[Math.floor(h.tint * HIDE.length)]);
   sc.set(1, 1, 1);
   inst(S.fire, s.fires, (f) => { v.set(f.x, Y(f.x, f.z), f.z); sc.set(1, 1, 1); });
@@ -322,7 +449,38 @@ export function buildSettlementGroup(s, terrain) {
   inst(S.canoe, s.racks.filter((r) => r.canoe), (r) => { v.set(r.x, Y(r.x, r.z) + 0.02, r.z); sc.set(1, 1, 1); });
   inst(S.post, s.posts, (p) => { v.set(p.x, Y(p.x, p.z) - 0.2, p.z); sc.set(1, p.h, 1); });
   sc.set(1, 1, 1);
-  if (s.longhouse) inst(S.longhouse, [s.longhouse], (L) => { v.set(L.x, Y(L.x, L.z) - 0.1, L.z); });
+  if (s.longhouse) { const lm = inst(S.longhouse, [s.longhouse], (L) => { v.set(L.x, Y(L.x, L.z) - 0.1, L.z); }); if (lm) lm.material = S.matIn; }
+  // Round 15: interiors (built with the settlement group, i.e. only when you're near).
+  {
+    const furs = [], boxes = [], pits = [];
+    for (const b of s.buildings || []) {
+      for (const x of b.boxes) boxes.push(x);
+      if (b.pits) pits.push(...b.pits);
+      if (b.kind === "hall") {
+        const ux = Math.sin(b.rot), uz = Math.cos(b.rot);
+        for (const a of [-7.5, -2.5, 2.5, 7.5]) for (const side of [-1, 1]) if (!(a === 2.5 && side === -1)) furs.push({ x: b.x + ux * a - uz * side * 2.9, z: b.z + uz * a + ux * side * 2.9, rot: b.rot + Math.PI / 2, k: furs.length });
+      } else {
+        const dx = Math.sin(b.rot), dz = Math.cos(b.rot);
+        furs.push({ x: b.x - dx * b.r * 0.12 - dz * 0.35, z: b.z - dz * b.r * 0.12 + dx * 0.35, rot: b.rot + 0.3, k: furs.length });
+      }
+    }
+    inst(S.fur, furs, (f) => { v.set(f.x, Y(f.x, f.z) + 0.03, f.z); sc.set(1, 1, 1); }, (f) => FURS[f.k % FURS.length]);
+    inst(S.basket, boxes, (x) => { v.set(x.x, Y(x.x, x.z), x.z); sc.set(1, 1, 1); });
+    inst(S.fire, pits, (f) => { v.set(f.x, Y(f.x, f.z) + 0.02, f.z); sc.set(0.8, 1, 0.8); });
+    sc.set(1, 1, 1);
+    const hall = (s.buildings || []).find((b) => b.kind === "hall");
+    if (hall) { // two painted stretches on the inner long walls
+      const ux = Math.sin(hall.rot), uz = Math.cos(hall.rot);
+      for (const side of [-1, 1]) {
+        const pm = new THREE.Mesh(new THREE.PlaneGeometry(8, 2), S.paintM);
+        const px = hall.x - uz * side * 3.57, pz = hall.z + ux * side * 3.57;
+        pm.position.set(px, Y(hall.x, hall.z) + 1.15, pz);
+        pm.rotation.y = hall.rot + (side > 0 ? Math.PI / 2 : -Math.PI / 2); // faces into the hall
+        pm.name = "paintings"; g.add(pm);
+      }
+    }
+  }
+  sc.set(1, 1, 1);
   // flames (one instanced additive draw; flicker scaled per frame)
   const fl = new THREE.InstancedMesh(S.flame, S.flameM, s.fires.length);
   s.fires.forEach((f, i) => { m4.makeTranslation(f.x, Y(f.x, f.z) + 0.1, f.z); fl.setMatrixAt(i, m4); });
@@ -353,7 +511,8 @@ export function buildSettlementGroup(s, terrain) {
     const pm = new THREE.Mesh(geo, S.pathM); pm.material.side = THREE.DoubleSide; g.add(pm); g.userData.pathGeo = geo;
   }
   if (s.lake) {
-    const w = new THREE.Mesh(new THREE.CircleGeometry(s.lake.r + 2.5, 40), S.waterM);
+    // the disc runs a little under the bank so the shoreline is where water meets ground (= collider)
+    const w = new THREE.Mesh(new THREE.CircleGeometry((s.lake.shore || s.lake.r) + 1.2, 48), S.waterM);
     w.rotation.x = -Math.PI / 2; w.position.set(s.lake.x, s.lake.level, s.lake.z); w.name = "lake";
     g.add(w); g.userData.lakeGeo = w.geometry;
   }
@@ -429,5 +588,11 @@ export class SettlementLayer {
   }
   /** Settlement whose yard the point is in (for the place label). */
   at(x, z) { return this.list.find((s) => Math.hypot(s.x - x, s.z - z) < s.R + 12) || null; }
+  /** Round 15: a storage basket inside a building within reach, or null. */
+  containerNear(x, z, r = 1.5) {
+    const s = this.at(x, z); if (!s) return null;
+    for (const b of s.buildings || []) for (const c of b.boxes) if (Math.hypot(c.x - x, c.z - z) < r) return c;
+    return null;
+  }
   drawCalls() { let n = 0; for (const g of this.groups.values()) g.traverse((o) => { if (o.isMesh) n++; }); return n; }
 }

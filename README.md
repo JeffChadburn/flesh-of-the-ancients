@@ -108,6 +108,7 @@ The overworld has continuous time (22 real minutes per day by default). Caves st
     - *Blood-pumping:* double drums with fills, a Shepard riser that ends in a braam, and a braam every bar or two.
   - **"Something's near":** one huge braam, then near-total silence with a single clock tick, then the pulse returns harder.
   - **Phone cost:** about 20 persistent oscillators, reused with glides; one shared convolver; one shared braam distortion chain; short notes capped at about 28 voices.
+- **Town collision and interiors (round 15):** settlement colliders are circles plus thin segments (`{seg, ax, az, bx, bz, t}`, with a bounding circle for the grid). `colCore()` in terrain.js gives the nearest core point, shared by the player, people and the dismount check. Paths are laid out first, then fires and props are placed only where they keep a 2.6 m gap from every path. `indoorAt(settlement, x, z)` returns 0..1. While you're inside, daylight is dimmed and the torch takes over, burning lower in small huts so the hide walls don't blow out. Interiors (furs, baskets, pits, paintings) are instanced per settlement and built only when it streams in.
 
 ## Caveman, monster and combat
 
@@ -232,6 +233,14 @@ Draw calls go up slightly because each cell is its own mesh. The triangle count 
 
 ## Changelog
 
+- **Round 15: Towns you don't snag on, and buildings you can walk into.** (Fixes from Playtest Council report round 4.)
+  - *Tako paths:* spokes now start past the longhouse and stop before the lake; the ring path breaks around the longhouse and the lake instead of running into them. The shore path ends on dry ground, about 1 m before the water.
+  - *Water edge:* the lake collider now sits on the visible shoreline (computed from the basin shape), so the "hidden wall" out on the water is gone. The lake basin also blends into the flattened yard, which removes the lip that stopped you on the north spokes.
+  - *Fires:* fires are placed after the paths, at least 2.6 m from any path and clear of the longhouse and lake. The plaza fire now sits to one side of the shore path.
+  - *Colliders:* new thin wall (segment) colliders for building walls. Palisade post colliders now match the posts (0.17 m). Dunrin and the other holds start the gate road 3 m off the central fire, and huts or racks sitting on a gate road are removed.
+  - *Enterable longhouses and big huts:* every longhouse and every hut 2 m or wider has a doorway in its collider and a real interior: a dark, torch-lit room with sleeping furs, fire pits (in the longhouse), storage baskets to search (story mode) and painted walls in the longhouse (handprints, a deer hunt, spirals and a mouth with teeth, after STORY.md). Interiors are instanced and built only for the settlement you're near.
+  - *Camera:* inside a building the camera switches to first person instead of clipping through the roof; it switches back when you walk out.
+  - *Verified:* bot walk, sprint, jump and horse runs along every path in every town: 0 stuck frames and 0 missed waypoints. Entering and leaving the longhouse and a big hut works in all towns.
 - **Round 14: A more natural, less cartoonish look.**
   - *Surfaces* (`js/realism.js`): outdoor ground, rocks, trees, grass, the camp, settlement huts, paths, people, animals, Kra and the monster now get procedural detail mapped in world space, so there are no UVs and no stretching on slopes:
     - noise-based mottling of soil, lichen on rock, bark, thatch and hide, and skin blotches

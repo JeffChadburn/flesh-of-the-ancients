@@ -17,12 +17,12 @@ import { MonsterVoice } from "./monster-voice.js";
 import { pointInside, PLAYER_RADIUS, STANCES, canFitStance, requiredStanceAt, queryVolume } from "./volume.js";
 import { ChunkManager } from "./world/chunk-manager.js";
 import { CaveStreamLayer } from "./world/cave-stream.js";
-import { Terrain } from "./world/terrain.js";
+import { Terrain, colCore } from "./world/terrain.js";
 import { OverworldLayer } from "./world/overworld.js";
 import { Atmosphere, WEATHERS } from "./world/atmosphere.js";
 import { Camp } from "./act1/camp.js";
 import { Wildlife } from "./act1/animals.js";
-import { SettlementLayer, SETTLE_KIND } from "./world/settlements.js";
+import { SettlementLayer, SETTLE_KIND, indoorAt } from "./world/settlements.js";
 import { People } from "./world/people.js";
 import { Story } from "./act1/story.js";
 import { StoryUI } from "./act1/ui.js";
@@ -726,6 +726,7 @@ const story = new Story({
   atmo: () => world.atmo,
   monster: () => game.monster,
   caveKind: () => cave?.kind || null,
+  container: (f) => (world.mode === "overworld" && world.settle ? world.settle.containerNear(f.x, f.z) : null),
   caveWater: () => (world.mode !== "overworld" ? waterHandle : null),
   volume: () => (player && !player.terrain ? player.volume : null),
   paused: () => storyUI.modal || game.dead,
@@ -1296,7 +1297,7 @@ function toggleMount(silent = false) {
     let ox = f.x, oz = f.z;
     for (const side of [1, -1, 0]) {
       const lx = f.x - Math.cos(player.yaw) * 1.5 * side + (side ? 0 : Math.sin(player.yaw) * 2.6), lz = f.z + Math.sin(player.yaw) * 1.5 * side + (side ? 0 : Math.cos(player.yaw) * 2.6);
-      if (t.collidersNear(lx, lz, 0.5).every((c) => Math.hypot(c.x - lx, c.z - lz) > c.r + 0.35)) { ox = lx; oz = lz; break; }
+      if (t.collidersNear(lx, lz, 0.5).every((c) => { const q = colCore(c, lx, lz); return Math.hypot(q.x - lx, q.z - lz) > q.t + 0.35; })) { ox = lx; oz = lz; break; }
     }
     player.mounted = false;
     game.horse = null;
@@ -1554,6 +1555,19 @@ function tickOverworld(dt, info, now) {
   scene.background.copy(A.fogColor);
   world.over.tick(now / 1000, p, A);
   caveman.baseIntensity = TORCH_BASE * st.torch;
+  // Round 15: inside a hall or lodge the daylight falls away and your torch takes over (like the caves).
+  {
+    const sNear = world.settle?.at(p.x, p.z), inK = sNear ? indoorAt(sNear, p.x, p.z) : 0;
+    game.indoor = (game.indoor || 0) + (inK - (game.indoor || 0)) * Math.min(1, dt * 3);
+    const k = game.indoor;
+    if (k > 0.01) {
+      moonLight.intensity *= 1 - 0.9 * k; skyFill.intensity *= 1 - 0.85 * k; ambient.intensity *= 1 - 0.65 * k;
+      // small lodges: walls sit an arm's length from the torch, so it burns lower there or the hide blows out
+      const inHut = sNear.buildings?.some((b) => b.kind === "hut" && Math.hypot(p.x - b.x, p.z - b.z) < b.r);
+      const want = TORCH_BASE * (inHut ? 0.25 : 0.85);
+      caveman.baseIntensity += (want - caveman.baseIntensity) * k;
+    }
+  }
   const lab = A.label();
   storyUI.setClock(`${lab.part} ${lab.clock} · ${lab.weather}`);
   let campD = Infinity, waterD = Infinity;
@@ -1962,6 +1976,35 @@ window.__CAVE__ = {
     settleDraws: () => world.settle?.drawCalls(),
     horses: () => world.wildlife?.list.filter((a) => a.kind === "horse").map((a) => ({ id: a.id, alive: a.alive, ridden: !!a.ridden, state: a.state, d: +(a.dist ?? -1).toFixed(1), x: +a.pos.x.toFixed(1), z: +a.pos.z.toFixed(1) })),
     /** Walk up to the nearest live horse (stand 2 m away facing it); mount=true also gets on. */
+    /** Round 15 test hook: follow waypoints [{x,z}] with keys held; returns stuck frames / misses. */
+    walkPath: (pts, { keys = ["KeyW"], jumpEvery = 0, reach = 1.2, dt = 1 / 60, place = true } = {}) => {
+      const P = player, c = camera.position;
+      if (place) P.setTerrain(world.terrain, pts[0].x, pts[0].z, Math.atan2(-(pts[1].x - pts[0].x), -(pts[1].z - pts[0].z)));
+      let frames = 0, stuck = 0, run = 0, maxRun = 0, miss = 0, f = 0; const at = [];
+      for (let w = 1; w < pts.length; w++) {
+        const b = pts[w]; let ok = false;
+        for (let i = 0; i < 3000; i++) {
+          const dx = b.x - c.x, dz = b.z - c.z, d = Math.hypot(dx, dz);
+          if (d < reach) { ok = true; break; }
+          P.yaw = Math.atan2(-dx / d, -dz / d);
+          P.keys.clear(); for (const k of keys) P.keys.add(k);
+          if (jumpEvery && f % jumpEvery === 0) P.jump();
+          const x0 = c.x, z0 = c.z;
+          const ns = substepsFor(dt); for (let j = 0; j < ns; j++) P.update(dt / ns);
+          if (game.horse) world.wildlife.ride(game.horse, feetPos(), P.yaw, P.speedNow, dt, f * dt);
+          f++; frames++;
+          const mv = Math.hypot(c.x - x0, c.z - z0);
+          if (frames > 30 && mv < P.speedNow * dt * 0.25) { stuck++; run++; if (run === 20) at.push([+c.x.toFixed(1), +c.z.toFixed(1)]); } else run = 0;
+          maxRun = Math.max(maxRun, run);
+          if (run > 240) break;
+        }
+        if (!ok) { miss++; break; }
+      }
+      P.keys.clear();
+      return { frames, stuck, maxRun, miss, at: at.slice(0, 4), end: [+c.x.toFixed(1), +c.z.toFixed(1)] };
+    },
+    settleData: (id) => { const s = world.terrain.settlements[id]; return s && { x: s.x, z: s.z, R: s.R, kind: s.kind, name: s.name, paths: s.paths, fires: s.fires, lake: s.lake, longhouse: s.longhouse, buildings: s.buildings, posts: s.posts.length }; },
+    indoor: () => +(game.indoor || 0).toFixed(2),
     toHorse: (mount = false) => {
       const n = world.wildlife?.list.filter((a) => a.kind === "horse" && a.alive && !a.ridden).sort((a, b) => a.pos.distanceTo(camera.position) - b.pos.distanceTo(camera.position))[0];
       if (!n) return null;

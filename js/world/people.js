@@ -8,6 +8,7 @@
 import * as THREE from "three";
 import { mulberry32 } from "../rng.js";
 import { addDetail, smoothNormals } from "../realism.js";
+import { colCore } from "./terrain.js";
 
 const TUNIC = [0x8a6a48, 0x7a5a3c, 0x9b7b55, 0x6e5034, 0xa38763, 0x5f4a36, 0x8c5a3c];
 const SKIN = [0xc79a74, 0xb5835c, 0xa87454, 0x8e5e40, 0xd2a983];
@@ -138,8 +139,8 @@ export class People {
 
   _push(p) {
     for (const c of this.t.collidersNear(p.x, p.z, 1)) {
-      const dx = p.x - c.x, dz = p.z - c.z, d = Math.hypot(dx, dz), min = c.r + 0.3;
-      if (d < min && d > 1e-4) { p.x = c.x + (dx / d) * min; p.z = c.z + (dz / d) * min; }
+      const q = colCore(c, p.x, p.z), dx = p.x - q.x, dz = p.z - q.z, d = Math.hypot(dx, dz), min = q.t + 0.3;
+      if (d < min && d > 1e-4) { p.x = q.x + (dx / d) * min; p.z = q.z + (dz / d) * min; }
     }
   }
 

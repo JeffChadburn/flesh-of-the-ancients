@@ -334,11 +334,13 @@ export class Terrain {
           if (Math.hypot(p.x - c.x, p.z - c.z) < c.r * 0.8) standOn = Math.max(standOn, c.top);
           continue;
         }
-        const dx = p.x - c.x, dz = p.z - c.z, d = Math.hypot(dx, dz), min = c.r + radius;
+        // round 15: wall-segment colliders (hollow buildings) push out from the nearest point on the wall
+        const q = colCore(c, p.x, p.z);
+        const dx = p.x - q.x, dz = p.z - q.z, d = Math.hypot(dx, dz), min = q.t + radius;
         if (d < min) {
           if (d < 1e-4) { p.x = from.x; p.z = from.z; continue; }
-          p.x = c.x + (dx / d) * min;
-          p.z = c.z + (dz / d) * min;
+          p.x = q.x + (dx / d) * min;
+          p.z = q.z + (dz / d) * min;
         }
       }
     }
@@ -358,4 +360,13 @@ export class Terrain {
     }
     return null;
   }
+}
+
+/** Round 15: nearest point on a collider's core and its thickness: circles are a point + r, wall
+ *  segments ({seg, ax, az, bx, bz, t}) the closest point on the segment + t. */
+export function colCore(c, x, z) {
+  if (!c.seg) return { x: c.x, z: c.z, t: c.r };
+  const vx = c.bx - c.ax, vz = c.bz - c.az, L = vx * vx + vz * vz || 1;
+  const k = Math.max(0, Math.min(1, ((x - c.ax) * vx + (z - c.az) * vz) / L));
+  return { x: c.ax + vx * k, z: c.az + vz * k, t: c.t };
 }

@@ -125,6 +125,9 @@ export class Story {
     const d2 = (o) => Math.hypot(o.x - f.x, o.z - f.z);
     if (env.mode() === "overworld") {
       const camp = env.camp(), t = env.terrain();
+      // round 15: storage baskets inside a settlement's longhouse / lodges
+      const box = env.container?.(f);
+      if (box) return { label: box.searched ? "The basket is empty" : "Search the storage basket", act: () => this.searchBasket(box) };
       if (!camp) return null;
       if (!fl.lumeDead && d2(camp.lume) < 2.8) return { label: "Kneel by Old Lume", act: () => this.talkLume() };
       const fireP = { x: camp.site.camp.x, z: camp.site.camp.z };
@@ -163,6 +166,15 @@ export class Story {
     this._log({ e: "interact", what: p.label });
     p.act();
     return true;
+  }
+
+  searchBasket(box) {
+    if (box.searched) { this.env.ui.toast("Nothing left in it."); return; }
+    box.searched = true;
+    const got = [];
+    for (const [id, n] of box.loot) { this.surv.add(id, n); got.push(`${n} ${(ITEMS[id]?.name || id).toLowerCase()}`); }
+    this.env.ui.toast("Found: " + got.join(", "), "good");
+    this._log({ e: "basket", loot: box.loot });
   }
 
   talkLume() {
