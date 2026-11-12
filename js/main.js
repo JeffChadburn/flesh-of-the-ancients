@@ -49,6 +49,8 @@ import { Beacon } from "./beacon.js"; // round 23
 import { Cutscene } from "./cine/cutscene.js"; // round 24
 import { Tutorial, CHAPTERS } from "./tutorial.js";
 import { ControlsSheet, currentDevice } from "./controls.js";
+import { Finder, fmt as findFmt } from "./find.js"; // round 24b
+import { Fighters, markHostile, HORN_CD } from "./act1/fighters.js"; // round 24b
 import { INTRO, MEMORIES, AGE_LINES, fillMemory } from "./cine/scripts.js";
 
 const errors = [];
@@ -441,7 +443,16 @@ function ensureWorld() {
     people: () => world.people, colony: () => world.colony, story: () => story.active, wildlife: () => world.wildlife, discovered: () => world.discovered,
     kills: () => { const st = story.surv.stats; return (st.small || 0) + (st.deer || 0); }, questsDone: () => (story.active ? story.quests.completed().length : 0), time: () => game.time,
     markHint: (x, z, label) => { game.hint = { x, z, label, text: label, mode: "overworld", until: game.time + 40 }; compassKey = ""; } });
-  world.people.skip = (k) => world.talk.joined(k);
+  // Round 24b: hostile towns that fight back, loot, Call to Arms; predators that bite
+  markHostile(world.terrain.settlements || [], world.terrain.act1?.camp || { x: 0, z: 0 });
+  world.fighters = new Fighters({ scene: world.settleRoot, terrain: () => world.terrain, people: () => world.people, towns: () => world.terrain.settlements || [],
+    colonies: () => world.colony?.list || [], feet: () => (world.mode === "overworld" && player && ready ? feetPos() : null), safe: () => fightSafe(),
+    hurt: (n, src) => damagePlayer(n, src), toast: (m, k) => storyUI.toast(m, k), log: (e) => glog(e), sound: (k) => audio.fight?.(k), lite: IS_TOUCH,
+    key: () => `fota-fallen-v1-${story.tutorial ? "tut" : story.sandbox ? (mpActive ? "mp" : "free") : "story"}-${seed}` });
+  world.people.skip = (k) => world.talk.joined(k) || world.fighters.isFallen(k);
+  Object.defineProperty(world.wildlife, "noPredators", { get: () => story.tutorial || URLP.has("nopred") });
+  world.wildlife.onBite = (a, dmg) => { if (damagePlayer(dmg, a.kind)) storyUI.toast(a.kind === "bear" ? "🐻 The bear mauls you!" : a.kind === "boar" ? "🐗 The boar gores you!" : `🐺 The ${a.kind} bites you!`, "bad"); };
+  world.wildlife.onStalk = (a) => { if (game.time - (game.stalkToast || -99) > 25) { game.stalkToast = game.time; storyUI.toast(a.kind === "bear" ? "🐻 A bear has your scent. Back off, or stand and fight." : "🐺 Wolves are stalking you. Keep moving, or face them with your spear.", "bad"); } };
   world.shrooms = new Shrooms(world.terrain, world.settleRoot); // round 21
   world.berries = new WildBerries(world.terrain, world.settleRoot); // round 23
   colonyUI = new ColonyUI({ root: gameEl, stanceBar: document.getElementById("stance-bar"), colony: world.colony, feet: () => feetPos(), yaw: () => player.yaw,
@@ -889,7 +900,7 @@ if (isTouchDevice()) {
   touchRoot.classList.remove("hidden");
   hintEl.textContent = "Drag right to look · pad to move (edge = run) · Stab to fight";
 } else {
-  hintEl.textContent = "Click to look · WASD walk · Shift run · F stab · E use · I pack · Tab craft · K skills · M map · T/Y time/weather";
+  hintEl.textContent = "Click to look · WASD walk · Shift run · click/R stab · F find · E use · I pack · Tab craft · K skills · M map · T/Y time/weather";
 }
 
 const musicBtn = document.getElementById("music-btn");
@@ -1170,6 +1181,9 @@ const story = new Story({
   talkJSON: () => world.talk?.toJSON() || null,
   colonyRestore: (o) => { if (world.colony && !world.colony.list.length && o?.list?.length) { world.colony.load(o, false); } },
   container: (f) => (world.mode === "overworld" && world.settle ? world.settle.containerNear(f.x, f.z) : null),
+  lootNear: (f) => (world.mode === "overworld" ? world.fighters?.lootNear(f) : null), // round 24b
+  lootTake: (b) => { world.fighters.lootTake(b, story.surv); renderStatus(); },
+  onTheft: (f) => { const s = world.settle?.at(f.x, f.z); if (s?.hostile) world.fighters.aggro(s, "They caught you raiding their stores."); },
   places: () => world.places || null,
   caveEntryId: () => (world.mode !== "overworld" && world.entrance ? world.entrance.id : null),
   explored: () => explored.size,
@@ -1325,9 +1339,12 @@ function spawnMonster() {
   glog({ e: "monsterSpawn", at: m.spawnNode });
 }
 
-function damagePlayer() {
-  if (game.dead || game.invuln > 0 || game.god || storyUI.modal) return;
-  game.health -= 1;
+function damagePlayer(n = 1, src = "") {
+  if (game.dead || game.invuln > 0 || game.god || storyUI.modal) return false;
+  // round 24b: worn armour (shield, jerkin, helm, mail) may turn a blow aside
+  const arm = (story.active || story.sandbox) ? story.surv.armor() : 0;
+  if (src && n > 0 && arm > 0 && Math.random() < arm * 0.15) { game.invuln = 0.6; storyUI.toast(`🛡 Your armour turns the ${src || "blow"} aside`); glog({ e: "blocked", src }); return false; }
+  game.health -= n;
   game.hitsTaken += 1;
   game.invuln = 1.0;
   game.vignette = 1;
@@ -1337,6 +1354,7 @@ function damagePlayer() {
   audio.step(1, "stand");
   renderStatus();
   if (game.health <= 0) die();
+  return true;
 }
 
 function die() {
@@ -1399,6 +1417,11 @@ function resolveAttack() {
   {
     const f = feetPos();
     let hitA = null;
+    // round 24b: hostile townsfolk / fighters first
+    if (world.fighters && world.mode === "overworld") {
+      const pk = story.active || story.sandbox, hf = world.fighters.tryHit(f, -Math.sin(player.yaw), -Math.cos(player.yaw), 1 + (story.active ? story.surv.str : 0) + (pk ? story.surv.spearBonus() : 0));
+      if (hf) { if (hf.alive) storyUI.toast(`You wound the ${hf.kind} (${hf.hp}/${hf.max})`); audio.fight?.("strike"); res.hit = true; res.fighter = true; res.kind = hf.kind; res.alive = hf.alive; game.lastAttack = res; glog({ e: "attack", ...res }); return res; }
+    }
     if (story.active) { if (story.onAttack(f, -Math.sin(player.yaw), -Math.cos(player.yaw))) hitA = story.lastHit; }
     else if (world.wildlife && world.mode === "overworld") {
       hitA = world.wildlife.tryHit(f, -Math.sin(player.yaw), -Math.cos(player.yaw), 2);
@@ -1694,6 +1717,10 @@ function shootArrow() {
 }
 function arrowTargets(p) {
   const from = feetPos();
+  if (world.mode === "overworld" && world.fighters) { // round 24b
+    const hf = world.fighters.arrowHit(p, 2 + (story.active || story.sandbox ? story.surv.arrowBonus() : 0));
+    if (hf) { if (hf.alive) storyUI.toast(`Your arrow strikes the ${hf.kind} (${hf.hp}/${hf.max})`); audio.arrowHit?.(true); return hf.kind; }
+  }
   if (world.mode === "overworld" && world.wildlife) {
     const a = world.wildlife.bodyAt(p);
     if (a) {
@@ -1758,7 +1785,9 @@ canvas.addEventListener("mousedown", (e) => {
 window.addEventListener("keydown", (e) => {
   if (e.target instanceof HTMLInputElement) return;
   if (mp.key(e, true) || e.repeat) return; // round 22: V = push-to-talk, T / Enter = chat while in a room
-  if (e.code === "KeyF") attack();
+  if (e.code === "KeyR") attack(); // round 24b: F is Find now (R or left click stabs)
+  if (e.code === "KeyF" && ready && player && !cine?.on) { e.preventDefault(); toggleFind(); }
+  if (e.code === "KeyH" && ready && player && !cine?.on && !storyUI.modal) { e.preventDefault(); blowHorn(); } // round 24b: Call to Arms
   if (e.code === "KeyQ" || e.code === "KeyB") setWeapon(game.weapon === "bow" ? "spear" : "bow");
   if (e.code === "KeyV") toggleView();
   if (e.code === "KeyL" && !storyUI.modal) toggleTorch(); // round 24
@@ -1772,7 +1801,7 @@ window.addEventListener("keydown", (e) => {
   if (pk && e.code === "KeyK") { storyUI.togglePanel("skills", story.surv); }
   if (pk && e.code === "Tab") { e.preventDefault(); storyUI.togglePanel("craft", story.surv); }
   if (e.code === "KeyM" && ready && !storyUI.modal) openMap(true);
-  if (e.code === "Escape") { storyUI.closePanel(); storyUI.closeChoice(); if (wmap.isOpen) wmap.close(); }
+  if (e.code === "Escape") { finder?.close(); storyUI.closePanel(); storyUI.closeChoice(); if (wmap.isOpen) wmap.close(); }
   if (e.code === "KeyT" && world.atmo) { world.atmo.skip(e.shiftKey ? -1 : 1); storyUI.toast(`Time: ${world.atmo.label().clock}`); }
   if (e.code === "KeyY" && world.atmo) { storyUI.toast(`Weather: ${world.atmo.cycleWeather()}`); }
 });
@@ -1852,7 +1881,8 @@ function mapState() {
   if (world.mode === "overworld" && world.terrain) {
     const t = world.terrain, site = t.act1;
     out.title = "The Hills";
-    out.towns = (t.settlements || []).map((s) => ({ x: s.x, z: s.z, name: s.name, kind: s.kind, color: SETTLE_KIND[s.kind].color, known: false }));
+    out.towns = (t.settlements || []).map((s) => ({ x: s.x, z: s.z, name: s.hostile ? `⚔ ${s.name} (hostile)` : s.name, kind: s.kind, color: s.hostile ? "#ff5a4a" : SETTLE_KIND[s.kind].color, known: false }));
+    if (world.fighters) for (const a of world.fighters.allies) out.marks.push({ x: a.x, z: a.z, color: "#5aa8ff", label: "⚔" }); // round 24b
     out.entrances = t.entrances.filter((e) => world.discovered.has(e.id)).map((e) => ({ x: e.x, z: e.z, name: e.name, cave: e.cave }));
     out.marks = site ? [{ x: site.camp.x, z: site.camp.z, color: "#ffb050", label: story.active ? "River-Tooth camp" : "Camp" }] : [];
     if (site && story.active) out.stream = site.stream;
@@ -1861,6 +1891,7 @@ function mapState() {
     if (world.shrooms) for (const q of world.shrooms.marks()) out.marks.push({ x: q.x, z: q.z, color: "#ff6af0", label: "🍄" }); // round 21
     for (const m of mp.marks()) (m.town ? out.towns.push({ x: m.x, z: m.z, name: m.label, kind: "village", color: m.color, known: true }) : out.marks.push({ x: m.x, z: m.z, color: m.color, label: "👤 " + m.label })); // round 22
     if (beacon.pos) out.beacon = { x: beacon.pos.x, z: beacon.pos.z, dist: Beacon.fmt(beacon.dist(p)) }; // round 23
+    { const fc = findCur("overworld"); if (fc) out.find = { x: fc.x, z: fc.z, label: fc.label, icon: fc.icon, dist: findFmt(Math.hypot(fc.x - p.x, fc.z - p.z)) }; } // round 24b
     out.npcs = world.places ? Object.entries(world.places.npc).map(([id, n]) => ({ x: n.x, z: n.z, mark: story.npcMark(id) })) : [];
   } else if (cave) {
     out.title = nameEl?.textContent || "Cave";
@@ -1971,9 +2002,63 @@ wmap.onTap = (q) => {
   const onB = beacon.pos && Math.hypot(beacon.pos.x - q.x, beacon.pos.z - q.z) < reach;
   if (!onB) items.push({ label: beacon.pos ? "📍 Move beacon here" : "📍 Set beacon here", cls: "bc", act: () => { beacon.set(q.x, q.z); storyUI.toast(`📍 Beacon set, ${Beacon.fmt(beacon.dist(feetPos()))} away. Look for the pillar of light.`); } });
   if (beacon.pos) items.push({ label: "✕ Clear beacon", act: () => { beacon.clear(); storyUI.toast("Beacon cleared."); } });
+  if (finder.cur) items.push({ label: "🔍 Next nearest", act: () => finder.next() }, { label: "✕ Clear find", act: () => { finder.clear(); storyUI.toast("🔍 Find cleared."); } }); // round 24b
   return items;
 };
 storyUI.onHint = () => showObjectiveHint();
+// ---------------- Round 24b: 🔍 Find ----------------
+const findMark = new Beacon(scene, gameEl, { name: "find", id: "find-ind", icon: "🔍", outer: 0x66ff1a, inner: 0xb8ff6a, ring: 0xb6ff5a });
+const finder = new Finder(gameEl, {
+  terrain: () => world.terrain, mode: () => world.mode, feet: () => (player && ready ? feetPos() : null),
+  seen: (x, z) => wmap.seen(x, z), story, camp: () => world.camp, shrooms: () => world.shrooms, berries: () => world.berries,
+  wildlife: () => world.wildlife, boats: () => world.boats, riding: () => game.boat, myBoat: () => game.myBoat,
+  colonies: () => world.colony?.list || [], caveFauna: () => caveFauna, caveWater: () => (world.mode !== "overworld" ? waterHandle : null),
+  questHint: () => { if (world.mode !== "overworld" && !story.active) return null; let h = story.hint(); if (!h && story.tutorial && world.terrain) { const f = feetPos(), s = (world.terrain.settlements || []).slice().sort((a, b) => Math.hypot(a.x - f.x, a.z - f.z) - Math.hypot(b.x - f.x, b.z - f.z))[0]; if (s) h = { x: s.x, z: s.z, label: s.name }; } return h; },
+  toast: (t, k) => storyUI.toast(t, k), log: (e) => glog(e), found: () => softChime(),
+  onChange: (c) => {
+    compassKey = "";
+    if (c && c.mode === "overworld") { findMark.icon = "🔍" + c.icon; findMark.set(c.x, c.z); } else findMark.clear();
+    findBtn.classList.toggle("on", !!c); if (wmap.isOpen) wmap.draw();
+    if (c) tc("find");
+  },
+});
+function findCur(mode) { const c = finder.cur; return c && c.mode === mode ? c : null; }
+function toggleFind() { if (!ready || !player) return; finder.toggle(); }
+/** Round 24b: no beast / townsfolk attacks while dead, in a cinematic or menu, in the tutorial, or inside a friendly town / your settlement. */
+function fightSafe() {
+  if (game.dead || story.tutorial || storyUI.modal || cine?.on || world.busy || !player) return true;
+  if (world.mode !== "overworld") return true;
+  const f = feetPos(), s = world.settle?.at(f.x, f.z);
+  if (s && !s.hostile) return true;
+  return !!world.colony?.list.some((c) => Math.hypot(c.x - f.x, c.z - f.z) < world.colony.radius(c) + 6);
+}
+function blowHorn() { if (!ready || !player || world.mode !== "overworld" || !world.fighters) return null; const r = world.fighters.callToArms(); tc("horn"); updateHornBtn(true); return r; }
+const hornBtn = document.createElement("button");
+hornBtn.id = "horn-btn"; hornBtn.type = "button"; hornBtn.className = "hidden"; hornBtn.innerHTML = "📯<i></i>"; hornBtn.title = "Call to Arms (H): summon warriors from your friendly towns"; hornBtn.setAttribute("aria-label", "Call to Arms");
+gameEl.appendChild(hornBtn);
+hornBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+hornBtn.addEventListener("click", (e) => { e.stopPropagation(); blowHorn(); });
+let hornShown = "";
+function updateHornBtn(force = false) {
+  const F = world.fighters, ok = !!F && ready && !!player && world.mode === "overworld" && !story.tutorial && !cine?.on && !!F.hornTown();
+  const cd = ok ? Math.ceil(F.hornCd) : 0, k = ok ? (cd > 0 ? "c" + cd : "r") : "";
+  if (k === hornShown && !force) return;
+  hornShown = k; hornBtn.classList.toggle("hidden", !ok); hornBtn.classList.toggle("cd", cd > 0);
+  hornBtn.querySelector("i").textContent = cd > 0 ? (cd > 99 ? Math.ceil(cd / 60) + "m" : cd + "s") : "";
+}
+function findTick() {
+  if (!player || !ready || cine?.on) return;
+  finder.update();
+  const c = finder.cur;
+  if (c && c.mode === "overworld" && findMark.pos && (findMark.pos.x !== c.x || findMark.pos.z !== c.z)) findMark.pos = { x: c.x, z: c.z }; // moving targets (animals)
+  findMark.update(viewCam, feetPos(), (x, z) => world.terrain.height(x, z), !!c && c.mode === "overworld" && world.mode === "overworld" && !spiritCam && !!world.terrain, performance.now() / 1000, gameEl.clientWidth, gameEl.clientHeight);
+}
+const findBtn = document.createElement("button");
+findBtn.id = "find-btn"; findBtn.type = "button"; findBtn.textContent = "🔍"; findBtn.title = "Find (F): mushrooms, water, flint, ore…"; findBtn.setAttribute("aria-label", "Find something");
+gameEl.appendChild(findBtn);
+findBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+findBtn.addEventListener("click", (e) => { e.stopPropagation(); toggleFind(); });
+wmap.onFind = () => finder.open();
 const mapfBtn = document.createElement("button");
 mapfBtn.id = "mapf-btn"; mapfBtn.type = "button"; mapfBtn.textContent = "⚙"; mapfBtn.title = "What the map shows"; mapfBtn.setAttribute("aria-label", "Map filters");
 gameEl.appendChild(mapfBtn);
@@ -2020,10 +2105,12 @@ function updateCompass(p, inside) {
   if (!compassEl) return;
   let n = world.settle?.nearest(p.x, p.z);
   const hint = game.hint && game.hint.until > game.time && game.hint.mode === world.mode ? game.hint : null;
-  const qt = hint ? { x: hint.x, z: hint.z, label: "💡 " + hint.label } : mapFilters.quest ? game.questTarget : null; // round 16: the tracked quest wins (round 17: a hint wins over it)
+  const fc = findCur(world.mode === "overworld" ? "overworld" : "cave"); // round 24b: a Find target beats the tracked quest
+  const qt = hint ? { x: hint.x, z: hint.z, label: "💡 " + hint.label } : fc ? { x: fc.x, z: fc.z, label: "🔍 " + fc.label, find: true } : mapFilters.quest ? game.questTarget : null; // round 16: the tracked quest wins (round 17: a hint wins over it)
   if (hint && Math.hypot(hint.x - p.x, hint.z - p.z) < 3) { game.hint = null; compassKey = ""; return updateCompass(p, inside); } // reached it
   if (hint && !n) n = { s: {}, d: 0 };
-  if (qt) n = { s: { name: (hint ? "" : "◆ ") + qt.label, x: qt.x, z: qt.z, kind: "quest" }, d: Math.hypot(qt.x - p.x, qt.z - p.z) };
+  if (qt && !n) n = { s: {}, d: 0 };
+  if (qt) n = { s: { name: (hint || qt.find ? "" : "◆ ") + qt.label, x: qt.x, z: qt.z, kind: "quest" }, d: Math.hypot(qt.x - p.x, qt.z - p.z) };
   if (!n || inside || game.camOverride) { if (compassKey !== "off") { compassKey = "off"; compassEl.classList.add("hidden"); } return; }
   const dx = n.s.x - p.x, dz = n.s.z - p.z;
   const rel = Math.atan2(-dx, -dz) - player.yaw;
@@ -2105,7 +2192,8 @@ function tickBody(now) {
     depthEl.textContent = `Depth ${fmt(Math.max(0, info.depth))} m`;
     distEl.textContent = `Travelled ${fmt(info.travelled)} m`;
     revealAround(camera.position);
-    const hc = game.hint && game.hint.until > game.time && game.hint.mode === "cave" ? game.hint : null;
+    const hc0 = game.hint && game.hint.until > game.time && game.hint.mode === "cave" ? game.hint : null;
+    const fcv = findCur("cave"), hc = hc0 || (fcv ? { x: fcv.x, z: fcv.z, label: fcv.label, find: true } : null); // round 24b: Find inside a cave
     const ct = hc || (mapFilters.quest ? caveQuestTarget() : null);
     const mo = mapFilters.monsters && game.monster?.alive && game.monster.pos.distanceTo(camera.position) < 25 ? game.monster.pos : null;
     minimap.draw(cave, camera.position, player.yaw, placeShown, explored, { target: ct, monster: mo, labels: mapFilters.labels, t: game.time, others: mp.on ? mp.marks().filter((m) => m.player) : null });
@@ -2216,6 +2304,7 @@ function tickBody(now) {
   cineTick(dt); // round 24
   if (world.terrain && beacon.key !== beaconKey()) beacon.bind(beaconKey());
   beaconReachCheck(); // round 24
+  findTick(now); // round 24b
   if (player) beacon.update(viewCam, feetPos(), (x, z) => world.terrain.height(x, z), ready && world.mode === "overworld" && !spiritCam && !cine?.on && !!world.terrain, now / 1000, gameEl.clientWidth, gameEl.clientHeight);
   if ((trip.on && trip.level > 0.002) || trip.dream > 0) trip.render(renderer, scene, viewCam); else renderer.render(scene, viewCam);
   if (debugOn && now - debugLast > 250) { debugLast = now; renderDebug(); }
@@ -2407,9 +2496,10 @@ function tickOverworld(dt, info, now) {
     for (const s of t.settlements) {
       const K = SETTLE_KIND[s.kind], d = Math.hypot(s.x - p.x, s.z - p.z);
       if (d > 900) continue;
-      extra.marks.push({ x: s.x, z: s.z, color: K.color, r: s.kind === "city" ? 0.034 : s.kind === "village" ? 0.026 : 0.018, label: d < 140 ? s.name : "", edge: true });
+      extra.marks.push({ x: s.x, z: s.z, color: s.hostile ? "#ff5a4a" : K.color, r: s.kind === "city" ? 0.034 : s.kind === "village" ? 0.026 : 0.018, label: d < 140 ? (s.hostile ? "⚔ " : "") + s.name : "", edge: true });
     }
   }
+  if (world.fighters) { const fm = world.fighters.marks(); if (fm.length) { extra = extra || { marks: [], dots: [] }; for (const m of fm) (m.ally ? extra.marks.push(m) : extra.dots.push(m)); } } // round 24b
   // Round 16: quest people + the tracked quest target; the map's fog / trail
   const tgt = story.active ? story.questTarget() : null;
   if (world.places) {
@@ -2447,6 +2537,7 @@ function tickOverworld(dt, info, now) {
     const sm = world.shrooms.marks(); if (sm.length) { extra = extra || { marks: [], dots: [] }; for (const q of sm) if (Math.abs(q.x - p.x) < 500 && Math.abs(q.z - p.z) < 500) extra.marks.push({ x: q.x, z: q.z, color: "#ff6af0", r: 0.013, label: "🍄" }); }
   }
   if (beacon.pos) { extra = extra || { marks: [], dots: [] }; extra.marks.push({ x: beacon.pos.x, z: beacon.pos.z, color: "#7ff6ff", r: 0.024, edge: true, label: "📍" }); } // round 23
+  { const fc = findCur("overworld"); if (fc) { extra = extra || { marks: [], dots: [] }; extra.marks.push({ x: fc.x, z: fc.z, color: "#b6ff5a", r: 0.026, edge: true, arrow: true, label: "🔍" }); } } // round 24b
   if (mp.on) { const pm = mp.marks(); if (pm.length) { extra = extra || { marks: [], dots: [] }; for (const m of pm) extra.marks.push({ x: m.x, z: m.z, color: m.color, r: m.town ? 0.024 : 0.019, edge: true, label: m.label }); } } // round 22: other players
   if (extra) extra.noLabels = !mapFilters.labels;
   minimap.drawOverworld(t, p, player.yaw, mapFilters.caves ? world.discovered : new Set(), extra);
@@ -2480,7 +2571,7 @@ function tickOverworld(dt, info, now) {
   }
   if (world.wildlife) {
     const f = feetPos();
-    world.wildlife.update(dt, { pos: f, speed: speedSmooth, crouched: player.stance !== "stand" && !player.mounted, running: player.runFrac > 0.4, mounted: !!player.mounted }, now / 1000);
+    world.wildlife.update(dt, { pos: f, speed: speedSmooth, crouched: player.stance !== "stand" && !player.mounted, running: player.runFrac > 0.4, mounted: !!player.mounted, safe: fightSafe() }, now / 1000);
     if (game.horse) world.wildlife.ride(game.horse, f, player.yaw, animSpeed, dt, now / 1000);
   }
   // Round 12: settlements stream in / out, people go about their day
@@ -2498,9 +2589,15 @@ function tickOverworld(dt, info, now) {
     }
     if (world.colony?.knows("scouting") && (game.scoutT = (game.scoutT || 0) - dt) <= 0) { game.scoutT = 20; scoutReveal(); }
     if (!storyUI.modal && !game.dead) world.talk?.update(dt, f20);
+    world.fighters?.update(dt, now / 1000); // round 24b
+    updateHornBtn();
     colonyUI?.update();
     town = world.settle.at(p.x, p.z);
     updateCompass(p, town);
+    // round 24b: town themes (warm in friendly towns and your own settlement, tense in hostile ones or in a fight)
+    const fightNear = world.fighters?.inCombat(f20);
+    const ownNear = world.colony?.list.some((c) => Math.hypot(c.x - p.x, c.z - p.z) < world.colony.radius(c) + 10);
+    game.townMusic = fightNear || town?.hostile ? "hostile" : town || ownNear ? "friendly" : null;
   }
   if (game.horse && !player.mounted) { world.wildlife.dismount(game.horse); game.horse = null; } // teleported / respawned
   if (game.boat && !player.boating) { game.boat.taken = false; game.boat = null; updateBeachBtn(false); }
@@ -2516,6 +2613,7 @@ function tickOverworld(dt, info, now) {
   animSpeed += (Math.min(moved, 25) - animSpeed) * Math.min(1, dt * 10); // was capped 6
   if (audio.started) {
     audio.setEars?.(p, player.yaw);
+    audio.setTown?.(cine?.on ? null : game.townMusic || null); // round 24b
     const riding = !!player.mounted;
     audio.setAmbience?.({ night: st.night, dawn: st.dawn, day: st.day, rain: st.rain + st.snow * 0.2, wind: st.wind, storm: st.storm, water: Math.max(0, 1 - waterD / 14) });
     const zone = campD < 45 ? (st.dawn > 0.4 ? "dawn" : "camp") : "outdoor";
@@ -3003,6 +3101,20 @@ window.__CAVE__ = {
     trip: () => ({ on: trip.on, t: +trip.t.toFixed(1), level: +trip.level.toFixed(2), phase: trip.phase, melt: +trip_MELT().toFixed(2), visions: visions.list.map((v) => v.kind), spawned: visions.n, music: tripMusic.on, calm: calmOn, btn: !tripBtn.classList.contains("hidden") }),
     /** Round 23 QoL test hooks: beacon, fast travel, audio mixer. */
     qol: {
+      find: (cat) => finder.find(cat), findNext: () => finder.next(), findClear: () => finder.clear(), findCur: () => finder.cur && { ...finder.cur, live: !!finder.cur.live, gone: undefined, cave: undefined, d: +finder.cur.d.toFixed(1) },
+      findList: (cat) => finder.search(cat).slice(0, 5).map((c) => ({ label: c.label, x: +c.x.toFixed(1), z: +c.z.toFixed(1), d: +c.d.toFixed(1) })), findNeed: () => finder.needed(), findOpen: () => finder.isOpen, openFind: () => finder.open(), lastFound: () => finder.lastFound || null,
+      isShroom: (x, z) => !!world.shrooms?.spots.some((q) => Math.hypot(q.x - x, q.z - z) < 0.5 && world.shrooms.available(q)),
+      fighters: () => world.fighters?.state(), bags: () => (world.fighters?.bags || []).map((g) => ({ x: +g.x.toFixed(2), z: +g.z.toFixed(2), who: g.who, loot: g.loot })), horn: () => blowHorn(), hornBtn: () => !hornBtn.classList.contains("hidden") && hornBtn.textContent, hornReset: () => { world.fighters.hornCd = 0; },
+      hostile: () => (world.terrain?.settlements || []).filter((q) => q.hostile).map((q) => ({ id: q.id, name: q.name, kind: q.kind, age: q.age, x: +q.x.toFixed(1), z: +q.z.toFixed(1), R: q.R, d: +Math.hypot(q.x - feetPos().x, q.z - feetPos().z).toFixed(0) })),
+      towns: () => (world.terrain?.settlements || []).map((q) => ({ id: q.id, name: q.name, kind: q.kind, hostile: !!q.hostile, age: q.age, x: +q.x.toFixed(1), z: +q.z.toFixed(1), R: q.R })),
+      townRms: () => { const tm = audio.townMusic; if (!tm) return null; if (!tm._an) { tm._an = {}; for (const k in tm.layers) { const an = audio.ctx.createAnalyser(); an.fftSize = 2048; tm.layers[k].g.connect(an); tm._an[k] = an; } } const o = {}; for (const k in tm._an) { const d = new Float32Array(2048); tm._an[k].getFloatTimeDomainData(d); o[k] = +Math.sqrt(d.reduce((s, v) => s + v * v, 0) / d.length).toFixed(4); } return o; },
+      townMusic: () => ({ want: game.townMusic || null, audio: audio.town ?? null, mode: audio.townMusic?.mode ?? null, started: !!audio.started }),
+      spawnPred: (kind, d = 20, n = 1) => { const f = feetPos(), fx = -Math.sin(player.yaw), fz = -Math.cos(player.yaw); return world.wildlife.spawnAt(kind, f.x + fx * d, f.z + fz * d, n).map((a) => a.id); },
+      preds: () => world.wildlife.list.filter((a) => a.kind === "wolf" || a.kind === "bear").map((a) => ({ id: a.id, kind: a.kind, state: a.state, alive: a.alive, hp: a.health, x: +a.pos.x.toFixed(2), z: +a.pos.z.toFixed(2), d: +Math.hypot(a.pos.x - feetPos().x, a.pos.z - feetPos().z).toFixed(1) })),
+      wildLog: () => world.wildlife.log.slice(-40), wildFreeze: (v) => { world.wildlife.freeze = !!v; }, spawnAnimal: (kind, x, z, yaw) => world.wildlife.spawnAt(kind, x, z, 1, yaw)[0].id, wdbg: () => world.wildlife.list.filter((a) => a.kind === "wolf" || a.kind === "bear").map((a) => ({ pos: a.pos.toArray().map((v) => +v.toFixed(2)), yaw: a.yaw, st: a.spec.st?.speed, s: a.state, T: a.stateT, sc: a.scared, cd: a.cd })),
+      health: () => ({ hp: game.health, max: game.maxHealth, dead: game.dead }),
+      safe: () => fightSafe(),
+      findMark: () => ({ pillar: findMark.group.visible, pos: findMark.pos, hud: findMark.el.classList.contains("hidden") ? null : findMark.el.textContent }),
       beacon: () => beacon.pos, beaconArm: () => beaconArm, setBeacon: (x, z) => beacon.set(x, z), clearBeacon: () => beacon.clear(),
       beaconHud: () => ({ shown: !beacon.el.classList.contains("hidden"), text: beacon.el.textContent, left: beacon.el.style.left, top: beacon.el.style.top, pillar: beacon.group.visible, k: +beacon.group.scale.x.toFixed(3) }),
       targets: () => travelTargets().map((d) => ({ kind: d.kind, name: d.name, x: Math.round(d.x), z: Math.round(d.z) })),
@@ -3518,7 +3630,7 @@ function padButtons() {
   let g = null; try { g = [...(navigator.getGamepads?.() || [])].find((x) => x && x.connected); } catch {}
   if (!g) return;
   const hit = (i) => { const on = !!g.buttons[i]?.pressed, was = _padPrev[i]; _padPrev[i] = on; return on && !was; };
-  const P = {}; for (const i of [0, 1, 2, 3, 4, 5, 8, 9, 12]) P[i] = hit(i);
+  const P = {}; for (const i of [0, 1, 2, 3, 4, 5, 8, 9, 12, 13]) P[i] = hit(i);
   if (cine?.on) { if (P[0] || P[2] || P[3]) cine.next(); if (P[1] || P[9]) cine.skip(); return; }
   if (!ready || !player || game.dead) return;
   if (P[9]) storyUI.togglePanel("inv", story.surv);
@@ -3531,6 +3643,8 @@ function padButtons() {
   if (P[4]) setWeapon(game.weapon === "bow" ? "spear" : "bow");
   if (P[5]) toggleTorch();
   if (P[12]) storyUI.toggleTasks();
+  if (P[13]) toggleFind(); // round 24b: D-pad down
+  if (P[14]) blowHorn(); // round 24b: D-pad left = Call to Arms
 }
 // Round 24: reaching the beacon (within ~8 m) removes it, with a toast and a soft chime. It must have been
 // farther than 12 m first, so a beacon dropped right next to you doesn't vanish on the spot.
@@ -3588,7 +3702,8 @@ const TG = {
   dev: () => currentDevice(IS_TOUCH), feet: () => feetPos(), look: () => ({ yaw: player.yaw, pitch: player.pitch || 0 }), speed: () => player.speedNow || 0,
   stance: () => player.stance, air: () => player.grounded === false, stamina: () => story.surv.stamina, torchDown: () => !!caveman.torchDown,
   get c() { return game.tc; }, count: (id) => story.surv.count(id), stats: () => story.surv.stats, kills: () => tally.kills,
-  packOpen: (tab) => !storyUI.panel.classList.contains("hidden") && storyUI.tab === tab, inspectOpen: () => !!storyUI.inspector.isOpen,
+  packOpen: (tab) => !storyUI.panel.classList.contains("hidden") && storyUI.tab === tab, inspectOpen: () => !!storyUI.inspector.isOpen, inspectItem: (id) => { storyUI.inspector.open(id, 1); return storyUI.inspector.el.querySelector(".in-text").textContent; }, // round 24b
+  findCur: () => finder.cur, findOpen: () => finder.isOpen, openFind: () => finder.open(), findClear: () => finder.clear(), // round 24b
   mapOpen: () => wmap.isOpen, filtersSig: () => JSON.stringify(mapFilters), hint: () => game.hint, beaconPos: () => beacon.pos, tasksOpen: () => storyUI.tasksOpen,
   horse: () => !!game.horse, boat: () => !!game.boat, mode: () => world.mode, colonies: () => world.colony?.list.length || 0,
   buildMode: () => colonyUI?.mode === "build", colonyOpen: () => !!colonyUI?.isOpen(), audioOpen: () => audioPanel.isOpen, controlsOpen: () => controlsSheet.isOpen,
@@ -3596,7 +3711,7 @@ const TG = {
   give: (id, n) => story.surv.add(id, n), needs: (h, t) => { story.surv.hunger = h; story.surv.thirst = t; },
   openPack: () => storyUI.openPanel("inv", story.surv), closeInspect: () => storyUI.inspector.isOpen && storyUI.inspector.close(),
   panelsOpen: () => !storyUI.panel.classList.contains("hidden") || !storyUI.choice.classList.contains("hidden") || wmap.isOpen || !!colonyUI?.isOpen() || audioPanel.isOpen || storyUI.inspector.isOpen,
-  closePanels: () => { for (let i = 0; i < 30 && !storyUI.dialog.classList.contains("hidden"); i++) storyUI.advance(); storyUI.closePanel(); storyUI.closeChoice(); if (storyUI.inspector.isOpen) storyUI.inspector.close(); if (wmap.isOpen) wmap.close(); },
+  closePanels: () => { finder.close(); for (let i = 0; i < 30 && !storyUI.dialog.classList.contains("hidden"); i++) storyUI.advance(); storyUI.closePanel(); storyUI.closeChoice(); if (storyUI.inspector.isOpen) storyUI.inspector.close(); if (wmap.isOpen) wmap.close(); },
   openMap: () => { if (!wmap.isOpen) openMap(false); }, closeAudio: () => audioPanel.isOpen && audioPanel.close(),
   toast: (t) => storyUI.toast(t),
   tp: (x, z, yaw) => { if (world.mode !== "overworld") enterOverworld(null, { at: { x, z, yaw } }); else { player.placeWorld(x, 0, z); player.yaw = yaw; player.pitch = 0; player.applyLook?.(); } },

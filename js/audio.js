@@ -1,3 +1,4 @@
+import { TownMusic } from "./townmusic.js"; // round 24b
 import { CinematicScore } from "./music.js";
 /**
  * Procedural cave ambience (drips, flow, echo) plus a generated creepy score:
@@ -35,10 +36,30 @@ export class CaveAudio {
 
   duckMusic(on) { this.music?.duckVoice?.(on); }
 
+  /** Round 24b: null | "friendly" | "hostile": crossfade the town theme in / out over the score. */
+  setTown(mode) {
+    this._townWant = mode; this.town = mode;
+    if (!this.townMusic || !this.ctx) return;
+    this.townMusic.set(mode);
+    this.scoreBus?.gain.setTargetAtTime(mode ? 0.12 : 1, this.ctx.currentTime, mode ? 0.8 : 1.4);
+  }
+  /** Round 24b: war horn (Call to Arms), weapon strike, spear whoosh, town alarm. */
+  fight(kind) {
+    if (!this.ctx || this.muted) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const tone = (type, f0, f1, dur, amp, lp, at = 0) => { const o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter(); o.type = type; o.frequency.setValueAtTime(f0, t + at); o.frequency.linearRampToValueAtTime(f1, t + at + dur * 0.8); f.type = "lowpass"; f.frequency.value = lp; g.gain.setValueAtTime(0.0001, t + at); g.gain.exponentialRampToValueAtTime(amp, t + at + Math.min(0.12, dur * 0.2)); g.gain.setValueAtTime(amp, t + at + dur * 0.75); g.gain.exponentialRampToValueAtTime(0.0001, t + at + dur); o.connect(f); f.connect(g); g.connect(this.master); o.start(t + at); o.stop(t + at + dur + 0.05); };
+    const noise = (dur, f0, amp, type = "bandpass") => { const b = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate), d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length); const s = ctx.createBufferSource(); s.buffer = b; const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = f0; const g = ctx.createGain(); g.gain.value = amp; s.connect(f); f.connect(g); g.connect(this.master); s.start(t); };
+    if (kind === "horn") { tone("sawtooth", 98, 110, 1.6, 0.32, 700); tone("sawtooth", 147, 165, 1.3, 0.18, 900, 0.9); tone("sawtooth", 98, 98, 1.8, 0.28, 650, 1.5); }
+    else if (kind === "aggro") { tone("sawtooth", 82, 92, 1.0, 0.25, 500); noise(0.6, 600, 0.3); }
+    else if (kind === "throw") noise(0.3, 900, 0.25);
+    else if (kind === "strike") { noise(0.12, 1400, 0.4); tone("sine", 140, 70, 0.15, 0.3, 800); }
+  }
+
   toggleMusic() {
     this.musicOn = !this.musicOn;
     try { localStorage.setItem("cavern-music", this.musicOn ? "1" : "0"); } catch {}
     if (this.music) this.music.setOn(this.musicOn);
+    this.townMusic?.setOn(this.musicOn);
     return this.musicOn;
   }
 
@@ -183,7 +204,10 @@ export class CaveAudio {
     this.applyVol();
     this._scheduleDrips();
     if (this.outdoor) this.setOutdoor(true);
-    try { this.music = new CinematicScore(this.ctx, this.musicBus, this.musicOn); } catch (err) { console.warn("music failed", err); }
+    // round 24b: the open-world score plays through its own sub-bus so town themes can duck it
+    this.scoreBus = this.ctx.createGain(); this.scoreBus.connect(this.musicBus);
+    try { this.music = new CinematicScore(this.ctx, this.scoreBus, this.musicOn); } catch (err) { console.warn("music failed", err); }
+    try { this.townMusic = new TownMusic(this.ctx, this.musicBus); this.townMusic.setOn(this.musicOn); if (this._townWant) this.setTown(this._townWant); } catch (err) { console.warn("town music failed", err); }
   }
 
   _noiseDrone(dest, cutoff, q = 0.4) {

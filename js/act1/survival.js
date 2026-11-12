@@ -28,6 +28,27 @@ export const ITEMS = {
   iron: { name: "Iron ore", stack: 8, icon: "⚙️" },
   coal: { name: "Coal", stack: 8, icon: "⬛" },
   shroom: { name: "Glowing mushroom", stack: 6, icon: "🍄" }, // round 21: eaten from the Pack: a spirit vision (the trip)
+  // round 24b: tools, weapons and supplies from fallen town fighters (by age: 0 stone, 1 bronze, 2 iron); some are craftable.
+  // weapon: + spear damage (your best one counts) · armor: blocks a share of blows (they add up) · sling: + bow damage
+  stoneaxe: { name: "Stone axe", stack: 1, icon: "🪓", weapon: 1, age: 0 },
+  club: { name: "War club", stack: 1, icon: "🏏", weapon: 1, age: 0 },
+  sling: { name: "Sling", stack: 1, icon: "🪃", sling: 1, age: 0 },
+  shield: { name: "Hide shield", stack: 1, icon: "🛡️", armor: 1, age: 0 },
+  jerkin: { name: "Leather jerkin", stack: 1, icon: "🦺", armor: 1, age: 0 },
+  bronzeknife: { name: "Bronze knife", stack: 1, icon: "🔪", weapon: 1, harvest: 1, age: 1 },
+  bronzehelm: { name: "Bronze helmet", stack: 1, icon: "⛑️", armor: 1, age: 1 },
+  ironsword: { name: "Iron sword", stack: 1, icon: "⚔️", weapon: 2, age: 2 },
+  ironmail: { name: "Iron scale shirt", stack: 1, icon: "🥋", armor: 2, age: 2 },
+  rope: { name: "Rope", stack: 8, icon: "➰" },
+  bandage: { name: "Bandage", stack: 6, icon: "🩹", heal: 1 },
+  driedmeat: { name: "Dried meat", food: 30, stack: 8, icon: "🥓" },
+  pot: { name: "Clay pot", stack: 3, icon: "⚱️" },
+};
+/** Round 24b: what fallen fighters carry, by their town's age (0 stone, 1 bronze, 2 iron). [id, n, chance] */
+export const LOOT = {
+  0: [["driedmeat", 2, 0.6], ["rope", 1, 0.45], ["bandage", 1, 0.35], ["club", 1, 0.3], ["stoneaxe", 1, 0.25], ["sling", 1, 0.2], ["shield", 1, 0.15], ["jerkin", 1, 0.12], ["pot", 1, 0.25], ["flint", 2, 0.3]],
+  1: [["driedmeat", 2, 0.6], ["rope", 2, 0.45], ["bandage", 2, 0.4], ["bronzeknife", 1, 0.3], ["bronzehelm", 1, 0.15], ["shield", 1, 0.25], ["jerkin", 1, 0.2], ["pot", 1, 0.3], ["copper", 2, 0.25], ["tin", 2, 0.2]],
+  2: [["driedmeat", 3, 0.6], ["rope", 2, 0.4], ["bandage", 2, 0.45], ["ironsword", 1, 0.25], ["ironmail", 1, 0.12], ["bronzehelm", 1, 0.2], ["shield", 1, 0.3], ["bronzeknife", 1, 0.2], ["pot", 1, 0.3], ["iron", 2, 0.25], ["coal", 2, 0.2]],
 };
 export const SKILLS = {
   tools: { name: "Stone Tools", desc: "Knife and spear: harvest carcasses, craft simple gear." },
@@ -80,6 +101,14 @@ export const RECIPES = [
   { id: "salve", name: "Healing salve", desc: "Crushed herbs in fat. Use it to heal a heart.", needs: [["herbs", 2], ["berries", 1]] },
   { id: "raft", name: "Log raft", desc: "Deadwood logs lashed with sinew. Build it at the water's edge, then board it (E / Board).", needs: [["logs", 4], ["sinew", 2]], skill: "surv1" },
   { id: "pick", name: "Stone pick", desc: "A flint head on a bone haft, bound tight. Mine ore veins in the caves.", needs: [["flint", 2], ["bone", 1], ["sinew", 1]], once: true },
+  // round 24b: simple supplies and weapons (you get several of the stackable ones)
+  { id: "rope", name: "Rope", desc: "Sinew twisted into cord: 2 rope. Binds axes, clubs and slings.", needs: [["sinew", 2]], makes: ["rope", 2] },
+  { id: "bandage", name: "Bandages", desc: "Soft pelt strips with crushed herbs: 2 bandages (each heals a heart).", needs: [["pelt", 1], ["herbs", 1]], makes: ["bandage", 2] },
+  { id: "driedmeat", name: "Dried meat", desc: "Thin strips smoked dry: 2 dried meat that feed you well.", needs: [["meat", 2]], makes: ["driedmeat", 2] },
+  { id: "stoneaxe", name: "Stone axe", desc: "A flint head lashed to a haft: +1 spear damage while you carry it.", needs: [["flint", 1], ["logs", 1], ["rope", 1]], makes: ["stoneaxe", 1] },
+  { id: "club", name: "War club", desc: "A heavy knotted club: +1 damage while you carry it.", needs: [["logs", 2], ["rope", 1]], makes: ["club", 1] },
+  { id: "sling", name: "Sling", desc: "A pelt pouch on two cords: +1 bow damage while you carry it.", needs: [["pelt", 1], ["rope", 1]], makes: ["sling", 1] },
+  { id: "shield", name: "Hide shield", desc: "Hide stretched on a wood frame: blocks some blows.", needs: [["hide", 1], ["logs", 2]], makes: ["shield", 1] },
   { id: "torch", name: "Resin torch", desc: "Pine pitch on a bone haft: a brighter torch that reaches further.", needs: [["bone", 1], ["sinew", 1]], once: true },
 ];
 
@@ -115,8 +144,11 @@ export class Survival {
   learn(id, questsDone) { if (this.learnBlock(id, questsDone)) return false; this.sp -= 1; this.skills.add(id); if (id === "hunt1") this.skills.add("tracking"); return true; }
   knows(r) { return !r || !TREE_IDS.some((t) => this.tierInfo(t).t.recipe === r.id) || this.recipes.has(r.id) || TREE_IDS.some((t) => this.skills.has(t) && this.tierInfo(t).t.recipe === r.id); }
   bonusHearts() { return (this.wear.has("cloak") ? 1 : 0) + (this.wear.has("hat") ? 1 : 0) + (this.skills.has("spirit3") ? 1 : 0); }
-  spearBonus() { return this.crafted.has("flintspear") ? 1 : 0; }
-  arrowBonus() { return this.crafted.has("arrows") ? 1 : 0; }
+  spearBonus() { return (this.crafted.has("flintspear") ? 1 : 0) + this.weaponBonus(); }
+  arrowBonus() { return (this.crafted.has("arrows") ? 1 : 0) + (this.count("sling") ? 1 : 0); }
+  /** Round 24b: your best carried weapon, and the armour you carry (each point blocks ~15% of blows, max 60%). */
+  weaponBonus() { let b = 0; for (const it of this.inv) b = Math.max(b, ITEMS[it.id]?.weapon || 0); return b; }
+  armor() { let a = 0; for (const it of this.inv) a += ITEMS[it.id]?.armor || 0; return Math.min(4, a); }
 
   count(id) { return this.inv.filter((s) => s.id === id).reduce((a, s) => a + s.n, 0); }
   freeSlots() { return this.slots - this.inv.length; }
@@ -171,6 +203,11 @@ export class Survival {
       this.craftedFrom = pick[0];
     } else for (const [i, n] of r.needs) this.remove(i, n);
     this.crafted.add(id);
+    if (r.makes) { // round 24b: makes an item (inputs come back if there's no room)
+      this.crafted.delete(id); const got = this.add(r.makes[0], r.makes[1]);
+      if (!got) { for (const [i, n] of r.needs) this.add(i, n); return "No room in your pack"; }
+      return `Made ${got} ${ITEMS[r.makes[0]].name.toLowerCase()}`;
+    }
     if (id === "backpack") { this.slots = 12; return this.craftedFrom === "skin" ? "You sew Tor's skin into a pack. It still smells of him." : "You sew the deer hide into a pack (12 slots)"; }
     if (id === "spear") { this.tools.spearDone = true; return "The bone spear is finished: longer reach, deadlier point"; }
     if (r.gear) { this.wear.add(id); return `${r.name} made, and you put it on`; }

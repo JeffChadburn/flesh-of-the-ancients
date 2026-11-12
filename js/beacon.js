@@ -9,16 +9,17 @@ import * as THREE from "three";
 const HEIGHT = 420, PROXY = 820;
 
 export class Beacon {
-  constructor(scene, root) {
-    this.scene = scene; this.pos = null; this.key = "";
-    const g = (this.group = new THREE.Group()); g.name = "beacon"; g.visible = false; g.renderOrder = 5;
+  /** o (round 24b, the Find marker reuses this): { name, id, icon, outer, inner, ring } colours. */
+  constructor(scene, root, o = {}) {
+    this.scene = scene; this.pos = null; this.key = ""; this.icon = o.icon || "📍";
+    const g = (this.group = new THREE.Group()); g.name = o.name || "beacon"; g.visible = false; g.renderOrder = 5;
     const mk = (r, op, col) => new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.15, HEIGHT, 14, 1, true), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide }));
-    this.outer = mk(3.2, 0.22, 0x5fe8ff); this.inner = mk(0.9, 0.75, 0xd8fbff);
+    this.outer = mk(3.2, 0.22, o.outer ?? 0x5fe8ff); this.inner = mk(0.9, 0.75, o.inner ?? 0xd8fbff);
     for (const m of [this.outer, this.inner]) { m.position.y = HEIGHT / 2; m.frustumCulled = false; m.userData.noMelt = true; g.add(m); }
-    const ring = new THREE.Mesh(new THREE.RingGeometry(2.4, 4.2, 32), new THREE.MeshBasicMaterial({ color: 0x7ff6ff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+    const ring = new THREE.Mesh(new THREE.RingGeometry(2.4, 4.2, 32), new THREE.MeshBasicMaterial({ color: o.ring ?? 0x7ff6ff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide }));
     ring.rotation.x = -Math.PI / 2; ring.position.y = 0.25; g.add(ring); this.ring = ring;
     scene.add(g);
-    const el = (this.el = document.createElement("div")); el.id = "beacon-ind"; el.className = "hidden";
+    const el = (this.el = document.createElement("div")); el.id = o.id || "beacon-ind"; el.className = "hidden";
     el.innerHTML = `<span class="ba"></span><span class="bd"></span>`; root.appendChild(el);
     this._v = new THREE.Vector3(); this._c = new THREE.Vector3();
   }
@@ -42,7 +43,7 @@ export class Beacon {
     this.ring.visible = d < 300;
     // HUD: distance label above the pillar base, or an edge arrow
     const fd = Math.hypot(b.x - feet.x, b.z - feet.z);
-    this.el.querySelector(".bd").textContent = "📍 " + Beacon.fmt(fd);
+    this.el.querySelector(".bd").textContent = this.icon + " " + Beacon.fmt(fd);
     const v = this._v.set(b.x, gy + Math.min(40, 6 + d * 0.04), b.z).project(cam);
     const front = this._c.set(b.x, gy, b.z).applyMatrix4(cam.matrixWorldInverse).z < 0;
     const behind = !front, onScreen = front && Math.abs(v.x) < 0.92; // the pillar is tall: in view whenever it's ahead and inside the sides

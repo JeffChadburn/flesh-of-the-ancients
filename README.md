@@ -20,7 +20,7 @@ The main menu offers **Continue** (from the last save), **New Game** (Act I, "Th
   - `?stream=0` turns streaming off and builds the whole cave at once (for comparison)
 - **Buttons:** **Hills** returns to the overworld from anywhere. **Debug** (or the **G** key) shows the streaming overlay: chunk outlines and live stats.
 
-- **Desktop:** click to look, WASD or arrow keys to walk, Shift to run, **Space** to jump, **E** to get on / off a horse, **left click** or **F** to stab with the spear, **V** to switch between third and first person, **C** to crouch, **Z** or **Ctrl** to crawl, Esc to release the mouse. Press the same key again to rise if the ceiling allows it.
+- **Desktop:** click to look, WASD or arrow keys to walk, Shift to run, **Space** to jump, **E** to get on / off a horse, **left click** or **R** to stab with the spear, **F** to find things (mushrooms, water, ore…), **H** to blow the war horn near a hostile town, **V** to switch between third and first person, **C** to crouch, **Z** or **Ctrl** to crawl, Esc to release the mouse. Press the same key again to rise if the ceiling allows it.
 - **Phone:** the left pad walks; push it further out to run. Drag on the right side of the screen to look. The big round **Stab** button attacks. **Crouch**, **Crawl**, **1st person**, **Jump** and (next to a horse) **Ride / Dismount** sit bottom right. The **☰** button opens the rest (New cave, Carlsbad, seed, sound, music, reset tally).
 - Low passages will not duck for you. A standing player is blocked until they choose to crouch, and the tightest squeezes need crawl. A short hint appears when a low passage is ahead.
 - Your torch is the only light; past about 10 m the cave fades to black. Depth and distance are shown at the top left, with a north-up plan of the cave at the top right (the stream is drawn in blue-green).
@@ -299,6 +299,33 @@ Draw calls go up slightly because each cell is its own mesh. The triangle count 
     - The boot-check box in `index.html` reports anything else.
     - `?failhigh=1` simulates a High failure, for testing.
   - URL: `?play=tutorial&ch=N` (N = 0–4) opens the tutorial at a chapter.
+- **Round 24b: 🔍 Find.** (`js/find.js`)
+  - A **🔍** button sits beside the map buttons under the minimap, and there is a **🔍 Find** button in the big map. On desktop, press **F**; on a gamepad, press D-pad down. Pick what you are after: mushrooms, berries, water, flint & stone, wood, copper / tin / coal / iron ore, herbs, animals to hunt, fish, horses, boats, cave entrances, villagers & towns, or the quest target (same as 💡 Hint). **Needed now** at the top lists what your active quest, thirst / hunger and the recipes you know are missing (e.g. "Bone ×2 for bone arrows").
+  - The game searches its world plans, including places that haven't loaded yet: mushroom and berry spots, rivers, lakes and the camp stream, cave mouths (the flint, ochre, bone, ore and mushrooms inside each cave are worked out from its seed), towns and your settlements. Trees within about 300 m count too. Animals, horses and fish only exist near you, so those searches cover what's around. The nearest one wins; unexplored places count as 1.5× as far, so places you know come first. A mushroom out in the open beats one somewhere down a cave.
+  - The target gets a **green light pillar** with its distance (or an arrow at the screen edge), a green 🔍 on the minimap (an arrow on the rim when it's further away) and on the big map, and the compass points at it. **Next nearest** and **✕ Clear** are in the Find panel and in the map's tap menu. Inside a cave, Find points to the flint, ore, mushrooms and fish in that cave.
+  - It clears itself with a "🔍 Found!" toast and a soft chime when you get within about 6 m, or when the thing is picked up or killed. If there are none, it says so kindly and tells you where they grow.
+  - Key change: **F** now opens Find, so stabbing is **left click or R**. The Controls sheet, the hints and the tutorial are updated, and there is a new tutorial step: World → Find.
+- **Round 24b (cont.): hostile towns, predators, loot, Call to Arms, town music, animal fixes.**
+  - *Stats table* (`js/act1/stats.js`, shown in ☰ → Controls → 🐾 Creatures): HP, damage, speed and abilities for every animal and fighter.
+
+    | | HP | Hit | m/s | Abilities |
+    |---|---|---|---|---|
+    | Rabbit / bird / deer / goat / fox | 1 | – | 3.2–4.2 | flee (rabbits zig-zag, birds fly, deer herd, goats climb) |
+    | Wild horse | 2 | – | 7 | flee, herd, mount |
+    | Boar | 2 | 1 | 3.5 (charge 6.5) | flee; charges back when hurt, gores once |
+    | **Wolf** | 2 | 1 | 5.4 | stalk, pounce, **pack**, flees at half HP |
+    | **Brown bear** | 5 | 2 | 4.8 (charge 7.5) | stalk, charge |
+    | Villager / warrior / spear-thrower / war chief | 2 / 4 / 3 / 7 | 1 / 1 / 1 / 2 | 3.6–4.3 | flee / melee / throw (15 m) / melee |
+    | Your warrior (Call to Arms) | 5 | 1 | 4.6 | melee |
+
+    (Iron-age fighters get +1 HP and +1 damage; your warriors get +1 HP per age and +1 damage from the Bronze Age.)
+  - *Predators:* wolf packs (3–4) and lone bears roam temperate, alpine and tundra country, never within ~380 m of the old camp or close to towns, and not in the tutorial. Inside their range they **stalk** you (a toast warns you), circling closer, then the whole pack **charges** and bites in reach, backing off between bites; a wolf pounces the last few metres. Hurt one badly and it runs. Galloping on a horse outruns wolves. Nothing attacks while you're inside a friendly town or your own settlement. Boars now charge back when wounded.
+  - *Hostile towns:* a few camps and villages (never cities, never the story's towns or the ones nearest the start) are hostile, marked red with ⚔ on the minimap and the map. Their people won't talk. Step inside the palisade, strike one or raid their baskets, and the town takes up arms: villagers flee, warriors close in, spear-throwers keep their distance and throw spears you can see in flight, a war chief leads; anyone badly hurt breaks and runs. Leave for a while and they calm down. The fallen stay fallen (saved per world and mode).
+  - *Loot:* fallen fighters drop a pouch (E: "Search the fallen warrior's pouch") with gear for the town's age. Stone: stone axe, club, sling, hide shield, hide jerkin, rope, bandage, dried meat, clay pot. Bronze: bronze knife, bronze helm. Iron: iron sword, iron mail. Every item has an Inspect description. Weapons add to spear damage (the best one counts), a sling adds to arrows, shield / jerkin / helm / mail add armour (each point is a 15% chance to turn a blow aside, up to 4), bandages heal a heart, dried meat feeds, and rope, bandage, dried meat, stone axe, club, sling and shield can be crafted. Dried meat, pots and rope can go into your settlement's stores.
+  - *📯 Call to Arms:* near a hostile town (within ~260 m) a 📯 button appears beside 🔍 (**H** on desktop, D-pad left on a gamepad). Warriors come from friendly towns within 1.5 km (camp 1, village 2, city 4) and your own settlements (more with size and age), up to 8 (6 on phones). They march in from their home's direction, fight beside you, show as blue ⚔ on the minimap and map, and go home after about 2½ minutes. Cooldown 3 minutes (shown on the button).
+  - *Town music* (`js/townmusic.js`): friendly towns and your own settlements get a warm frame-drum, shaker and wooden-flute theme; hostile towns (or a town fight) get war drums, a dark drone and a bone flute. They crossfade in and out over the open-world score through the Music bus, so the Audio mixer's Music slider and Music on / off apply.
+  - *Animal geometry fixes* (found by an audit of every part's bounds): the deer's belly floated under its body and its antler tines were detached; the boar's snout, tusks, eyes and ears were buried in its head; the fox's ears floated above its head, its tail hung ~0.5 m behind it with a floating tip, and its eyes were buried; both horse coats had a belly floating between the legs. Cause: parts were scaled after being moved. Zero-area triangles at sphere / capsule poles (deer, boar, goat, fox, horse) are dropped. Rabbit, bird, goat and all legs were fine. New meshes: wolf and bear.
+
 - **Round 20: talkative townsfolk, your own settlements, and the ages.**
   - *Talk to anyone:* every person in a town (and your own villagers) can be talked to with E / **Talk**, in the story and in free play. They stop and turn when you walk up.
     - Each has a name, a trade, a temperament and their own voice (spoken with subtitles when Voices are on).

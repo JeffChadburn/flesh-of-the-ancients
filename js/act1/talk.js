@@ -205,10 +205,11 @@ export class TownTalk {
     const n = env.people()?.nearest(f.x, f.z);
     if (!n || n.d > 7 || n.d < 2) return;
     const p = n.p, m = this.m(p), now = env.time();
+    if (p.s?.hostile && p.fight && p.ext) return; // round 24b: fighting, not chatting
     if ((this._lastBark || -99) > now - 14 || (m.barkAt || -99) > now - 90) return;
     m.barkAt = now; this._lastBark = now;
     const c = this.ctx(p), I = p.ident;
-    const lines = I.ext ? ["Kra! The stores are filling.", "Good day for work.", "Back to it, then."] :
+    const lines = p.s?.hostile ? ["Outsider. Turn around.", "You're not welcome here.", "One more step...", "Go back where you came from."] : I.ext ? ["Kra! The stores are filling.", "Good day for work.", "Back to it, then."] :
       c.faces > 1 ? ["Don't look at him. Don't look at the faces.", "Spirits...", "Keep walking, face-wearer."] :
       m.rel >= 1.5 ? [`Kra! Over here!`, "Ho, Kra!", "Good hunting, friend."] :
       c.part === "night" ? ["Stay near the fire tonight.", "Who's there?"] : c.weather === "rain" || c.weather === "storm" ? ["Get under a roof, fool.", "This rain..."] :

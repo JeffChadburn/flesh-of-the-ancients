@@ -7,23 +7,29 @@ export const CONTROLS = {
     ["Move", "Left joystick (push further = faster)"], ["Look", "Drag anywhere on the right side"], ["Sprint", "Push the stick all the way out (uses stamina)"],
     ["Jump", "Jump"], ["Crouch / Crawl", "Crouch, Crawl (tap again to stand)"], ["Torch up / down", "🔥 Torch"], ["Attack", "Stab (or Shoot with the bow)"],
     ["Spear ⇄ Bow", "Bow / Spear"], ["Use / pick up / talk / ride", "The action button (it names the action)"], ["Pack, crafting, skills", "🎒 Pack"],
-    ["Tasks (quest log)", "📜 Tasks"], ["Map", "Tap the minimap, or 🗺"], ["Map filters / hint / beacon / travel", "In the map: Filters, Hint, tap a place"],
+    ["Tasks (quest log)", "📜 Tasks"], ["Map", "Tap the minimap, or 🗺"], ["Find (mushrooms, water, flint, ore…)", "🔍 by the minimap, or 🔍 Find in the map"], ["Call to Arms (near a hostile town)", "📯 by the minimap"], ["Map filters / hint / beacon / travel", "In the map: Filters, Hint, tap a place"],
     ["1st / 3rd person", "1st person"], ["Mount / dismount, boat", "Ride / Get out"], ["Leave a cave", "🏔 Exit cave"],
     ["Town / building", "🏕 Town button (after you found one)"], ["Menu, Audio, Controls, Multiplayer", "☰"],
   ],
   desktop: [
     ["Move", "W A S D or arrow keys"], ["Look", "Mouse (click the view first)"], ["Walk / jog / run pace", "1 / 2 / 3"], ["Sprint", "Hold Shift (uses stamina)"],
-    ["Jump", "Space"], ["Crouch", "C"], ["Crawl", "Z or Ctrl"], ["Torch up / down", "L"], ["Attack", "Left click or F"], ["Spear ⇄ Bow", "Q or B"],
-    ["Use / pick up / talk / ride", "E"], ["Pack / Crafting / Skills", "I / Tab / K"], ["Tasks (quest log)", "J"], ["Map", "M"],
+    ["Jump", "Space"], ["Crouch", "C"], ["Crawl", "Z or Ctrl"], ["Torch up / down", "L"], ["Attack", "Left click or R"], ["Spear ⇄ Bow", "Q or B"],
+    ["Use / pick up / talk / ride", "E"], ["Pack / Crafting / Skills", "I / Tab / K"], ["Tasks (quest log)", "J"], ["Map", "M"], ["Find (mushrooms, water, flint, ore…)", "F (or 🔍 by the minimap)"], ["Call to Arms (near a hostile town)", "H (or 📯)"],
     ["1st / 3rd person", "V"], ["Time / weather (testing)", "T / Y"], ["Close panels", "Esc"], ["Multiplayer chat / talk", "Enter / hold V (in a room)"],
   ],
   pad: [
     ["Move", "Left stick (push further = faster)"], ["Look", "Right stick"], ["Sprint", "Right trigger or click the left stick"],
     ["Jump", "A"], ["Crouch (again: crawl, again: stand)", "B"], ["Attack", "X"], ["Use / pick up / talk / ride", "Y"],
-    ["Spear ⇄ Bow", "LB"], ["Torch up / down", "RB"], ["Map", "Back / View"], ["Pack", "Start / Menu"], ["Tasks", "D-pad up"],
+    ["Spear ⇄ Bow", "LB"], ["Torch up / down", "RB"], ["Map", "Back / View"], ["Pack", "Start / Menu"], ["Tasks", "D-pad up"], ["Find", "D-pad down"], ["Call to Arms", "D-pad left"],
   ],
 };
-const NAMES = { touch: "📱 Phone / tablet", desktop: "⌨️ Keyboard & mouse", pad: "🎮 Gamepad" };
+import { STATS, ABILITY } from "./act1/stats.js"; // round 24b: the creature / fighter table
+const NAMES = { touch: "📱 Phone / tablet", desktop: "⌨️ Keyboard & mouse", pad: "🎮 Gamepad", beasts: "🐾 Creatures" };
+function beastTable() {
+  const row = ([k, v]) => `<tr><th>${v.name}</th><td>${"♥".repeat(Math.min(8, v.hp))}${v.hp > 8 ? "+" : ""}</td><td>${v.dmg ? "⚔".repeat(v.dmg) : "–"}</td><td>${v.speed}</td><td title="${v.abilities.map((a) => ABILITY[a]).join(" · ")}">${v.abilities.join(", ")}</td></tr>`;
+  return `<table class="cs-beasts"><tr><th></th><td><b>HP</b></td><td><b>Hit</b></td><td><b>m/s</b></td><td><b>Abilities</b></td></tr>${Object.entries(STATS).map(row).join("")}</table>
+    <p class="cs-tip">HP = spear hits to bring it down (a flint spear or Strength hits harder). Hit = hearts it takes. Predators stalk, then attack in range; wolves hunt in packs; prey flees. Hostile towns: villagers flee, warriors close in, spear-throwers keep their distance, anyone badly hurt runs. Shields and armour can turn a blow aside.</p>`;
+}
 export function currentDevice(touch) {
   try { if ([...(navigator.getGamepads?.() || [])].some((g) => g && g.connected)) return "pad"; } catch {}
   return touch ? "touch" : "desktop";
@@ -42,8 +48,8 @@ export class ControlsSheet {
   render(dev) {
     this.dev = dev;
     this.el.innerHTML = `<div class="cs-box"><div class="cs-head"><h3>Controls</h3><button type="button" class="cs-close" aria-label="Close">✕</button></div>
-      <div class="cs-tabs">${Object.keys(CONTROLS).map((d) => `<button type="button" data-d="${d}" class="${d === dev ? "on" : ""}">${NAMES[d]}${d === currentDevice(this.touch) ? " · yours" : ""}</button>`).join("")}</div>
-      <table>${CONTROLS[dev].map(([a, b]) => `<tr><th>${a}</th><td>${b}</td></tr>`).join("")}</table>
+      <div class="cs-tabs">${[...Object.keys(CONTROLS), "beasts"].map((d) => `<button type="button" data-d="${d}" class="${d === dev ? "on" : ""}">${NAMES[d]}${d === currentDevice(this.touch) ? " · yours" : ""}</button>`).join("")}</div>
+      ${dev === "beasts" ? beastTable() : `<table>${CONTROLS[dev].map(([a, b]) => `<tr><th>${a}</th><td>${b}</td></tr>`).join("")}</table>`}
       <p class="cs-tip">Want a guided tour? ☰ → Tutorial.</p></div>`;
   }
 }

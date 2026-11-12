@@ -10,15 +10,25 @@ import * as THREE from "three";
 import { mulberry32 } from "../rng.js";
 import { fbm2 } from "../world/terrain.js";
 import { addDetail, smoothNormals } from "../realism.js";
+import { STATS } from "./stats.js"; // round 24b
 
 function merged(parts) {
   const pos = [], nrm = [], col = [], c = new THREE.Color();
+  const info = []; // round 24b: per-part bounds / volume, for the geometry audit
   for (const [g0, hex] of parts) {
     const g = g0.index ? g0.toNonIndexed() : g0;
-    g.computeVertexNormals();
-    pos.push(...g.attributes.position.array); nrm.push(...g.attributes.normal.array);
+    g.computeVertexNormals(); g.computeBoundingBox();
+    { const P = g.attributes.position.array; let v = 0, degen = 0; for (let i = 0; i < P.length; i += 9) { const ax = P[i], ay = P[i + 1], az = P[i + 2], bx = P[i + 3], by = P[i + 4], bz = P[i + 5], cx = P[i + 6], cy = P[i + 7], cz = P[i + 8]; v += (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)) / 6; const ux = bx - ax, uy = by - ay, uz = bz - az, wx = cx - ax, wy = cy - ay, wz = cz - az; if (Math.hypot(uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx) < 1e-9) degen++; }
+      info.push({ hex, min: g.boundingBox.min.toArray(), max: g.boundingBox.max.toArray(), vol: v, tris: P.length / 9, degen }); }
+    // round 24b: skip zero-area triangles (capsule / sphere poles), which shade as dark specks
+    const PA = g.attributes.position.array, NA = g.attributes.normal.array;
     c.setHex(hex);
-    for (let i = 0; i < g.attributes.position.count; i++) col.push(c.r, c.g, c.b);
+    for (let i = 0; i < PA.length; i += 9) {
+      const ux = PA[i + 3] - PA[i], uy = PA[i + 4] - PA[i + 1], uz = PA[i + 5] - PA[i + 2], wx = PA[i + 6] - PA[i], wy = PA[i + 7] - PA[i + 1], wz = PA[i + 8] - PA[i + 2];
+      if (Math.hypot(uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx) < 1e-9) continue;
+      for (let k = 0; k < 9; k++) { pos.push(PA[i + k]); nrm.push(NA[i + k]); }
+      col.push(c.r, c.g, c.b, c.r, c.g, c.b, c.r, c.g, c.b);
+    }
     if (g !== g0) g.dispose(); g0.dispose();
   }
   const out = new THREE.BufferGeometry();
@@ -26,6 +36,7 @@ function merged(parts) {
   out.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
   out.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
   out.computeBoundingSphere();
+  out.userData.parts = info;
   return out;
 }
 const T = (g, x, y, z) => { g.translate(x, y, z); return g; };
@@ -44,10 +55,15 @@ const SPEC = {
   // Round 12: wild horses. Calm grazers: walking up only makes them watch you (so you can mount),
   // running at them or hurting them makes the herd bolt.
   horse:  { r: [2, 4.5, 16, 1.5], speed: 7.0, calm: 30, hits: 2, reach: 4.6, wander: 0.9, fleeT: 4, calmHerd: true },
+  // Round 24b: predators (they don't spook; see STATS for their aggro / attack)
+  wolf:   { r: [0, 0, 0, 0], speed: 5.4, calm: 40, hits: 2, reach: 4.0, wander: 0.9, fleeT: 6 },
+  bear:   { r: [0, 0, 0, 0], speed: 4.8, calm: 40, hits: 5, reach: 4.4, wander: 0.6, fleeT: 6 },
 };
+for (const [k, v] of Object.entries(SPEC)) { v.st = STATS[k]; v.hits = STATS[k]?.hp ?? v.hits; } // round 24b: one stats table
 const QUAD = { deer: { geo: "deerBody", leg: "leg", hip: 0.86, lx: 0.15, lz: 0.42 }, boar: { geo: "boarBody", leg: "legShort", hip: 0.42, lx: 0.16, lz: 0.36 },
   goat: { geo: "goatBody", leg: "legGoat", hip: 0.6, lx: 0.12, lz: 0.3 }, fox: { geo: "foxBody", leg: "legFox", hip: 0.3, lx: 0.08, lz: 0.2 },
-  horse: { geo: "horseBay", geo2: "horseDun", leg: "legHorse", leg2: "legHorseDun", hip: 1.14, lx: 0.2, lz: 0.56 } };
+  horse: { geo: "horseBay", geo2: "horseDun", leg: "legHorse", leg2: "legHorseDun", hip: 1.14, lx: 0.2, lz: 0.56 },
+  wolf: { geo: "wolfBody", leg: "legWolf", hip: 0.5, lx: 0.1, lz: 0.3 }, bear: { geo: "bearBody", leg: "legBear", hip: 0.66, lx: 0.25, lz: 0.42 } };
 /** Roaming species per streamed 64 m cell: [kind, weight, group size range]. */
 const ROAM = [["rabbit", 0.24, [1, 3]], ["bird", 0.14, [2, 3]], ["deer", 0.16, [2, 4]], ["boar", 0.18, [1, 3]], ["goat", 0.12, [2, 3]], ["fox", 0.16, [1, 1]]];
 export const ANIMAL_YIELD = {
@@ -58,7 +74,129 @@ export const ANIMAL_YIELD = {
   goat: [["meat", 2], ["hide", 1]],
   fox: [["pelt", 1], ["meat", 1]],
   horse: [["meat", 4], ["hide", 2], ["organ", 1]],
+  wolf: [["pelt", 2], ["meat", 1], ["sinew", 1]],
+  bear: [["hide", 2], ["meat", 5], ["sinew", 2], ["organ", 1]],
 };
+
+/** The animal meshes (round 24b: a top-level function so tests can audit them). */
+export function animalGeos() {
+  const rab = merged([
+    [S(T(new THREE.SphereGeometry(0.2, 7, 5), 0, 0.2, 0), 0.85, 0.8, 1.35), 0x8a7a64],
+    [T(new THREE.SphereGeometry(0.11, 6, 5), 0, 0.34, -0.25), 0x8f7f68],
+    [T(S(new THREE.BoxGeometry(0.04, 0.22, 0.07), 1, 1, 1), -0.04, 0.5, -0.22), 0x9a876c],
+    [T(S(new THREE.BoxGeometry(0.04, 0.22, 0.07), 1, 1, 1), 0.04, 0.5, -0.22), 0x9a876c],
+    [T(new THREE.SphereGeometry(0.06, 5, 4), 0, 0.26, 0.27), 0xeeeae2],
+    [T(new THREE.SphereGeometry(0.02, 4, 3), -0.06, 0.37, -0.33), 0x111111],
+    [T(new THREE.SphereGeometry(0.02, 4, 3), 0.06, 0.37, -0.33), 0x111111],
+  ]);
+  const birdBody = merged([
+    [S(T(new THREE.SphereGeometry(0.09, 6, 5), 0, 0.12, 0), 0.9, 0.85, 1.6), 0x3b3a40],
+    [T(new THREE.SphereGeometry(0.06, 6, 5), 0, 0.2, -0.12), 0x2e2d33],
+    [T(new THREE.ConeGeometry(0.02, 0.07, 4).rotateX(-Math.PI / 2), 0, 0.2, -0.19), 0xd08a2a],
+    [T(S(new THREE.BoxGeometry(0.08, 0.015, 0.12), 1, 1, 1), 0, 0.13, 0.17), 0x2a292e],
+  ]);
+  const wing = merged([[T(new THREE.BoxGeometry(0.22, 0.012, 0.11), 0.11, 0, 0), 0x45444c]]);
+  const deerBody = merged([
+    [S(T(new THREE.CapsuleGeometry(0.27, 0.75, 3, 7).rotateX(Math.PI / 2), 0, 1.05, 0), 1, 1.05, 1), 0x8a6040],
+    [T(new THREE.CylinderGeometry(0.1, 0.15, 0.6, 6).rotateX(0.65), 0, 1.38, -0.55), 0x86603f],
+    [S(T(new THREE.BoxGeometry(0.17, 0.2, 0.36), 0, 1.66, -0.78), 1, 1, 1), 0x7c583a],
+    [T(new THREE.ConeGeometry(0.05, 0.16, 4), -0.09, 1.82, -0.68), 0x6a4a30],
+    [T(new THREE.ConeGeometry(0.05, 0.16, 4), 0.09, 1.82, -0.68), 0x6a4a30],
+    [T(new THREE.SphereGeometry(0.07, 5, 4), 0, 1.15, 0.58), 0xf0ece4],
+    [T(S(new THREE.SphereGeometry(0.2, 6, 5), 1.2, 0.6, 2.6), 0, 0.9, 0), 0xc8a888], // round 24b: was scaled after the move, so the belly floated under the deer
+    [T(new THREE.SphereGeometry(0.025, 4, 3), -0.08, 1.7, -0.92), 0x111111],
+    [T(new THREE.SphereGeometry(0.025, 4, 3), 0.08, 1.7, -0.92), 0x111111],
+  ]);
+  const antlers = merged([
+    [T(new THREE.CylinderGeometry(0.018, 0.025, 0.4, 4).rotateZ(0.5), -0.14, 1.95, -0.7), 0xd9ccb0],
+    [T(new THREE.CylinderGeometry(0.018, 0.025, 0.4, 4).rotateZ(-0.5), 0.14, 1.95, -0.7), 0xd9ccb0],
+    [T(new THREE.CylinderGeometry(0.014, 0.018, 0.22, 4).rotateX(-0.6), -0.2, 2.14, -0.78), 0xd9ccb0], // round 24b: tines sit on the beams (they floated)
+    [T(new THREE.CylinderGeometry(0.014, 0.018, 0.22, 4).rotateX(-0.6), 0.2, 2.14, -0.78), 0xd9ccb0],
+  ]);
+  const leg = merged([[T(new THREE.CylinderGeometry(0.035, 0.05, 0.85, 5), 0, -0.42, 0), 0x6e4c32]]);
+  const boarBody = merged([
+    [S(T(new THREE.CapsuleGeometry(0.3, 0.55, 3, 7).rotateX(Math.PI / 2), 0, 0.62, 0), 1, 1.05, 1), 0x3e3128],
+    [S(T(new THREE.BoxGeometry(0.1, 0.16, 0.7), 0, 0.92, -0.05), 1, 1, 1), 0x2a211b],
+    [T(S(new THREE.SphereGeometry(0.22, 7, 5), 1, 0.95, 1.25), 0, 0.6, -0.55), 0x46372c], // round 24b: head no longer swallows the snout, tusks and eyes
+    [T(new THREE.CylinderGeometry(0.08, 0.1, 0.12, 6).rotateX(Math.PI / 2), 0, 0.55, -0.82), 0x6a5040],
+    [T(new THREE.ConeGeometry(0.025, 0.14, 4).rotateX(-2.2), -0.09, 0.5, -0.84), 0xe8e0cc],
+    [T(new THREE.ConeGeometry(0.025, 0.14, 4).rotateX(-2.2), 0.09, 0.5, -0.84), 0xe8e0cc],
+    [T(new THREE.ConeGeometry(0.06, 0.12, 4), -0.12, 0.83, -0.6), 0x2e241d], // ears on the head (were buried in the back)
+    [T(new THREE.ConeGeometry(0.06, 0.12, 4), 0.12, 0.83, -0.6), 0x2e241d],
+    [T(new THREE.SphereGeometry(0.025, 4, 3), -0.11, 0.7, -0.76), 0x111111],
+    [T(new THREE.SphereGeometry(0.025, 4, 3), 0.11, 0.7, -0.76), 0x111111],
+  ]);
+  const goatBody = merged([
+    [S(T(new THREE.CapsuleGeometry(0.22, 0.5, 3, 7).rotateX(Math.PI / 2), 0, 0.78, 0), 1, 1.05, 1), 0xc9c1b2],
+    [T(new THREE.CylinderGeometry(0.08, 0.11, 0.38, 6).rotateX(0.5), 0, 1.0, -0.4), 0xbfb6a6],
+    [S(T(new THREE.BoxGeometry(0.15, 0.17, 0.3), 0, 1.2, -0.56), 1, 1, 1), 0xb3aa99],
+    [T(new THREE.TorusGeometry(0.1, 0.022, 4, 8, Math.PI * 1.2).rotateY(Math.PI / 2), -0.07, 1.32, -0.48), 0x5b5248],
+    [T(new THREE.TorusGeometry(0.1, 0.022, 4, 8, Math.PI * 1.2).rotateY(Math.PI / 2), 0.07, 1.32, -0.48), 0x5b5248],
+    [T(new THREE.ConeGeometry(0.03, 0.12, 4).rotateX(Math.PI), 0, 1.05, -0.68), 0xe0d8c8],
+    [T(new THREE.SphereGeometry(0.02, 4, 3), -0.07, 1.25, -0.7), 0x111111],
+    [T(new THREE.SphereGeometry(0.02, 4, 3), 0.07, 1.25, -0.7), 0x111111],
+  ]);
+  const foxBody = merged([
+    [S(T(new THREE.CapsuleGeometry(0.12, 0.42, 3, 7).rotateX(Math.PI / 2), 0, 0.38, 0), 1, 1, 1), 0xc0602a],
+    [T(S(new THREE.SphereGeometry(0.12, 7, 5), 1, 0.9, 1.1), 0, 0.46, -0.36), 0xc8662c], // round 24b: head back up under the ears
+    [T(new THREE.ConeGeometry(0.05, 0.16, 5).rotateX(-Math.PI / 2), 0, 0.43, -0.52), 0xd8d0c4],
+    [T(new THREE.ConeGeometry(0.045, 0.12, 4), -0.06, 0.6, -0.34), 0x3a2418],
+    [T(new THREE.ConeGeometry(0.045, 0.12, 4), 0.06, 0.6, -0.34), 0x3a2418],
+    [T(S(new THREE.SphereGeometry(0.09, 6, 5), 1, 0.9, 2.6), 0, 0.42, 0.52), 0xb85a26], // tail joined to the body (it floated 0.5 m behind)
+    [T(new THREE.SphereGeometry(0.05, 5, 4), 0, 0.43, 0.75), 0xf2ece2], // white tip at the end of the tail
+    [T(new THREE.SphereGeometry(0.015, 4, 3), -0.05, 0.5, -0.475), 0x111111],
+    [T(new THREE.SphereGeometry(0.015, 4, 3), 0.05, 0.5, -0.475), 0x111111],
+  ]);
+  // Round 24b: predators. Grey wolf (lean, long legs, bushy tail, faces -z) and brown bear (heavy, humped).
+  const wolfBody = merged([
+    [T(S(new THREE.CapsuleGeometry(0.17, 0.62, 3, 7).rotateX(Math.PI / 2), 1, 1.05, 1), 0, 0.62, 0), 0x6f6a62],
+    [T(new THREE.CylinderGeometry(0.11, 0.15, 0.32, 6).rotateX(0.9), 0, 0.72, -0.44), 0x77716a],
+    [T(S(new THREE.SphereGeometry(0.15, 7, 5), 1, 0.9, 1.1), 0, 0.8, -0.58), 0x7a746c],
+    [T(S(new THREE.BoxGeometry(0.12, 0.1, 0.2), 1, 1, 1), 0, 0.75, -0.76), 0x8a847a],
+    [T(new THREE.SphereGeometry(0.03, 4, 3), 0, 0.77, -0.87), 0x141210],
+    [T(new THREE.ConeGeometry(0.05, 0.13, 4), -0.07, 0.98, -0.55), 0x4e4a44],
+    [T(new THREE.ConeGeometry(0.05, 0.13, 4), 0.07, 0.98, -0.55), 0x4e4a44],
+    [T(S(new THREE.SphereGeometry(0.15, 6, 5), 1.15, 0.7, 2.3), 0, 0.57, 0), 0xb0aaa0],
+    [T(S(new THREE.SphereGeometry(0.08, 6, 5), 1, 0.95, 3.2).rotateX(0.5), 0, 0.6, 0.6), 0x5e5952],
+    [T(new THREE.SphereGeometry(0.022, 4, 3), -0.065, 0.86, -0.725), 0xd8b040],
+    [T(new THREE.SphereGeometry(0.022, 4, 3), 0.065, 0.86, -0.725), 0xd8b040],
+  ]);
+  const legWolf = merged([[T(new THREE.CylinderGeometry(0.035, 0.03, 0.5, 5), 0, -0.25, 0), 0x55504a]]);
+  const bearBody = merged([
+    [T(S(new THREE.CapsuleGeometry(0.42, 0.75, 3, 8).rotateX(Math.PI / 2), 1, 1.05, 1), 0, 0.95, 0), 0x4a3424],
+    [T(S(new THREE.SphereGeometry(0.36, 7, 5), 1.05, 0.9, 1), 0, 1.22, -0.32), 0x523a28],
+    [T(S(new THREE.SphereGeometry(0.25, 7, 5), 1, 0.95, 1.1), 0, 1.08, -0.88), 0x4e3726],
+    [T(S(new THREE.SphereGeometry(0.12, 6, 5), 0.9, 0.8, 1.2), 0, 1.0, -1.1), 0x7a5a40],
+    [T(new THREE.SphereGeometry(0.04, 4, 3), 0, 1.02, -1.24), 0x141210],
+    [T(new THREE.SphereGeometry(0.075, 5, 4), -0.17, 1.3, -0.82), 0x3a281a],
+    [T(new THREE.SphereGeometry(0.075, 5, 4), 0.17, 1.3, -0.82), 0x3a281a],
+    [T(new THREE.SphereGeometry(0.03, 4, 3), -0.11, 1.16, -1.115), 0x111111],
+    [T(new THREE.SphereGeometry(0.03, 4, 3), 0.11, 1.16, -1.115), 0x111111],
+    [T(new THREE.SphereGeometry(0.1, 5, 4), 0, 1.0, 0.82), 0x3e2c1e],
+  ]);
+  const legBear = merged([[T(new THREE.CylinderGeometry(0.12, 0.1, 0.62, 6), 0, -0.31, 0), 0x3e2c1e], [T(S(new THREE.SphereGeometry(0.12, 6, 4), 1, 0.5, 1.3), 0, -0.6, -0.04), 0x2e2016]]);
+  const legShort = merged([[T(new THREE.CylinderGeometry(0.045, 0.055, 0.42, 5), 0, -0.21, 0), 0x2a211b]]);
+  const legGoat = merged([[T(new THREE.CylinderGeometry(0.03, 0.04, 0.6, 5), 0, -0.3, 0), 0x8f8676]]);
+  const legFox = merged([[T(new THREE.CylinderGeometry(0.02, 0.025, 0.3, 4), 0, -0.15, 0), 0x2a1a12]]);
+  // Round 12: horse (Przewalski-like: stocky, upright dark mane), bay and dun coats; faces -z
+  const horse = (coat, dark, belly) => merged([
+    [S(T(new THREE.CapsuleGeometry(0.36, 1.05, 3, 8).rotateX(Math.PI / 2), 0, 1.36, 0), 1, 1.1, 1), coat],
+    [T(new THREE.CylinderGeometry(0.15, 0.25, 0.8, 7).rotateX(-0.63), 0, 1.72, -0.86), coat],
+    [T(new THREE.BoxGeometry(0.07, 0.86, 0.13).rotateX(-0.63), 0, 1.84, -0.78), dark],
+    [T(new THREE.BoxGeometry(0.22, 0.26, 0.62).rotateX(-0.7), 0, 1.86, -1.3), coat],
+    [T(new THREE.BoxGeometry(0.2, 0.17, 0.2).rotateX(-0.7), 0, 1.66, -1.53), 0x2a2220],
+    [T(new THREE.ConeGeometry(0.045, 0.16, 4), -0.07, 2.17, -1.1), dark],
+    [T(new THREE.ConeGeometry(0.045, 0.16, 4), 0.07, 2.17, -1.1), dark],
+    [T(new THREE.CylinderGeometry(0.03, 0.09, 0.85, 5).rotateX(-0.45), 0, 1.15, 1.0), dark],
+    [T(S(new THREE.SphereGeometry(0.3, 7, 5), 1.0, 0.55, 2.1), 0, 1.18, 0), belly], // round 24b: belly under the barrel (it floated between the legs)
+    [T(new THREE.SphereGeometry(0.028, 4, 3), -0.115, 1.95, -1.36), 0x111111],
+    [T(new THREE.SphereGeometry(0.028, 4, 3), 0.115, 1.95, -1.36), 0x111111],
+  ]);
+  const horseBay = horse(0x7a4a2a, 0x24170f, 0x8e6444), horseDun = horse(0xb3905e, 0x3a2a1c, 0xd0b58a);
+  const legH = (c) => merged([[T(new THREE.CylinderGeometry(0.065, 0.075, 1.0, 6), 0, -0.5, 0), c], [T(new THREE.CylinderGeometry(0.07, 0.085, 0.14, 6), 0, -1.07, 0), 0x1c1612]]);
+  const legHorse = legH(0x3a2618), legHorseDun = legH(0x4a3626);
+  return { rab, birdBody, wing, deerBody, antlers, leg, boarBody, goatBody, foxBody, legShort, legGoat, legFox, horseBay, horseDun, legHorse, legHorseDun, wolfBody, legWolf, bearBody, legBear };
+}
 
 export class Wildlife {
   constructor(terrain, scene, { lite = false } = {}) {
@@ -113,6 +251,7 @@ export class Wildlife {
         break;
       }
     }
+    this._predators(cx, cz, key, list, h, cap);
     for (let g = 0; g < groups; g++) {
       if (this.list.length >= cap) break;
       let roll = rng(), kind = ROAM[0];
@@ -140,6 +279,26 @@ export class Wildlife {
     return list;
   }
 
+  /** Round 24b: wolf packs (forest, mountains, tundra) and lone bears, never near the camp. */
+  _predators(cx, cz, key, list, h, cap) {
+    if (this.noPredators || this.list.length > cap - 6) return;
+    const S = this.cellSize, mx = (cx + 0.5) * S, mz = (cz + 0.5) * S;
+    if (this.camp && Math.hypot(mx - this.camp.x, mz - this.camp.z) < 380) return;
+    if (this.t.settlements?.some((s) => Math.hypot(s.x - mx, s.z - mz) < s.R + 70)) return;
+    const r = mulberry32((h ^ 0x0f0e5) >>> 0), w = this.t.bio?.weights?.(mx, mz);
+    if (!w || w.sea > 0.05 || w.salt > 0.5) return;
+    const roll = r(), wolfy = w.temperate * 0.06 + w.alpine * 0.1 + w.tundra * 0.12, beary = w.temperate * 0.03 + w.alpine * 0.04;
+    const kind = roll < wolfy ? "wolf" : roll < wolfy + beary ? "bear" : null;
+    if (!kind) return;
+    for (let k = 0; k < 10; k++) {
+      const x = cx * S + 8 + r() * (S - 16), z = cz * S + 8 + r() * (S - 16);
+      if (this.t.slope(x, z).m > 0.55 || this.t.waterDepth?.(x, z) > -0.3) continue;
+      const n = kind === "wolf" ? 3 + Math.floor(r() * 2) : 1, herd = n > 1 ? { id: "pack" + key, alert: 0, pack: true } : null;
+      for (let i = 0; i < n; i++) { const a = this._spawn(kind, null, 0, 0, { x: x + Math.cos(i * 2.1) * 2.2, z: z + Math.sin(i * 2.1) * 2.2 }, herd); a.cell = key; list.push(a); }
+      return;
+    }
+  }
+
   /** Keep the roaming population streamed around the player. */
   _stream(P) {
     const S = this.cellSize, pcx = Math.floor(P.x / S), pcz = Math.floor(P.z / S), R = this.cellR;
@@ -155,96 +314,7 @@ export class Wildlife {
     }
   }
 
-  _geos() {
-    const rab = merged([
-      [S(T(new THREE.SphereGeometry(0.2, 7, 5), 0, 0.2, 0), 0.85, 0.8, 1.35), 0x8a7a64],
-      [T(new THREE.SphereGeometry(0.11, 6, 5), 0, 0.34, -0.25), 0x8f7f68],
-      [T(S(new THREE.BoxGeometry(0.04, 0.22, 0.07), 1, 1, 1), -0.04, 0.5, -0.22), 0x9a876c],
-      [T(S(new THREE.BoxGeometry(0.04, 0.22, 0.07), 1, 1, 1), 0.04, 0.5, -0.22), 0x9a876c],
-      [T(new THREE.SphereGeometry(0.06, 5, 4), 0, 0.26, 0.27), 0xeeeae2],
-      [T(new THREE.SphereGeometry(0.02, 4, 3), -0.06, 0.37, -0.33), 0x111111],
-      [T(new THREE.SphereGeometry(0.02, 4, 3), 0.06, 0.37, -0.33), 0x111111],
-    ]);
-    const birdBody = merged([
-      [S(T(new THREE.SphereGeometry(0.09, 6, 5), 0, 0.12, 0), 0.9, 0.85, 1.6), 0x3b3a40],
-      [T(new THREE.SphereGeometry(0.06, 6, 5), 0, 0.2, -0.12), 0x2e2d33],
-      [T(new THREE.ConeGeometry(0.02, 0.07, 4).rotateX(-Math.PI / 2), 0, 0.2, -0.19), 0xd08a2a],
-      [T(S(new THREE.BoxGeometry(0.08, 0.015, 0.12), 1, 1, 1), 0, 0.13, 0.17), 0x2a292e],
-    ]);
-    const wing = merged([[T(new THREE.BoxGeometry(0.22, 0.012, 0.11), 0.11, 0, 0), 0x45444c]]);
-    const deerBody = merged([
-      [S(T(new THREE.CapsuleGeometry(0.27, 0.75, 3, 7).rotateX(Math.PI / 2), 0, 1.05, 0), 1, 1.05, 1), 0x8a6040],
-      [T(new THREE.CylinderGeometry(0.1, 0.15, 0.6, 6).rotateX(0.65), 0, 1.38, -0.55), 0x86603f],
-      [S(T(new THREE.BoxGeometry(0.17, 0.2, 0.36), 0, 1.66, -0.78), 1, 1, 1), 0x7c583a],
-      [T(new THREE.ConeGeometry(0.05, 0.16, 4), -0.09, 1.82, -0.68), 0x6a4a30],
-      [T(new THREE.ConeGeometry(0.05, 0.16, 4), 0.09, 1.82, -0.68), 0x6a4a30],
-      [T(new THREE.SphereGeometry(0.07, 5, 4), 0, 1.15, 0.58), 0xf0ece4],
-      [S(T(new THREE.SphereGeometry(0.2, 6, 5), 0, 0.95, 0), 1.2, 0.6, 2.6), 0xc8a888],
-      [T(new THREE.SphereGeometry(0.025, 4, 3), -0.08, 1.7, -0.92), 0x111111],
-      [T(new THREE.SphereGeometry(0.025, 4, 3), 0.08, 1.7, -0.92), 0x111111],
-    ]);
-    const antlers = merged([
-      [T(new THREE.CylinderGeometry(0.018, 0.025, 0.4, 4).rotateZ(0.5), -0.14, 1.95, -0.7), 0xd9ccb0],
-      [T(new THREE.CylinderGeometry(0.018, 0.025, 0.4, 4).rotateZ(-0.5), 0.14, 1.95, -0.7), 0xd9ccb0],
-      [T(new THREE.CylinderGeometry(0.014, 0.018, 0.22, 4).rotateX(-0.6), -0.2, 2.08, -0.8), 0xd9ccb0],
-      [T(new THREE.CylinderGeometry(0.014, 0.018, 0.22, 4).rotateX(-0.6), 0.2, 2.08, -0.8), 0xd9ccb0],
-    ]);
-    const leg = merged([[T(new THREE.CylinderGeometry(0.035, 0.05, 0.85, 5), 0, -0.42, 0), 0x6e4c32]]);
-    const boarBody = merged([
-      [S(T(new THREE.CapsuleGeometry(0.3, 0.55, 3, 7).rotateX(Math.PI / 2), 0, 0.62, 0), 1, 1.05, 1), 0x3e3128],
-      [S(T(new THREE.BoxGeometry(0.1, 0.16, 0.7), 0, 0.92, -0.05), 1, 1, 1), 0x2a211b],
-      [S(T(new THREE.SphereGeometry(0.22, 7, 5), 0, 0.6, -0.55), 1, 0.95, 1.25), 0x46372c],
-      [T(new THREE.CylinderGeometry(0.08, 0.1, 0.12, 6).rotateX(Math.PI / 2), 0, 0.55, -0.82), 0x6a5040],
-      [T(new THREE.ConeGeometry(0.025, 0.14, 4).rotateX(-2.2), -0.09, 0.5, -0.76), 0xe8e0cc],
-      [T(new THREE.ConeGeometry(0.025, 0.14, 4).rotateX(-2.2), 0.09, 0.5, -0.76), 0xe8e0cc],
-      [T(new THREE.ConeGeometry(0.06, 0.12, 4), -0.12, 0.82, -0.5), 0x2e241d],
-      [T(new THREE.ConeGeometry(0.06, 0.12, 4), 0.12, 0.82, -0.5), 0x2e241d],
-      [T(new THREE.SphereGeometry(0.025, 4, 3), -0.1, 0.68, -0.72), 0x111111],
-      [T(new THREE.SphereGeometry(0.025, 4, 3), 0.1, 0.68, -0.72), 0x111111],
-    ]);
-    const goatBody = merged([
-      [S(T(new THREE.CapsuleGeometry(0.22, 0.5, 3, 7).rotateX(Math.PI / 2), 0, 0.78, 0), 1, 1.05, 1), 0xc9c1b2],
-      [T(new THREE.CylinderGeometry(0.08, 0.11, 0.38, 6).rotateX(0.5), 0, 1.0, -0.4), 0xbfb6a6],
-      [S(T(new THREE.BoxGeometry(0.15, 0.17, 0.3), 0, 1.2, -0.56), 1, 1, 1), 0xb3aa99],
-      [T(new THREE.TorusGeometry(0.1, 0.022, 4, 8, Math.PI * 1.2).rotateY(Math.PI / 2), -0.07, 1.32, -0.48), 0x5b5248],
-      [T(new THREE.TorusGeometry(0.1, 0.022, 4, 8, Math.PI * 1.2).rotateY(Math.PI / 2), 0.07, 1.32, -0.48), 0x5b5248],
-      [T(new THREE.ConeGeometry(0.03, 0.12, 4).rotateX(Math.PI), 0, 1.05, -0.68), 0xe0d8c8],
-      [T(new THREE.SphereGeometry(0.02, 4, 3), -0.07, 1.25, -0.7), 0x111111],
-      [T(new THREE.SphereGeometry(0.02, 4, 3), 0.07, 1.25, -0.7), 0x111111],
-    ]);
-    const foxBody = merged([
-      [S(T(new THREE.CapsuleGeometry(0.12, 0.42, 3, 7).rotateX(Math.PI / 2), 0, 0.38, 0), 1, 1, 1), 0xc0602a],
-      [S(T(new THREE.SphereGeometry(0.12, 7, 5), 0, 0.46, -0.36), 1, 0.9, 1.1), 0xc8662c],
-      [T(new THREE.ConeGeometry(0.05, 0.16, 5).rotateX(-Math.PI / 2), 0, 0.43, -0.52), 0xd8d0c4],
-      [T(new THREE.ConeGeometry(0.045, 0.12, 4), -0.06, 0.6, -0.34), 0x3a2418],
-      [T(new THREE.ConeGeometry(0.045, 0.12, 4), 0.06, 0.6, -0.34), 0x3a2418],
-      [S(T(new THREE.SphereGeometry(0.09, 6, 5), 0, 0.4, 0.42), 1, 0.9, 2.6), 0xb85a26],
-      [T(new THREE.SphereGeometry(0.05, 5, 4), 0, 0.42, 0.64), 0xf2ece2],
-      [T(new THREE.SphereGeometry(0.015, 4, 3), -0.05, 0.5, -0.46), 0x111111],
-      [T(new THREE.SphereGeometry(0.015, 4, 3), 0.05, 0.5, -0.46), 0x111111],
-    ]);
-    const legShort = merged([[T(new THREE.CylinderGeometry(0.045, 0.055, 0.42, 5), 0, -0.21, 0), 0x2a211b]]);
-    const legGoat = merged([[T(new THREE.CylinderGeometry(0.03, 0.04, 0.6, 5), 0, -0.3, 0), 0x8f8676]]);
-    const legFox = merged([[T(new THREE.CylinderGeometry(0.02, 0.025, 0.3, 4), 0, -0.15, 0), 0x2a1a12]]);
-    // Round 12: horse (Przewalski-like: stocky, upright dark mane), bay and dun coats; faces -z
-    const horse = (coat, dark, belly) => merged([
-      [S(T(new THREE.CapsuleGeometry(0.36, 1.05, 3, 8).rotateX(Math.PI / 2), 0, 1.36, 0), 1, 1.1, 1), coat],
-      [T(new THREE.CylinderGeometry(0.15, 0.25, 0.8, 7).rotateX(-0.63), 0, 1.72, -0.86), coat],
-      [T(new THREE.BoxGeometry(0.07, 0.86, 0.13).rotateX(-0.63), 0, 1.84, -0.78), dark],
-      [T(new THREE.BoxGeometry(0.22, 0.26, 0.62).rotateX(-0.7), 0, 1.86, -1.3), coat],
-      [T(new THREE.BoxGeometry(0.2, 0.17, 0.2).rotateX(-0.7), 0, 1.66, -1.53), 0x2a2220],
-      [T(new THREE.ConeGeometry(0.045, 0.16, 4), -0.07, 2.17, -1.1), dark],
-      [T(new THREE.ConeGeometry(0.045, 0.16, 4), 0.07, 2.17, -1.1), dark],
-      [T(new THREE.CylinderGeometry(0.03, 0.09, 0.85, 5).rotateX(-0.45), 0, 1.15, 1.0), dark],
-      [S(T(new THREE.SphereGeometry(0.3, 7, 5), 0, 1.14, 0), 1.0, 0.55, 2.1), belly],
-      [T(new THREE.SphereGeometry(0.028, 4, 3), -0.115, 1.95, -1.36), 0x111111],
-      [T(new THREE.SphereGeometry(0.028, 4, 3), 0.115, 1.95, -1.36), 0x111111],
-    ]);
-    const horseBay = horse(0x7a4a2a, 0x24170f, 0x8e6444), horseDun = horse(0xb3905e, 0x3a2a1c, 0xd0b58a);
-    const legH = (c) => merged([[T(new THREE.CylinderGeometry(0.065, 0.075, 1.0, 6), 0, -0.5, 0), c], [T(new THREE.CylinderGeometry(0.07, 0.085, 0.14, 6), 0, -1.07, 0), 0x1c1612]]);
-    const legHorse = legH(0x3a2618), legHorseDun = legH(0x4a3626);
-    return { rab, birdBody, wing, deerBody, antlers, leg, boarBody, goatBody, foxBody, legShort, legGoat, legFox, horseBay, horseDun, legHorse, legHorseDun };
-  }
+  _geos() { return animalGeos(); }
 
   _place(C, rmin, rmax) {
     for (let k = 0; k < 40; k++) {
@@ -350,12 +420,15 @@ export class Wildlife {
       if (a.ridden) continue; // posed by ride()
       if (!a.alive) { a.deadT += dt; this._pose(a, dt, 0, time); if (a.harvested && a.deadT > 60 && dist > 60 && !a.cell && this.camp) this._respawn(a, P); continue; }
       if (dist > 220) continue; // far away: frozen
+      if (this.freeze) { this._move(a, 0, dt, time); continue; } // round 24b: debug / screenshots
       const r = a.spec.r;
       const moving = player.speed > 0.3;
       const radius = player.crouched ? (moving ? r[3] : r[3] * 0.7) : !moving ? r[0] : player.running ? r[2] : r[1];
       a.stateT += dt;
       let speed = 0;
       if (a.tired > 0) a.tired -= dt; // winded after a run: lets you close in
+      const st = a.spec.st;
+      if (st && (st.role === "predator" || a.state === "charge" || a.state === "stalk")) { speed = this._hunt(a, dt, P, dist, dx, dz, player); if (speed >= 0) { this._move(a, speed, dt, time); continue; } speed = 0; }
       if (a.spec.calmHerd && !player.mounted) {
         // horses: watch a walker, bolt from a runner
         if (a.state !== "flee" && player.running && dist < r[2] && !(a.tired > 0)) this._startFlee(a, P);
@@ -395,9 +468,15 @@ export class Wildlife {
           break;
         }
       }
+      this._move(a, speed, dt, time);
+    }
+  }
+
+  _move(a, speed, dt, time) {
+    {
       if (speed > 0) {
         const nx = a.pos.x - Math.sin(a.yaw) * speed * dt, nz = a.pos.z - Math.cos(a.yaw) * speed * dt;
-        if (a.kind === "bird" && a.fly > 0 || this.t.slope(nx, nz).m < (a.spec.climb ? 1.6 : 0.9)) { a.pos.x = nx; a.pos.z = nz; }
+        if (a.kind === "bird" && a.fly > 0 || this.t.slope(nx, nz).m < (a.spec.climb ? 1.6 : a.spec.st?.role === "predator" ? 1.25 : 0.9)) { a.pos.x = nx; a.pos.z = nz; }
         else a.yaw += 1.2;
       }
       const g = this.t.height(a.pos.x, a.pos.z);
@@ -409,6 +488,44 @@ export class Wildlife {
       } else a.pos.y = g;
       this._pose(a, dt, speed, time);
     }
+  }
+
+  /** Round 24b: predators stalk then attack; a hurt boar (or bear) charges. Returns a speed, or -1
+   *  to fall through to the normal grazing / fleeing behaviour. */
+  _hunt(a, dt, P, dist, dx, dz, player) {
+    const st = a.spec.st, toward = Math.atan2(dx, dz); // yaw that walks straight at the player (animals face and move along -z)
+    a.cd = Math.max(0, (a.cd || 0) - dt);
+    if (a.scared > 0) { a.scared -= dt; if (a.state === "stalk" || a.state === "charge") { a.state = "idle"; a.stateT = 0; } return -1; }
+    if (player.safe || player.mounted && a.kind === "wolf" && player.speed > 9) { if (a.state === "stalk" || a.state === "charge") { a.state = "idle"; a.stateT = 0; } return -1; }
+    if (a.state === "flee") return -1;
+    if (a.state !== "stalk" && a.state !== "charge") {
+      if (st.role !== "predator" || !(dist < st.aggro)) return -1;
+      a.state = "stalk"; a.stateT = 0; this.log.push({ e: "stalk", id: a.id, kind: a.kind });
+      this.onStalk?.(a);
+    }
+    if (dist > (st.aggro || 20) * 2.2) { a.state = "idle"; a.stateT = 0; return 0; } // lost interest
+    if (a.state === "stalk") {
+      // shadow at a distance, circling a little, then go in (the whole pack at once)
+      a.yaw = turn(a.yaw, toward + Math.sin(a.stateT * 0.8 + a.phase) * 0.6, dt * 3);
+      const want = st.aggro * 0.45;
+      const go = a.stateT > (a.kind === "bear" ? 2.5 : 4 + (a.phase % 2)) || dist < st.attack * 2.5;
+      if (go) { this._charge(a); return 0; }
+      return dist > want ? st.speed * 0.45 : 0.3;
+    }
+    // charge: run in, strike when in reach, then back off for the cooldown
+    if (a.cd > st.cd * 0.45) { a.yaw = turn(a.yaw, toward + Math.PI + Math.sin(a.phase) * 0.8, dt * 6); return st.speed * 0.55; }
+    a.yaw = turn(a.yaw, toward, dt * 7);
+    if (dist < st.attack && a.cd <= 0 && Math.abs((player.pos.y ?? a.pos.y) - a.pos.y) < 2.2) {
+      a.cd = st.cd; this.log.push({ e: "bite", id: a.id, kind: a.kind }); this.onBite?.(a, st.dmg);
+      if (a.spec.st.role !== "predator") { a.flee = { x: -dx / (dist || 1) * -1, z: -dz / (dist || 1) * -1 }; a.state = "flee"; a.stateT = 0; return 0; } // a boar gores once, then runs
+    }
+    const pounce = st.pounce && dist < st.pounce && dist > st.attack * 0.8 ? 1.35 : 1;
+    return dist < st.attack * 0.8 ? 0 : (st.charge || st.speed) * pounce;
+  }
+  _charge(a) {
+    if (a.state === "charge") return;
+    a.state = "charge"; a.stateT = 0; this.log.push({ e: "charge", id: a.id, kind: a.kind });
+    if (a.herd?.pack) for (const b of this.list) if (b.herd === a.herd && b !== a && b.alive && b.state !== "flee" && !(b.scared > 0)) { b.state = "charge"; b.stateT = 0; }
   }
 
   _pose(a, dt, speed, time) {
@@ -469,13 +586,17 @@ export class Wildlife {
     if (!a.alive) return null;
     a.health -= dmg;
     if (a.health <= 0) { a.alive = false; a.deadT = 0; a.fly = 0; a.pos.y = this.t.height(a.pos.x, a.pos.z); this.log.push({ e: "kill", id: a.id }); }
-    else this._startFlee(a, from);
+    else {
+      const st = a.spec.st; // round 24b: predators and boars fight back until they're badly hurt
+      if (st && (st.role === "predator" || st.abilities.includes("charge")) && a.health > (st.fleeAt || 0.5) * a.spec.hits && !(a.scared > 0)) this._charge(a);
+      else { if (st?.role === "predator") a.scared = 30; this._startFlee(a, from); }
+    }
     return a;
   }
 
   /** Arrow test: the living animal whose body is within reach of point p (or null). */
   bodyAt(p) {
-    const R = { rabbit: 0.35, bird: 0.3, fox: 0.4, goat: 0.6, boar: 0.65, deer: 0.8, horse: 1.0 }, H = { rabbit: 0.25, bird: 0.15, fox: 0.35, goat: 0.8, boar: 0.6, deer: 1.1, horse: 1.4 };
+    const R = { rabbit: 0.35, bird: 0.3, fox: 0.4, goat: 0.6, boar: 0.65, deer: 0.8, horse: 1.0, wolf: 0.55, bear: 1.0 }, H = { rabbit: 0.25, bird: 0.15, fox: 0.35, goat: 0.8, boar: 0.6, deer: 1.1, horse: 1.4, wolf: 0.6, bear: 1.0 };
     let best = null, bd = Infinity;
     for (const a of this.list) {
       if (!a.alive || !a.root.visible || a.ridden) continue;
@@ -499,6 +620,13 @@ export class Wildlife {
     return best ? { a: best, d: bd } : null;
   }
 
+  /** Round 24b (tests / debug): put a predator group at x, z. */
+  spawnAt(kind, x, z, n = 1, yaw = null) {
+    const herd = n > 1 ? { id: "dbg" + (this.nextId || 0), alert: 0, pack: kind === "wolf" } : null, out = [];
+    for (let i = 0; i < n; i++) out.push(this._spawn(kind, null, 0, 0, { x: x + (n > 1 ? Math.cos(i * 2.1) * 2.2 : 0), z: z + (n > 1 ? Math.sin(i * 2.1) * 2.2 : 0) }, herd));
+    if (yaw != null) for (const a of out) a.yaw = yaw;
+    return out;
+  }
   setVisible(v) { this.group.visible = v; }
 }
 

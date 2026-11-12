@@ -285,8 +285,10 @@ export class Story {
     if (env.mode() === "overworld") {
       const camp = env.camp(), t = env.terrain();
       // round 15: storage baskets inside a settlement's longhouse / lodges
+      const bag = env.lootNear?.(f); // round 24b: a fallen fighter's pouch
+      if (bag) return { label: `Search the fallen ${bag.who}'s pouch`, act: () => env.lootTake(bag) };
       const box = env.container?.(f);
-      if (box) return { label: box.searched ? "The basket is empty" : "Search the storage basket", act: () => this.searchBasket(box) };
+      if (box) return { label: box.searched ? "The basket is empty" : "Search the storage basket", act: () => { this.searchBasket(box); env.onTheft?.(f); } };
       // round 19: deadwood for a raft (Survival: Herb Lore)
       if ((s.skills.has("surv1") || s.skills.has("wood1")) && t?.scatter) {
         const k = this.deadwoodNear(f, t);
@@ -301,6 +303,7 @@ export class Story {
       const P0 = this.P;
       const named = this.active && P0 && Object.entries(P0.npc).some(([id, n]) => this.npcVisible(id) && d2(n) < 2.4);
       const tp = !named && env.talk?.near(f);
+      if (tp && tp.s?.hostile) return { label: `${tp.ident.name} glares at you (hostile town)`, act: () => env.ui.toast(`${tp.ident.name} won't talk to an outsider. ${tp.s.name} is hostile: step inside the palisade and they'll fight.`) };
       if (tp) return { label: `Talk to ${tp.ident.name}`, act: () => env.talk.talk(tp) };
       if (this.sandbox && !this.active) {
         const carc = env.wildlife()?.nearestCarcass(f, 2.6);
@@ -509,7 +512,7 @@ export class Story {
   /** Spear thrust: animals first (overworld). Returns true if something was hit. */
   onAttack(feet, fx, fz) {
     if (!this.active || this.env.mode() !== "overworld") return false;
-    const dmg = 1 + (this.surv.tools.spearDone || this.surv.str > 0 ? 1 : 0);
+    const dmg = 1 + (this.surv.tools.spearDone || this.surv.str > 0 ? 1 : 0) + this.surv.weaponBonus(); // round 24b: carried weapons
     const a = this.env.wildlife()?.tryHit(feet, fx, fz, dmg);
     this.lastHit = a;
     if (!a) return false;
@@ -540,7 +543,7 @@ export class Story {
       if (s.learn(id, (q) => this.quests.done(q))) { const k = s.tierInfo(id); ui.toast(`Skill learned: ${k.t.name}`, "skill"); this.env.applyStats(); this._log({ e: "learn", id }); }
     }
     if (a === "wear") { if (s.wear.has(id)) s.wear.delete(id); else if (s.crafted.has(id)) s.wear.add(id); this.env.applyStats(); }
-    if (a === "use" && id === "salve") { if (this.env.heal?.(1)) { s.remove("salve", 1); ui.toast("The salve stings, then soothes. +1 heart", "good"); } else ui.toast("You are not hurt"); }
+    if (a === "use" && ITEMS[id]?.heal) { if (this.env.heal?.(ITEMS[id].heal)) { s.remove(id, 1); ui.toast(id === "salve" ? "The salve stings, then soothes. +1 heart" : `You bind the wound with a ${ITEMS[id].name.toLowerCase()}. +1 heart`, "good"); } else ui.toast("You are not hurt"); } // round 24b: bandages too
     if (a === "craft") {
       if (id === "backpack" && s.count("hide") && s.count("skin")) {
         ui.ask("Backpack", "Which skin will you sew?", [{ id: "hide", label: "Deer hide" }, { id: "skin", label: "Tor's skin" }], (use) => { const m = s.craft("backpack", use); if (m) ui.toast(m, "good"); ui.renderPanel(); });

@@ -5,7 +5,7 @@
  * Skip step / Chapters / Exit at any time. Progress is its own save (fota-tutorial-v1).
  *
  * G (from main.js): dev(), feet(), look(), speed(), stance(), air(), stamina(), torchDown(), weapon(), count(item),
- * stats(), packOpen(tab), inspectOpen(), c (counters), mapOpen(), filtersSig(), hint(), beaconPos(), tasksOpen(),
+ * stats(), packOpen(tab), inspectOpen(), c (counters), mapOpen(), filtersSig(), hint(), beaconPos(), findCur(), findOpen(), tasksOpen(),
  * horse(), boat(), mode(), colonies(), buildMode(), colonyOpen(), audioOpen(), controlsOpen(), hp()
  * + setups: toBerry(), toWater(), give(id, n), stalk(kind, d), toHorse(), toBoat(), toPerson(), toCave(), awayFromCamp(),
  *   toFoundSpot(), recruit(n), needs(h, t), say(text, onEnd), toast(t)
@@ -65,7 +65,7 @@ export const CHAPTERS = [
   ] },
   { id: "combat", name: "Combat", icon: "🗡", steps: [
     { id: "spear", title: "The spear", say: "Your spear is for close work. Stab.",
-      how: by({ touch: "Tap Stab (bottom right).", desktop: "Left click (or F).", pad: "X." }), point: by({ touch: "#attack-btn" }),
+      how: by({ touch: "Tap Stab (bottom right).", desktop: "Left click (or R).", pad: "X." }), point: by({ touch: "#attack-btn" }),
       setup: (G) => G.weapon("spear"), init: (G, s) => { s.n = G.c.spear || 0; }, check: (G, s) => (G.c.spear || 0) > s.n },
     { id: "bow", title: "The bow", say: "Switch to the bow, and shoot an arrow.",
       how: by({ touch: "Tap Bow, then Shoot.", desktop: "Q, then left click.", pad: "LB, then X." }), point: by({ touch: "#btn-weapon", desktop: "#btn-weapon" }),
@@ -94,6 +94,9 @@ export const CHAPTERS = [
     { id: "beacon", title: "Beacon", say: "Tap anywhere on the map and set a beacon. A pillar of light will guide you there.",
       how: by({ touch: "Tap the map → Set beacon here.", desktop: "Click the map → Set beacon here." }), point: by({ touch: ".worldmap canvas", desktop: ".worldmap canvas" }),
       setup: (G) => G.openMap(), check: (G) => !!G.beaconPos() },
+    { id: "find", title: "Find", say: "The world is big. Need mushrooms, water, flint or ore? Open Find and pick one: the nearest gets a green pillar, and the compass points to it.",
+      how: by({ touch: "Tap 🔍 (by the minimap), then Berries.", desktop: "Press F (or click 🔍), then Berries.", pad: "D-pad down, then Berries." }), point: by({ touch: "#find-btn", desktop: "#find-btn" }),
+      setup: (G) => G.closePanels(), init: (G, s) => { s.n = G.c.find || 0; }, check: (G, s) => (G.c.find || 0) > s.n, done: (G) => G.findClear?.() },
     { id: "travel", title: "Fast travel", say: "Places you have found can be reached in a blink. Tap the camp on the map, and travel there.",
       how: by({ touch: "Tap Camp → Travel.", desktop: "Click Camp → Travel." }), point: by({ touch: ".worldmap canvas", desktop: ".worldmap canvas" }),
       setup: (G) => { G.closePanels(); G.awayFromCamp(); setTimeout(() => G.openMap(), 900); }, init: (G, s) => { s.n = G.c.ft || 0; }, check: (G, s) => (G.c.ft || 0) > s.n },

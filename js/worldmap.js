@@ -16,7 +16,7 @@ export class WorldMap {
     this.touch = touch;
     const el = (this.el = document.createElement("div"));
     el.className = "wmap hidden";
-    el.innerHTML = `<canvas></canvas><div class="wm-top"><b class="wm-title">Map</b><span class="wm-btns"><button class="wm-hint" type="button" aria-label="Hint">💡 Hint</button><button class="wm-f" type="button" aria-label="Map filters">⚙</button><button class="wm-x" type="button" aria-label="Close map">✕</button></span></div>
+    el.innerHTML = `<canvas></canvas><div class="wm-top"><b class="wm-title">Map</b><span class="wm-btns"><button class="wm-find" type="button" aria-label="Find">🔍 Find</button><button class="wm-hint" type="button" aria-label="Hint">💡 Hint</button><button class="wm-f" type="button" aria-label="Map filters">⚙</button><button class="wm-x" type="button" aria-label="Close map">✕</button></span></div>
       <div class="wm-ctl"><button data-z="1" type="button" aria-label="Zoom in">+</button><button data-z="-1" type="button" aria-label="Zoom out">−</button><button data-z="0" type="button" aria-label="Centre on Kra">◎</button></div>
       <div class="wm-legend"></div>`;
     root.appendChild(el);
@@ -27,6 +27,7 @@ export class WorldMap {
     el.querySelector(".wm-x").addEventListener("click", () => this.close());
     el.querySelector(".wm-f").addEventListener("click", () => this.onFilters?.());
     el.querySelector(".wm-hint").addEventListener("click", () => this.onHint?.());
+    el.querySelector(".wm-find").addEventListener("click", () => this.onFind?.()); // round 24b
     el.querySelectorAll(".wm-ctl button").forEach((b) => b.addEventListener("click", () => {
       const z = +b.dataset.z;
       if (!z) this.center(); else this.zoomAt(this.cv.clientWidth / 2, this.cv.clientHeight / 2, z > 0 ? 1.6 : 1 / 1.6);
@@ -242,9 +243,16 @@ export class WorldMap {
         ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill();
         label(`Beacon · ${s.beacon.dist}`, x, y - 22, "#aaf8ff", 12);
       }
+      if (s.find) { // round 24b: the Find target (green), clamped to the edge when off the view
+        const fx = X(s.find.x), fy = Y(s.find.z), inV = fx > 10 && fy > 60 && fx < W - 10 && fy < Hh - 40;
+        const x = Math.max(16, Math.min(W - 16, fx)), y = Math.max(70, Math.min(Hh - 50, fy)), k = (performance.now() / 1100) % 1;
+        ctx.strokeStyle = `rgba(182, 255, 90, ${1 - k})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(x, y, 7 + k * 22, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = "#b6ff5a"; ctx.strokeStyle = "#0e1a04"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        label(`🔍 ${s.find.label} · ${s.find.dist}${inV ? "" : " ➚"}`, x, y - 16, "#d4ff9a", 12);
+      }
       if (this.sel) { const x = X(this.sel.x), y = Y(this.sel.z); ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.moveTo(x - 14, y); ctx.lineTo(x - 5, y); ctx.moveTo(x + 5, y); ctx.lineTo(x + 14, y); ctx.moveTo(x, y - 14); ctx.lineTo(x, y - 5); ctx.moveTo(x, y + 5); ctx.lineTo(x, y + 14); ctx.stroke(); }
       for (const n of F.people ? s.npcs || [] : []) { if (!n.mark) continue; ctx.font = "bold 16px Georgia, serif"; ctx.textAlign = "center"; ctx.lineWidth = 3; ctx.strokeStyle = "#000"; ctx.strokeText(n.mark, X(n.x), Y(n.z) - 6); ctx.fillStyle = n.mark === "?" ? "#9fe3a8" : "#ffd36a"; ctx.fillText(n.mark, X(n.x), Y(n.z) - 6); }
-      legend.innerHTML = `<span class="lg-t">┄ your trail</span><span>● town</span><span>◓ cave</span><span style="color:#c8955a">⬮ boat</span><span style="color:#ffd36a">! quest</span><span style="color:#ff9a5a">◆ tracked</span><span style="color:#7ff6ff">◆ beacon</span><span class="lg-tip">Tap the map: set a beacon / fast travel</span>`;
+      legend.innerHTML = `<span class="lg-t">┄ your trail</span><span>● town</span><span>◓ cave</span><span style="color:#c8955a">⬮ boat</span><span style="color:#ffd36a">! quest</span><span style="color:#ff9a5a">◆ tracked</span><span style="color:#7ff6ff">◆ beacon</span><span style="color:#b6ff5a">● find</span><span class="lg-tip">Tap the map: set a beacon / fast travel</span>`;
     } else {
       title.textContent = s.title || "Cave";
       ctx.strokeStyle = "rgba(196,174,140,0.75)"; ctx.lineCap = "round";

@@ -37,8 +37,23 @@ export const LORE = {
   cloak: { lore: "A whole hide over the shoulders. Rain runs off it; so do claws, sometimes.", uses: "Worn: +1 heart.", from: "Craft (Sinew Sewing).", name: GEAR.cloak },
   hat: { lore: "Rabbit pelts sewn in a cap, ears and all.", uses: "Worn: +1 heart.", from: "Craft (Furrier).", name: GEAR.hat },
   paint: { lore: "Ochre and berry juice in the three stripes of the old hunters.", uses: "Worn: stamina comes back 30% faster.", from: "Craft from ochre and berries.", name: GEAR.paint },
+  // round 24b: loot from hostile towns
+  stoneaxe: { lore: "A knapped flint head lashed into a split haft with rawhide. It bites wood and bone alike.", uses: "Carried: +1 spear damage (your best weapon counts).", from: "Stone-age town fighters, or craft: flint, a log and rope." },
+  club: { lore: "A root-knot of hard wood, worn smooth where the hand goes. Simple, and it doesn't break.", uses: "Carried: +1 damage.", from: "Stone-age town fighters, or craft: two logs and rope." },
+  sling: { lore: "A pelt pouch on two cords. Whirl, let one cord go, and a pebble flies faster than an arrow.", uses: "Carried: +1 bow damage.", from: "Town fighters, or craft: a pelt and rope." },
+  shield: { lore: "Rawhide stretched wet over a bent wood frame and dried drum-tight. It turns a spear point.", uses: "Carried: armour 1 (each point blocks about 15% of blows).", from: "Town fighters, or craft: a hide and two logs." },
+  jerkin: { lore: "Thick boiled leather, laced at the side. It smells of smoke and old sweat.", uses: "Carried: armour 1.", from: "Stone- and bronze-age town fighters." },
+  bronzeknife: { lore: "A leaf-shaped blade of copper and tin, cast in a stone mould. It holds an edge no flint can match.", uses: "Carried: +1 damage.", from: "Bronze-age town fighters." },
+  bronzehelm: { lore: "A beaten bronze cap with a leather lining. It rings like a bell when it's struck.", uses: "Carried: armour 1.", from: "Bronze- and iron-age town fighters." },
+  ironsword: { lore: "Dark iron, hammered and folded. A long straight blade: a weapon made for killing people, not game.", uses: "Carried: +2 damage.", from: "Iron-age town fighters." },
+  ironmail: { lore: "Small iron scales sewn in rows on a hide shirt. Heavy, and worth the weight.", uses: "Carried: armour 2.", from: "Iron-age town fighters." },
+  rope: { lore: "Twisted sinew and bark fibre, three strands laid together. Everything is held together by rope.", uses: "Crafting axes, clubs and slings. Store it in your settlement (fibre).", from: "Town fighters, or craft: two sinew." },
+  bandage: { lore: "Soft strips with crushed healing herbs folded in.", uses: "Tap Use in the pack: heals one heart.", from: "Town fighters, or craft: a pelt and herbs." },
+  driedmeat: { lore: "Meat cut thin and smoked over a slow fire. It keeps for a whole season.", uses: "Eat: a lot of food.", from: "Town fighters, or craft from raw meat." },
+  pot: { lore: "A fired clay pot with a cord pattern pressed round its neck.", uses: "Store it in your settlement (+4 food storage) or trade it.", from: "Town fighters' packs." },
 };
 const COL = { berries: 0x5a1430, roots: 0x8a6a3a, meat: 0xa03a34, cooked: 0x7a4a22, organ: 0x6a1018, pelt: 0x8a7a64, hide: 0x7a5636, feather: 0x6a6a74, skin: 0xb08a72, blood: 0x3a0404, morgan: 0x4a0a32,
+  stoneaxe: 0x6a6460, club: 0x6a4a2a, sling: 0x8a7a64, shield: 0x8a6a44, jerkin: 0x6a4a2a, bronzeknife: 0xb07a3a, bronzehelm: 0xb08a4a, ironsword: 0x6a6e74, ironmail: 0x5a5e64, rope: 0xa08a5a, bandage: 0xe8e0cc, driedmeat: 0x7a3a24, pot: 0xa0603a,
   bone: 0xe0d6bc, sinew: 0x9a6a52, flint: 0x5a6474, ochre: 0xa8401c, herbs: 0x3a7a2a, salve: 0x8a6a3a, facesuit: 0xc09a80, knife: 0x7a7a80, spear: 0xd8ccb0, boots: 0x6a4a2a, cloak: 0x7a5636, hat: 0x9a8a70, paint: 0xa8401c };
 
 function model(id) {
@@ -76,6 +91,13 @@ function model(id) {
         for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), M(0x0a0604)); e.position.set(s * 0.14, 0.08, -0.17); f.add(e); }
         f.position.set((i % 2 - 0.5) * 0.8, (Math.floor(i / 2) - 0.5) * 0.85, 0); f.rotation.y = Math.PI; g.add(f); }
       break; }
+    // round 24b: loot
+    case "ironsword": case "bronzeknife": { const L = id === "ironsword" ? 0.9 : 0.55; add(new THREE.BoxGeometry(0.1, L, 0.025), M(id === "ironsword" ? 0x9aa4ae : c, { metalness: 0.6, roughness: 0.35 }), 0, L / 2 - 0.2, 0); add(new THREE.BoxGeometry(0.36, 0.06, 0.08), M(0x4a3a2a), 0, -0.2, 0); add(new THREE.CylinderGeometry(0.04, 0.04, 0.32, 8), M(0x3a2a1a), 0, -0.4, 0); break; }
+    case "stoneaxe": case "club": add(new THREE.CylinderGeometry(0.05, 0.06, 1.2, 8), M(0x6a4a2a), 0, 0, 0); if (id === "club") add(new THREE.SphereGeometry(0.2, 10, 8), M(c), 0, 0.6, 0); else add(new THREE.DodecahedronGeometry(0.18, 0).scale(1.6, 0.8, 0.5), M(0x5a6474), 0.18, 0.5, 0); break;
+    case "shield": add(new THREE.CylinderGeometry(0.62, 0.62, 0.06, 20).rotateX(Math.PI / 2), M(c)); add(new THREE.SphereGeometry(0.12, 10, 8), M(0x4a3a2a), 0, 0, 0.05); break;
+    case "pot": add(new THREE.LatheGeometry([[0.05, -0.4], [0.32, -0.3], [0.42, 0], [0.3, 0.3], [0.22, 0.38], [0.26, 0.45]].map(([x, y]) => new THREE.Vector2(x, y)), 18), M(c, { side: THREE.DoubleSide })); break;
+    case "bronzehelm": add(new THREE.SphereGeometry(0.45, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), M(c, { metalness: 0.7, roughness: 0.35, side: THREE.DoubleSide })); break;
+    case "rope": add(new THREE.TorusGeometry(0.35, 0.06, 8, 30), M(c), 0, 0, 0, 1.2); add(new THREE.TorusGeometry(0.28, 0.06, 8, 30), M(c), 0, 0.05, 0, 1.3); break;
     default: add(new THREE.BoxGeometry(0.6, 0.6, 0.6), M());
   }
   return g;

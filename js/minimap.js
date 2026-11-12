@@ -247,6 +247,11 @@ export class Minimap {
         if (m.edge) {
           // round 12: far settlements sit on the rim as a pointer
           const dx = x - w / 2, dy = y - h / 2, d = Math.hypot(dx, dy), rim = Math.min(w, h) * 0.46;
+          if (d > rim && m.arrow) { // round 24b: the Find target: an arrow on the rim
+            const ang = Math.atan2(dy, dx), R2 = Math.min(w, h) * 0.47, ax = w / 2 + Math.cos(ang) * R2, ay = h / 2 + Math.sin(ang) * R2, sz = Math.max(5, w * 0.05);
+            ctx.save(); ctx.translate(ax, ay); ctx.rotate(ang); ctx.fillStyle = m.color; ctx.strokeStyle = "#0e1a04"; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(sz, 0); ctx.lineTo(-sz * 0.6, sz * 0.7); ctx.lineTo(-sz * 0.6, -sz * 0.7); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore(); continue;
+          }
           if (d > rim) { x = w / 2 + (dx / d) * rim; y = h / 2 + (dy / d) * rim; ctx.globalAlpha = 0.75; ctx.fillStyle = m.color; ctx.beginPath(); ctx.arc(x, y, Math.max(2, w * 0.014), 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1; continue; }
         }
         ctx.fillStyle = m.color; ctx.beginPath(); ctx.arc(x, y, Math.max(3, w * (m.r || 0.022)), 0, Math.PI * 2); ctx.fill();

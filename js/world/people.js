@@ -45,7 +45,10 @@ export class People {
       head: mk(head, addDetail(new THREE.MeshLambertMaterial({ vertexColors: true }), { scale: 9, amt: 0.1, sat: 0.75, ao: 0.05, bump: 0.03 }), this.cap),
       leg: mk(leg, white, this.cap * 2), arm: mk(arm, white, this.cap * 2),
       bundle: mk(bundle, flat(0x7d6446), this.cap),
+      // round 24b: a spear / club in the right hand of anyone who fights (hostile townsfolk, your warriors)
+      weapon: mk(weaponGeo(), flat(0x6a4a2a), this.cap),
     };
+    this._weapons = 0;
     this._m = new THREE.Matrix4(); this._r = new THREE.Matrix4(); this._l = new THREE.Matrix4(); this._c = new THREE.Color(); this._z = new THREE.Matrix4(); this._bundles = 0;
     this.time = 0;
   }
@@ -108,10 +111,11 @@ export class People {
     this.time += dt;
     const px = player.x, pz = player.z, vis2 = this.visR * this.visR;
     let n = 0;
-    this._bundles = 0;
+    this._bundles = 0; this._weapons = 0;
     for (const p of this.list) {
       const dx = p.x - px, dz = p.z - pz, d2 = dx * dx + dz * dz;
       // ---- behaviour (cheap; runs for hidden ones too)
+      if (p.hurtT > 0) p.hurtT -= dt; if (p.strikeT > 0) p.strikeT -= dt; // round 24b
       if (p.ext) { // round 20: Kra's villagers are moved by the colony sim
         if (p.talkT > 0) { p.talkT -= dt; const want = Math.atan2(-dx, -dz); p.yaw += wrap(want - p.yaw) * Math.min(1, dt * 4); }
         p.walkAmt += ((p.state === "walk" ? 1 : 0) - p.walkAmt) * Math.min(1, dt * 6);
@@ -153,7 +157,7 @@ export class People {
       if (d2 > vis2 || n >= this.cap) continue;
       this._pose(p, n++);
     }
-    for (const k in this.m) { const m = this.m[k]; m.count = k === "leg" || k === "arm" ? n * 2 : k === "bundle" ? this._bundles : n; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
+    for (const k in this.m) { const m = this.m[k]; m.count = k === "leg" || k === "arm" ? n * 2 : k === "bundle" ? this._bundles : k === "weapon" ? this._weapons : n; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
     this.visible = n;
   }
 
@@ -173,7 +177,7 @@ export class People {
     M.makeScale(s, s, s).premultiply(R);
     // body bob
     if (!sit) M.elements[13] += Math.abs(Math.cos(p.phase)) * 0.04 * p.walkAmt;
-    this.m.torso.setMatrixAt(i, M); this.m.torso.setColorAt(i, c.setHex(p.tunic));
+    this.m.torso.setMatrixAt(i, M); this.m.torso.setColorAt(i, c.setHex(p.hurtT > 0 ? 0xff4a3a : p.tunic));
     this.m.skirt.setMatrixAt(i, M);
     this.m.head.setMatrixAt(i, M); this.m.head.setColorAt(i, c.setHex(p.skin));
     const legAt = (k, side, ang) => {
@@ -186,7 +190,13 @@ export class People {
       L.premultiply(M); this.m.arm.setMatrixAt(i * 2 + k, L); this.m.arm.setColorAt(i * 2 + k, c.setHex(p.skin));
     };
     const wk = p.state === "idle" && p.walkAmt < 0.2 ? p.work : null, tt = this.time * (wk === "chop" || wk === "mine" ? 3.2 : 2.4) + p.phase;
-    if (wk === "chop" || wk === "mine") { const a = -1.6 - Math.max(0, Math.sin(tt)) * 1.3; armAt(0, 1, a, 0.1); armAt(1, -1, a, -0.1); } // round 20: work animations
+    if (p.armed && !sit) { // round 24b: weapon arm: raised and ready, a swing / throw while strikeT runs
+      const k = p.strikeT > 0 ? p.strikeT / 0.45 : 0, a = p.strikeT > 0 ? -2.6 + (1 - k) * 2.2 : -0.7 - p.walkAmt * 0.3 - (p.ready ? 0.6 : 0);
+      armAt(0, 1, a, 0.12); armAt(1, -1, sw * 0.8, -0.08);
+      L.makeRotationX(a); L.premultiply(this._z.makeRotationZ(0.12)).setPosition(0.24, 1.38, 0); L.premultiply(M);
+      const W = this._w || (this._w = new THREE.Matrix4()); W.makeTranslation(0, -0.56, 0).premultiply(L);
+      this.m.weapon.setMatrixAt(this._weapons++, W);
+    } else if (wk === "chop" || wk === "mine") { const a = -1.6 - Math.max(0, Math.sin(tt)) * 1.3; armAt(0, 1, a, 0.1); armAt(1, -1, a, -0.1); } // round 20: work animations
     else if (wk === "scrape") { const a = -0.9 - Math.sin(tt) * 0.35; armAt(0, 1, a, 0.15); armAt(1, -1, a + 0.2, -0.15); }
     else if (wk === "dig") { const a = -0.6 - Math.abs(Math.sin(tt)) * 0.9; armAt(0, 1, a, 0.05); armAt(1, -1, a, -0.05); }
     else if (p.carry && !sit) { armAt(0, 1, -2.7, 0.15); armAt(1, -1, -sw * 0.8, -0.08); }
@@ -205,4 +215,5 @@ export class People {
     this.list = [];
   }
 }
+function weaponGeo() { return new THREE.CylinderGeometry(0.022, 0.026, 1.5, 5).rotateX(Math.PI / 2).translate(0, 0, 0.35); }
 function wrap(a) { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; }

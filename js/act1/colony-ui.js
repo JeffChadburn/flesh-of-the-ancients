@@ -9,7 +9,7 @@ import { AGES, BUILD, RES, TECH, JOBS, MAX_SETTLEMENTS, INSIGHTS } from "../worl
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 const costTxt = (cost) => Object.entries(cost).map(([r, n]) => `${RES[r][1]}${n}`).join(" ") || "free";
 // what Kra's pack gives the settlement stores
-const DEPOSIT = { logs: { wood: 3 }, flint: { stone: 2 }, hide: { hide: 1 }, pelt: { hide: 1 }, meat: { food: 3 }, cooked: { food: 4 }, berries: { food: 1 }, roots: { food: 1 }, fish: { food: 2 }, sinew: { fibre: 2 }, copper: { copper: 3 }, tin: { tin: 3 }, iron: { iron: 3 }, coal: { coal: 3 } };
+const DEPOSIT = { logs: { wood: 3 }, flint: { stone: 2 }, hide: { hide: 1 }, pelt: { hide: 1 }, meat: { food: 3 }, cooked: { food: 4 }, berries: { food: 1 }, roots: { food: 1 }, fish: { food: 2 }, sinew: { fibre: 2 }, copper: { copper: 3 }, tin: { tin: 3 }, iron: { iron: 3 }, coal: { coal: 3 }, driedmeat: { food: 3 }, pot: { food: 4 }, rope: { fibre: 3 } }; // round 24b: loot
 
 export class ColonyUI {
   /** o: { root, stanceBar, colony, feet(), yaw(), surv(), toast(m, k), unlocked() -> reason|null, busy() -> bool, debug, onChange() } */
