@@ -1685,10 +1685,68 @@ window.addEventListener("keydown", (e) => {
 document.getElementById("debug-btn")?.addEventListener("click", (e) => { e.stopPropagation(); setDebug(!debugOn); });
 document.getElementById("hills-btn")?.addEventListener("click", (e) => { e.stopPropagation(); transition(() => enterOverworld()); });
 
+// ---------------- Round 18: regions (fog / sky tint, region name) and the swim rescue ----------------
+const REGION_TINT = { temperate: [0x9aa4a8, 0, 1], red: [0xe0a070, 0.32, 0.85], salt: [0xe8dcc0, 0.28, 0.8], swamp: [0x8a9a70, 0.4, 1.8], alpine: [0xb8c8e0, 0.18, 1.0], tundra: [0xccd6e2, 0.32, 1.3], ocean: [0x9ec0d4, 0.22, 1.1] };
+const regionState = { t: 0, col: new THREE.Color(), k: 0, d: 1, tk: 0, td: 1, tcol: new THREE.Color(), name: null, swimT: 0, anc: null, ancT: 0 };
+function regionTick(dt, p, t) {
+  const R = regionState;
+  if (!t.bio) return;
+  if ((R.t -= dt) <= 0) {
+    R.t = 0.4;
+    const w = t.bio.weights(p.x, p.z), tc = new THREE.Color(0, 0, 0); let k = 0, d = 0;
+    for (const b of ["temperate", "red", "salt", "swamp", "alpine", "tundra"]) { const [c, kk, dd] = REGION_TINT[b]; tc.r += new THREE.Color(c).r * w[b]; tc.g += new THREE.Color(c).g * w[b]; tc.b += new THREE.Color(c).b * w[b]; k += kk * w[b]; d += dd * w[b]; }
+    const sea = Math.max(0, 1 - Math.max(0, w.cd) / 300);
+    if (sea > 0) { tc.lerp(new THREE.Color(REGION_TINT.ocean[0]), sea); k += (REGION_TINT.ocean[1] - k) * sea; }
+    R.tcol.copy(tc); R.tk = k; R.td = d;
+    const name = t.bio.biomeAt(p.x, p.z), nice = { temperate: "", red: "Red-rock canyon country", salt: "The salt flats", swamp: "The marsh", alpine: "The high peaks", tundra: "The frozen north", ocean: "The great water" }[name];
+    if (name !== R.name) { if (R.name && nice && world.mode === "overworld") storyUI.toast(nice); R.name = name; }
+  }
+  const a = Math.min(1, dt * 1.5);
+  R.col.lerp(R.tcol, a); R.k += (R.tk - R.k) * a; R.d += (R.td - R.d) * a;
+  if (R.k > 0.005) {
+    const f = scene.fog.color, lum = (c) => c.r * 0.3 + c.g * 0.55 + c.b * 0.15, l = lum(f), lt = lum(R.col) || 1;
+    f.lerp(R.col.clone().multiplyScalar(l / lt), R.k);
+    scene.background.copy(f);
+  }
+  scene.fog.density *= R.d;
+  // swimming: a HUD note, and after a long swim / no progress, Kra drags himself to the nearest shore
+  const wet = player?.water || 0;
+  if (wet > 1.1) {
+    R.swimT += dt; R.ancT += dt;
+    if (!R.anc || Math.hypot(p.x - R.anc.x, p.z - R.anc.z) > 6) { R.anc = { x: p.x, z: p.z }; R.ancT = 0; }
+    if (R.swimT > 60 || R.ancT > 12) rescueToShore("You are tiring in the water. Kra struggles to the shore.");
+  } else { R.swimT = 0; R.ancT = 0; R.anc = null; }
+  updateSwimBtn(wet > 1.1 && R.swimT > 4);
+}
+/** Nearest dry, gentle ground (searching outward); places the player there. */
+function rescueToShore(msg) {
+  const t = world.terrain, p = camera.position;
+  for (let r = 4; r < 400; r += 4) for (let i = 0; i < 24; i++) {
+    const a = (i / 24) * Math.PI * 2, x = p.x + Math.cos(a) * r, z = p.z + Math.sin(a) * r;
+    if (t.waterDepth(x, z) > -0.2 || t.slope(x, z).m > 0.5) continue;
+    player.setTerrain(t, x, z, player.yaw);
+    regionState.swimT = 0; regionState.anc = null;
+    storyUI.toast(msg || "Kra hauls himself onto the shore.");
+    glog({ e: "rescue", x: +x.toFixed(1), z: +z.toFixed(1) });
+    return { x, z };
+  }
+  return null;
+}
+let swimBtn = null;
+function updateSwimBtn(on) {
+  if (!swimBtn) {
+    swimBtn = document.createElement("button"); swimBtn.id = "swim-btn"; swimBtn.type = "button"; swimBtn.className = "hidden"; swimBtn.textContent = "🏊 Swim to shore";
+    swimBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+    swimBtn.addEventListener("click", (e) => { e.stopPropagation(); rescueToShore(); });
+    gameEl.appendChild(swimBtn);
+  }
+  if (swimBtn._on !== on) { swimBtn._on = on; swimBtn.classList.toggle("hidden", !on); }
+}
+
 function tickOverworld(dt, info, now) {
   const p = camera.position, t = world.terrain, A = world.atmo;
   const elev = t.height(p.x, p.z);
-  depthEl.textContent = `Elevation ${fmt(elev)} m`;
+  depthEl.textContent = `Elevation ${fmt(elev)} m${player?.water > 1.1 ? " · swimming" : player?.water > 0.3 ? " · wading" : ""}`;
   distEl.textContent = `Travelled ${fmt(info.travelled)} m`;
   const camp = world.camp, site = t.act1;
   let extra = null;
@@ -1734,6 +1792,7 @@ function tickOverworld(dt, info, now) {
   const st = game.timeFrozen ? A.update(0, { eye: viewCam.position, elevation: elev, lights: { sun: moonLight, hemi: skyFill, ambient }, fog: scene.fog, renderer })
     : A.update(dt, { eye: viewCam.position, elevation: elev, lights: { sun: moonLight, hemi: skyFill, ambient }, fog: scene.fog, renderer });
   scene.background.copy(A.fogColor);
+  regionTick(dt, p, t);
   world.over.tick(now / 1000, p, A);
   caveman.baseIntensity = TORCH_BASE * st.torch;
   // Round 15: inside a hall or lodge the daylight falls away and your torch takes over (like the caves).
@@ -2139,6 +2198,18 @@ window.__CAVE__ = {
     map: (on = true) => { if (on) openMap(); else wmap.close(); return { open: wmap.isOpen, revealed: wmap.revealedCount(), trail: wmap.trail.length }; },
     hint: () => { const h = showObjectiveHint(); return h && { label: h.label, text: h.text, x: +h.x.toFixed(1), z: +h.z.toFixed(1), mode: h.mode, compass: !compassEl.classList.contains("hidden") ? compassEl.textContent : null }; },
     filters: (o) => { if (o) { for (const [k, v] of Object.entries(o)) mapFilters[k] = v; localStorage.setItem("fota-mapfilters-v1", JSON.stringify(mapFilters)); } return { ...mapFilters }; },
+    // round 18: regions
+    biome: (x, z) => { const t = world.terrain, c = camera.position; x = x ?? c.x; z = z ?? c.z; const w = t.bio.weights(x, z); return { name: t.biomeAt(x, z), h: +t.height(x, z).toFixed(1), water: t.waterAt(x, z), depth: +t.waterDepth(x, z).toFixed(2), w: Object.fromEntries(Object.entries(w).map(([k, v]) => [k, +v.toFixed(2)])), swim: player.water || 0 }; },
+    findBiome: (name, minR = 900) => { const t = world.terrain; for (let r = minR; r < 3100; r += 60) for (let i = 0; i < 48; i++) { const a = (i / 48) * Math.PI * 2, x = Math.cos(a) * r, z = Math.sin(a) * r; const w = t.bio.weights(x, z); if ((name === "ocean" ? w.cd < -200 : w[name] > 0.9 && w.sea < 0.01) && (name === "ocean" || t.waterDepth(x, z) < -0.3) && t.slope(x, z).m < 0.5) return { x: +x.toFixed(1), z: +z.toFixed(1) }; } return null; },
+    rivers: () => world.terrain.bio.rivers.map((r) => ({ id: r.id, n: r.pts.length, end: r.end, a: [Math.round(r.pts[0].x), Math.round(r.pts[0].z)], b: [Math.round(r.pts.at(-1).x), Math.round(r.pts.at(-1).z)] })),
+    lakes: () => world.terrain.bio.lakes.map((l) => ({ x: Math.round(l.x), z: Math.round(l.z), r: Math.round(l.r), y: +l.y.toFixed(1) })),
+    riverPt: (id, i) => { const r = world.terrain.bio.rivers[id]; const q = r.pts[Math.min(r.pts.length - 1, i)]; return { x: q.x, z: q.z, y: q.y, n: r.pts.length }; },
+    rescue: () => rescueToShore(),
+    placesCheck: () => { const t = world.terrain, out = []; const chk = (name, x, z) => out.push([name, t.biomeAt(x, z), +t.waterDepth(x, z).toFixed(2), Math.round(Math.hypot(x, z))]);
+      for (const q of t.settlements) chk(q.name, q.x, q.z); for (const e of t.entrances) chk(e.name, e.x, e.z); if (t.act1) chk("camp", t.act1.camp.x, t.act1.camp.z);
+      for (const [k, v] of Object.entries(world.places || {})) if (v && v.x != null) chk(k, v.x, v.z); else if (v && typeof v === "object") for (const [k2, v2] of Object.entries(v)) if (v2?.x != null) chk(k + "." + k2, v2.x, v2.z);
+      return out.filter((r) => r[1] !== "temperate" || r[2] > -0.3); },
+    heightBench: () => { const t = world.terrain, t0 = performance.now(); let s = 0; for (let i = 0; i < 20000; i++) s += t.height((i * 37.1) % 6000 - 3000, (i * 91.7) % 6000 - 3000); return +((performance.now() - t0) / 20).toFixed(2); },
     hintState: () => game.hint && { ...game.hint, left: +(game.hint.until - game.time).toFixed(1), compass: compassEl.classList.contains("hidden") ? null : compassEl.textContent },
     hunter: () => story.hunter && { x: +story.hunter.x.toFixed(2), y: +story.hunter.y.toFixed(2), z: +story.hunter.z.toFixed(2), glow: !!story.hunter.glow },
     mapView: (cx, cz, s) => { Object.assign(wmap.view, { cx, cz, s }); wmap.draw(); },
@@ -2180,7 +2251,7 @@ window.__CAVE__ = {
     walkPath: (pts, { keys = ["KeyW"], jumpEvery = 0, reach = 1.2, dt = 1 / 60, place = true } = {}) => {
       const P = player, c = camera.position;
       if (place) P.setTerrain(world.terrain, pts[0].x, pts[0].z, Math.atan2(-(pts[1].x - pts[0].x), -(pts[1].z - pts[0].z)));
-      let frames = 0, stuck = 0, run = 0, maxRun = 0, miss = 0, f = 0; const at = [];
+      let frames = 0, stuck = 0, run = 0, maxRun = 0, miss = 0, f = 0, maxWet = 0, swimF = 0; const at = [];
       for (let w = 1; w < pts.length; w++) {
         const b = pts[w]; let ok = false;
         for (let i = 0; i < 3000; i++) {
@@ -2193,6 +2264,7 @@ window.__CAVE__ = {
           const ns = substepsFor(dt); for (let j = 0; j < ns; j++) P.update(dt / ns);
           if (game.horse) world.wildlife.ride(game.horse, feetPos(), P.yaw, P.speedNow, dt, f * dt);
           f++; frames++;
+          if ((P.water || 0) > maxWet) maxWet = P.water; if ((P.water || 0) > 1.1) swimF++;
           const mv = Math.hypot(c.x - x0, c.z - z0);
           if (frames > 30 && mv < P.speedNow * dt * 0.25) { stuck++; run++; if (run === 20) at.push([+c.x.toFixed(1), +c.z.toFixed(1)]); } else run = 0;
           maxRun = Math.max(maxRun, run);
@@ -2201,7 +2273,7 @@ window.__CAVE__ = {
         if (!ok) { miss++; break; }
       }
       P.keys.clear();
-      return { frames, stuck, maxRun, miss, at: at.slice(0, 4), end: [+c.x.toFixed(1), +c.z.toFixed(1)] };
+      return { frames, stuck, maxRun, miss, at: at.slice(0, 4), end: [+c.x.toFixed(1), +c.z.toFixed(1)], maxWet: +maxWet.toFixed(2), swimS: +(swimF * dt).toFixed(1) };
     },
     settleData: (id) => { const s = world.terrain.settlements[id]; return s && { x: s.x, z: s.z, R: s.R, kind: s.kind, name: s.name, paths: s.paths, fires: s.fires, lake: s.lake, longhouse: s.longhouse, buildings: s.buildings, posts: s.posts.length }; },
     indoor: () => +(game.indoor || 0).toFixed(2),

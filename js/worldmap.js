@@ -8,7 +8,7 @@
  * image (160 x 160 cells of 16 m) is built once, the fog is a 160 x 160 alpha image scaled up.
  */
 import { mapFilters as F } from "./mapfilters.js";
-const N = 160, CELL = 16, HALF = (N * CELL) / 2; // covers +-1280 m
+const N = 256, CELL = 25, HALF = (N * CELL) / 2; // covers +-3200 m (round 18: the bigger world)
 const TRAIL_STEP = 8, TRAIL_MAX = 4000;
 
 export class WorldMap {
@@ -65,7 +65,7 @@ export class WorldMap {
     this.fog.fill(0); this.trail = []; this._fogImg = null;
     try {
       const o = JSON.parse(localStorage.getItem(key) || "null");
-      if (o?.f) { const b = atob(o.f); for (let i = 0; i < Math.min(b.length, N * N); i++) this.fog[i] = b.charCodeAt(i); }
+      if (o?.f && o.n === N) { const b = atob(o.f); for (let i = 0; i < Math.min(b.length, N * N); i++) this.fog[i] = b.charCodeAt(i); }
       if (o?.t) for (let i = 0; i + 1 < o.t.length; i += 2) this.trail.push([o.t[i], o.t[i + 1]]);
     } catch {}
   }
@@ -74,7 +74,7 @@ export class WorldMap {
     if (!this.key || !this.dirty) return;
     this.dirty = false;
     let s = ""; for (let i = 0; i < this.fog.length; i += 4096) s += String.fromCharCode.apply(null, this.fog.subarray(i, i + 4096));
-    try { localStorage.setItem(this.key, JSON.stringify({ f: btoa(s), t: this.trail.flat() })); } catch {}
+    try { localStorage.setItem(this.key, JSON.stringify({ n: N, f: btoa(s), t: this.trail.flat() })); } catch {}
   }
   /** Overworld: reveal around (x, z) and extend the trail. Call every frame (cheap). */
   record(x, z, dt, reach = 1) {
@@ -128,13 +128,10 @@ export class WorldMap {
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) H[j * N + i] = t.height((i + 0.5) * CELL - HALF, (j + 0.5) * CELL - HALF);
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
       const h = H[j * N + i], hx = H[j * N + Math.min(N - 1, i + 1)] - h, hz = H[Math.min(N - 1, j + 1) * N + i] - h;
-      const shade = Math.max(-0.35, Math.min(0.35, (-hx - hz) * 0.04));
-      const v = Math.max(0, Math.min(1, (h + 20) / 170)), band = Math.floor(h / 10) % 2 ? 6 : 0, k = (j * N + i) * 4;
-      const snow = h > 120 ? (h - 120) / 60 : 0;
-      img.data[k] = Math.min(255, (58 + v * 80 + band) * (1 + shade) + snow * 120);
-      img.data[k + 1] = Math.min(255, (74 + v * 52 + band) * (1 + shade) + snow * 110);
-      img.data[k + 2] = Math.min(255, (52 + v * 60 + band) * (1 + shade) + snow * 120);
-      img.data[k + 3] = 255;
+      const shade = 1 + Math.max(-0.35, Math.min(0.35, (-hx - hz) * 0.03)), k = (j * N + i) * 4;
+      // round 18: region colours (red rock, salt, marsh, snow, ice) and water
+      const [r, g2, b] = t.bio ? t.bio.mapRGB((i + 0.5) * CELL - HALF, (j + 0.5) * CELL - HALF, h, Math.hypot(hx, hz) / CELL) : [0.3, 0.35, 0.28];
+      img.data[k] = Math.min(255, r * 235 * shade); img.data[k + 1] = Math.min(255, g2 * 235 * shade); img.data[k + 2] = Math.min(255, b * 235 * shade); img.data[k + 3] = 255;
     }
     g.putImageData(img, 0, 0);
     return (this.bg = c);
@@ -168,6 +165,10 @@ export class WorldMap {
       ctx.imageSmoothingEnabled = true;
       if (bg) ctx.drawImage(bg, X(-HALF), Y(-HALF), N * CELL * v.s, N * CELL * v.s);
       ctx.drawImage(this._fogCanvas(), X(-HALF), Y(-HALF), N * CELL * v.s, N * CELL * v.s);
+      if (F.water && this.terrain?.bio) { // round 18: rivers
+        ctx.strokeStyle = "rgba(110,190,230,0.85)"; ctx.lineWidth = Math.max(1.5, 5 * v.s);
+        for (const r of this.terrain.bio.rivers) { ctx.beginPath(); let on = false; for (const p of r.pts) { if (!this.seen(p.x, p.z)) { on = false; continue; } on ? ctx.lineTo(X(p.x), Y(p.z)) : ctx.moveTo(X(p.x), Y(p.z)); on = true; } ctx.stroke(); } // only what you've explored
+      }
       if (s.stream && F.water) { ctx.strokeStyle = "rgba(110,190,220,0.8)"; ctx.lineWidth = 2; ctx.beginPath(); s.stream.forEach((p, i) => (i ? ctx.lineTo(X(p.x), Y(p.z)) : ctx.moveTo(X(p.x), Y(p.z)))); ctx.stroke(); }
       // trail
       if (this.trail.length > 1 && F.trail) {

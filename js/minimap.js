@@ -1,3 +1,4 @@
+import { mapFilters } from "./mapfilters.js";
 /** Plan-view minimap of the survey centerline, north up. */
 
 import { stationMap, stationWorld } from "./cave-data.js";
@@ -205,12 +206,26 @@ export class Minimap {
       for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
         const x = playerPos.x + ((i + 0.5) * cell - w / 2) / scale, z = playerPos.z + ((j + 0.5) * cell - h / 2) / scale;
         const y = terrain.height(x, z);
-        const band = Math.floor(y / 8) % 2;
+        const band = Math.floor(y / 8) % 2 ? 1.06 : 1;
+        if (terrain.bio) { // round 18: region colours + water
+          const [r, g, b] = terrain.bio.mapRGB(x, z, y);
+          this._owImg.push([i * cell, j * cell, cell + 0.5, `rgba(${Math.round(r * 200 * band)}, ${Math.round(g * 200 * band)}, ${Math.round(b * 200 * band)}, 0.62)`]);
+          continue;
+        }
         const v = Math.max(0, Math.min(1, (y + 20) / 160));
         this._owImg.push([i * cell, j * cell, cell + 0.5, `rgba(${40 + v * 70 + band * 8}, ${55 + v * 60 + band * 8}, ${45 + v * 70 + band * 8}, 0.5)`]);
       }
     }
     for (const [x, y, s, col] of this._owImg) { ctx.fillStyle = col; ctx.fillRect(x, y, s, s); }
+    if (terrain.bio && mapFilters.water) { // round 18: rivers
+      const Pm = (x, z) => [w / 2 + (x - playerPos.x) * scale, h / 2 + (z - playerPos.z) * scale];
+      ctx.strokeStyle = "rgba(110, 190, 230, 0.85)"; ctx.lineWidth = Math.max(2, w * 0.016);
+      for (const r of terrain.bio.rivers) {
+        ctx.beginPath(); let on = false;
+        for (const q of r.pts) { if (Math.abs(q.x - playerPos.x) > R * 1.5 || Math.abs(q.z - playerPos.z) > R * 1.5) { on = false; continue; } const [x, y] = Pm(q.x, q.z); on ? ctx.lineTo(x, y) : ctx.moveTo(x, y); on = true; }
+        ctx.stroke();
+      }
+    }
     for (const e of terrain.entrances) {
       if (!discovered.has(e.id)) continue;
       const x = w / 2 + (e.x - playerPos.x) * scale, y = h / 2 + (e.z - playerPos.z) * scale;

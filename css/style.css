@@ -635,3 +635,9 @@ button:hover, .file-btn:hover { border-color: var(--accent); color: #fff; }
 .slot .new-dot { position: absolute; top: 2px; right: 4px; font-size: 11px; color: #ffe36a; font-weight: normal; }
 .gear.insp { padding: 4px 9px; }
 .inv-tip { font-size: 11px; color: #a89070; margin-top: 6px; }
+
+/* Round 18: swim to shore */
+#swim-btn { position: absolute; top: 64px; left: 50%; transform: translateX(-50%); z-index: 8; padding: 10px 16px; border-radius: 22px; font: 700 14px Georgia, serif;
+  background: rgba(20, 70, 100, 0.9); border: 1px solid #9fd4ff; color: #e8f6ff; pointer-events: auto; }
+#swim-btn.hidden { display: none; }
+@media (max-width: 700px), (pointer: coarse) { #swim-btn { top: 196px; font-size: 13px; } }

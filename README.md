@@ -239,6 +239,20 @@ Draw calls go up slightly because each cell is its own mesh. The triangle count 
 
 ## Changelog
 
+- **Round 18: a varied world, from southern Utah to Alaska (regions, rivers, lakes, ocean).**
+  - *Bigger world:* ±3.2 km (was ±1.4 km). The start, the camp, Tako, the towns, cave mouths and quest places keep the familiar temperate ground (checked: none are in water or another region).
+  - *Regions* (`js/world/biomes.js`, a biome map mixed smoothly by weight):
+    - south: red-rock canyon country (banded sandstone mesas and benches, winding canyons, hoodoos, rare stone arches, juniper and sage) and salt flats with sand dunes;
+    - east: marsh with standing water, reeds and dead trees;
+    - north: alpine peaks with snowcaps and spruce, then tundra / taiga with snowfields and glacier ice;
+    - west: an ocean coast with a beach (rocky in the north).
+  - Each region changes the ground shape, colours, trees and rocks, grass (none on salt or ice, dry tufts in the desert, reeds in the marsh), and the fog / sky tint (warm haze in the desert, thick marsh fog, cold blue north). Entering a region shows its name.
+  - *Water:* about 14 rivers run from the mountains to the sea or to lakes, cutting gorges where the land rises. There are more lakes, and an ocean with swell and surf. A shared water shader flows downstream on rivers.
+  - *Wading and swimming:* wading slows you and deep water makes you swim (slow, on horseback too). Deep water never traps you: the swim floor meets the banks, a "🏊 Swim to shore" button appears, and a long swim ends with Kra hauled onto the nearest shore.
+  - *Maps:* the minimap and the big map show region colours, water and rivers (rivers only where you've explored; respects the Streams filter). The horizon follows you and is coloured by region.
+  - *Speed:* one height lookup per grid point per chunk (plus a halo for normals) instead of five per vertex. Heights cost about 2 µs.
+  - *Boats hook:* `terrain.bio.bodies` and `terrain.bio.navigable(x, z)`.
+
 - **Round 17: the hunter's face, map filters, hints, inspecting items, analog speed.**
   - *Face bug fixed:* the dead hunter lay 78% of the way into Waterfall Hollow, past two crawl-only squeezes in the dark, with no marker, a small reach, and other prompts (drink, pickups) that could take the Use button. Crawling also snagged on knee-high ramps. Now:
     - the body lies in the creature's den (the first roomy chamber past halfway, reachable without crawling) and sits on the rendered floor;

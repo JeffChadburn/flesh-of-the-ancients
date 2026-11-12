@@ -16,6 +16,53 @@ import { fbm3 } from "../rng.js";
 import { addDetail } from "../realism.js";
 
 const RES = [32, 16, 8];
+
+function depthOK(HG, n2, i, j, a, b, c, d) {
+  const g = (ii, jj) => HG[(jj + 1) * n2 + ii + 1];
+  return a > g(i, j) - 0.05 || b > g(i + 1, j) - 0.05 || c > g(i, j + 1) - 0.05 || d > g(i + 1, j + 1) - 0.05;
+}
+/** Round 18: flowing / rolling water. Rivers scroll ripples downstream, the ocean rolls swell and
+ *  surf onto the beach, lakes and marsh just shimmer. Lit by the sky colour, fogged like the land. */
+export function makeWaterMaterial() {
+  const uniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 }, uSky: { value: new THREE.Color(0.5, 0.6, 0.7) }, uLight: { value: 1 } }]);
+  const m = new THREE.ShaderMaterial({
+    uniforms, fog: true, transparent: true, depthWrite: false,
+    vertexShader: `attribute vec2 flow; attribute float kind; attribute float depth;
+      uniform float uTime; varying vec2 vF; varying float vK; varying float vD; varying vec3 vW;
+      #include <fog_pars_vertex>
+      void main(){ vec3 p = position; vF = flow; vK = kind; vD = depth;
+        if (kind > 1.5) p.y += sin(p.x * 0.11 + uTime * 1.3) * 0.18 + sin(p.z * 0.07 - uTime * 0.9) * 0.12;
+        vec4 mvPosition = modelViewMatrix * vec4(p, 1.0); vW = (modelMatrix * vec4(p, 1.0)).xyz;
+        gl_Position = projectionMatrix * mvPosition;
+        #include <fog_vertex>
+      }`,
+    fragmentShader: `uniform float uTime; uniform vec3 uSky; uniform float uLight; varying vec2 vF; varying float vK; varying float vD; varying vec3 vW;
+      #include <fog_pars_fragment>
+      void main(){
+        vec2 q = vW.xz;
+        float sp = vK > 0.5 && vK < 1.5 ? 1.6 : 0.25;
+        vec2 adv = q - vF * uTime * sp;
+        float r = sin(adv.x * 0.9 + sin(adv.y * 0.6) * 1.4) * sin(adv.y * 1.1 + sin(adv.x * 0.4) * 1.7);
+        float r2 = sin((adv.x + adv.y) * 2.3 + uTime * 1.7) * 0.5;
+        float rip = r * 0.6 + r2 * 0.4;
+        // linear colours (the output is converted to sRGB): keep them dark so water reads as water
+        vec3 deep = vec3(0.012, 0.045, 0.06), shallow = vec3(0.05, 0.11, 0.1);
+        if (vK > 1.5) { deep = vec3(0.006, 0.035, 0.075); shallow = vec3(0.03, 0.12, 0.14); }
+        float sh = 1.0 - smoothstep(0.0, 2.2, vD);
+        vec3 col = mix(deep, shallow, sh) + uSky * (0.07 + 0.05 * rip);
+        float foam = 0.0;
+        if (vK > 1.5) foam = smoothstep(0.55, 0.0, vD) * (0.5 + 0.5 * sin(vD * 9.0 - uTime * 2.4));
+        else if (vK > 0.5) foam = smoothstep(0.75, 1.0, rip) * 0.35;
+        col = mix(col, vec3(0.85, 0.9, 0.92), foam * 0.7);
+        col *= uLight;
+        gl_FragColor = vec4(col, mix(0.72, 0.94, smoothstep(0.0, 1.2, vD)) * smoothstep(-0.05, 0.12, vD + 0.08));
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+        #include <fog_fragment>
+      }`,
+  });
+  return m;
+}
 const LOAD_RING = 4, KEEP_RING = 5;
 
 function lodForRing(r) { return r <= 1 ? 0 : r === 2 ? 1 : 2; }
@@ -83,6 +130,55 @@ function rockGeometry(detail = 1, seed = 3) {
   g.computeVertexNormals();
   return colorize(g, (c, x, y) => c.setHex(0x8a857c).lerp(new THREE.Color(0x5a5852), Math.max(0, -y)));
 }
+// ---- Round 18: region plants and rock forms ----
+function spruceGeometry(lo) {
+  const parts = [];
+  const trunk = new THREE.CylinderGeometry(0.1, 0.16, 2.0, lo ? 4 : 5); trunk.translate(0, 1.0, 0);
+  parts.push(colorize(trunk, (c) => c.setHex(0x4a3828)));
+  const tiers = lo ? [[1.1, 6.0, 1.2]] : [[1.25, 2.4, 1.0], [1.0, 2.2, 2.4], [0.78, 2.0, 3.7], [0.55, 1.8, 4.9], [0.32, 1.5, 6.0]];
+  for (const [r, h, y] of tiers) {
+    const cone = new THREE.ConeGeometry(r, h, lo ? 5 : 6, 1); cone.translate(0, y + h * 0.5 - 0.2, 0);
+    parts.push(colorize(cone, (c, x, yy) => c.setHex(0x1e3a32).lerp(new THREE.Color(0x35574a), Math.min(1, (yy - y) / h + 0.1))));
+  }
+  return merge(parts);
+}
+function deadTreeGeometry() {
+  const parts = [], c0 = 0x5e5448;
+  const trunk = new THREE.CylinderGeometry(0.08, 0.22, 4.2, 5); trunk.translate(0, 2.1, 0); parts.push(colorize(trunk, (c) => c.setHex(c0)));
+  for (const [y, a, l] of [[2.2, 0.4, 1.6], [2.9, 2.6, 1.3], [3.5, 4.4, 1.0], [1.6, 5.4, 1.1]]) {
+    const b = new THREE.CylinderGeometry(0.03, 0.07, l, 4); b.translate(0, l / 2, 0); b.rotateZ(1.0); b.rotateY(a); b.translate(0, y, 0);
+    parts.push(colorize(b, (c) => c.setHex(c0)));
+  }
+  return merge(parts);
+}
+function sageGeometry() {
+  const g = new THREE.IcosahedronGeometry(0.9, 1); const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) { const k = 1 + (fbm3(p.getX(i) * 3, p.getY(i) * 3, p.getZ(i) * 3, 2) - 0.5) * 0.7; p.setXYZ(i, p.getX(i) * k, Math.max(-0.1, p.getY(i)) * k * 0.7 + 0.5, p.getZ(i) * k); }
+  return colorize(g, (c, x, y) => c.setHex(0x7a8a6a).lerp(new THREE.Color(0xa8b090), Math.max(0, y - 0.6)));
+}
+const RED_BANDS = (c, y) => c.setHex(0xa8482a).lerp(new THREE.Color(0xd8874c), 0.5 + 0.5 * Math.sin(y * 2.4)).lerp(new THREE.Color(0xe8d2b0), Math.sin(y * 0.9) > 0.9 ? 0.6 : 0);
+function hoodooGeometry() {
+  // a tapering spire of stacked, weathered blocks with a pale cap rock
+  const parts = []; let y = 0;
+  for (let i = 0; i < 4; i++) {
+    const r = 1.0 - i * 0.16, h = 1.6 + (i % 2) * 0.5;
+    const g = new THREE.CylinderGeometry(r * 0.75, r, h, 7, 2); g.translate(0, y + h / 2, 0);
+    const p = g.attributes.position; for (let k = 0; k < p.count; k++) { const q = 1 + (fbm3(p.getX(k) * 2 + i, p.getY(k) * 2, p.getZ(k) * 2, 2) - 0.5) * 0.45; p.setX(k, p.getX(k) * q); p.setZ(k, p.getZ(k) * q); }
+    parts.push(colorize(g, (c, x, yy) => RED_BANDS(c, yy))); y += h * 0.95;
+  }
+  const cap = new THREE.CylinderGeometry(0.9, 0.7, 0.6, 7); cap.translate(0, y + 0.25, 0); parts.push(colorize(cap, (c) => c.setHex(0xd8c4a0)));
+  return merge(parts);
+}
+function archGeometryRed() {
+  // a natural sandstone arch: a thick half ring on two legs (span ~14 m at scale 1)
+  const parts = [];
+  const ring = new THREE.TorusGeometry(7, 1.5, 6, 14, Math.PI); ring.scale(1, 0.95, 1.2);
+  const p = ring.attributes.position; for (let k = 0; k < p.count; k++) { const q = 1 + (fbm3(p.getX(k) * 0.4, p.getY(k) * 0.4, p.getZ(k) * 0.4, 2) - 0.5) * 0.25; p.setY(k, p.getY(k) * q); p.setZ(k, p.getZ(k) * q); }
+  parts.push(colorize(ring, (c, x, y) => RED_BANDS(c, y)));
+  for (const s of [-1, 1]) { const l = new THREE.CylinderGeometry(1.5, 2.1, 3, 7); l.translate(s * 7, -1.2, 0); parts.push(colorize(l, (c, x, y) => RED_BANDS(c, y))); }
+  const g = merge(parts); g.translate(0, 1.2, 0); return g;
+}
+
 function grassGeometry() {
   // three crossed blades (6 tris), base at y=0
   const parts = [];
@@ -144,7 +240,13 @@ export class OverworldLayer {
       juniper: juniperGeometry(false), juniperLo: juniperGeometry(true),
       rock: rockGeometry(1, 3), rockLo: rockGeometry(0, 3), boulder: rockGeometry(2, 7),
       grass: grassGeometry(),
+      spruce: spruceGeometry(false), spruceLo: spruceGeometry(true), dead: deadTreeGeometry(), sage: sageGeometry(),
+      hoodoo: hoodooGeometry(), archRed: archGeometryRed(),
     };
+    this.waterMat = makeWaterMaterial(); // round 18: lakes, rivers, marsh and the ocean
+    const C = (h) => new THREE.Color(h);
+    this.pal = { tmp: new THREE.Color(), mud: C(0x3e3a26), moss: C(0x4a5a2e), alpGrass: C(0x4a5e3a), stone: C(0x75777a), snow: C(0xe6ecf2), tundra: C(0x6e6a48), lichen: C(0x8a8a5e),
+      ice: C(0xbcd8e8), redDeep: C(0x9a3e22), redLight: C(0xd27a40), cream: C(0xe2c9a0), sand: C(0xd2b88a), salt: C(0xd6d0c2), shoreRock: C(0x4c4a48) };
     // Sky, sun, moon, clouds and weather live in atmosphere.js (added to `resident` by main).
     this.horizon = this._buildHorizon();
     this.resident = new THREE.Group();
@@ -155,28 +257,14 @@ export class OverworldLayer {
   dispose() {
     for (const g of Object.values(this.geos)) g.dispose();
     this.archGeo?.dispose();
-    for (const m of [this.groundMat, this.treeMat, this.rockMat, this.grassMat, this.entranceMat, this.mouthTubeMat]) m.dispose();
+    for (const m of [this.groundMat, this.treeMat, this.rockMat, this.grassMat, this.entranceMat, this.mouthTubeMat, this.waterMat]) m.dispose();
     this.resident.traverse((o) => { o.geometry?.dispose(); o.material?.dispose?.(); });
   }
 
   _buildHorizon() {
     // Low-res far heightfield (40 m grid, +-1.2 km), dark silhouette, discarded near the
     // player where real chunks are drawn. Gives the mountain ridge on the horizon.
-    const N = 60, S = 2400, t = this.terrain;
-    const g = new THREE.PlaneGeometry(S, S, N, N);
-    g.rotateX(-Math.PI / 2);
-    const p = g.attributes.position;
-    const col = new Float32Array(p.count * 3);
-    for (let i = 0; i < p.count; i++) {
-      const x = p.getX(i), z = p.getZ(i), h = t.height(x, z);
-      p.setY(i, h - 6);
-      // albedo: green-grey hills, bare grey ridge, snow-dusted peaks
-      const k = Math.min(1, Math.max(0, (h - 60) / 90)), sn = Math.min(1, Math.max(0, (h - 140) / 45));
-      let r = 0.16 + k * 0.12, gg = 0.2 + k * 0.08, b = 0.14 + k * 0.14;
-      r += (0.86 - r) * sn; gg += (0.88 - gg) * sn; b += (0.92 - b) * sn;
-      col[i * 3] = r; col[i * 3 + 1] = gg; col[i * 3 + 2] = b;
-    }
-    g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    const g = this._horizonGeo(0, 0);
     this.horizonUniforms = { uCenter: { value: new THREE.Vector3() }, uCut: { value: 4.4 * CHUNK }, uLight: { value: new THREE.Color(0.2, 0.22, 0.3) }, uFog: { value: new THREE.Color(0x0b0f1a) }, uFogD: { value: 0.0095 } };
     const mat = new THREE.ShaderMaterial({
       fog: false, vertexColors: true, uniforms: this.horizonUniforms,
@@ -195,6 +283,24 @@ export class OverworldLayer {
     return m;
   }
 
+  /** Round 18: far heightfield (40 m grid, 2.4 km square) around a centre, coloured by region
+   *  (red rock, salt, snow, sea). Rebuilt as you travel so the horizon follows you. */
+  _horizonGeo(cx, cz) {
+    const N = 60, S = 2400, t = this.terrain;
+    const g = new THREE.PlaneGeometry(S, S, N, N);
+    g.rotateX(-Math.PI / 2); g.translate(cx, 0, cz);
+    const p = g.attributes.position, col = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), z = p.getZ(i), h = t.height(x, z), wa = t.bio.waterAt(x, z);
+      p.setY(i, (wa && wa.y > h ? wa.y : h) - 6);
+      const [r, gg, b] = t.bio.mapRGB(x, z, h);
+      col[i * 3] = r * 0.85; col[i * 3 + 1] = gg * 0.85; col[i * 3 + 2] = b * 0.85;
+    }
+    g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    this.horizonAt = { x: cx, z: cz };
+    return g;
+  }
+
   /** Per-frame cosmetic updates (sky follows the eye, grass wind / fade centre). */
   tick(time, eye, atmo) {
     if (atmo) {
@@ -202,6 +308,11 @@ export class OverworldLayer {
       u.uLight.value.copy(atmo.horizonLight); u.uFog.value.copy(atmo.fogColor); u.uFogD.value = atmo.state.fogD;
     }
     this.grassUniforms.uTime.value = time;
+    if (this.horizon && this.horizonAt && Math.hypot(eye.x - this.horizonAt.x, eye.z - this.horizonAt.z) > 600 && !this.lite2) {
+      const old = this.horizon.geometry; this.horizon.geometry = this._horizonGeo(Math.round(eye.x / 200) * 200, Math.round(eye.z / 200) * 200); old.dispose();
+    }
+    this.waterMat.uniforms.uTime.value = time;
+    if (atmo) { const hl = atmo.horizonLight; this.waterMat.uniforms.uSky.value.copy(atmo.fogColor).lerp(hl, 0.5); this.waterMat.uniforms.uLight.value = Math.min(1.1, 0.25 + (hl.r + hl.g + hl.b) * 0.6); }
     this.grassUniforms.uCenter.value.copy(eye);
     // Horizon cut snaps to the loaded chunk square around the player.
     const cx = (Math.floor(eye.x / CHUNK) + 0.5) * CHUNK, cz = (Math.floor(eye.z / CHUNK) + 0.5) * CHUNK;
@@ -243,24 +354,36 @@ export class OverworldLayer {
     const verts = (n + 1) * (n + 1);
     const pos = new Float32Array((verts + 4 * (n + 1)) * 3), nrm = new Float32Array(pos.length), col = new Float32Array(pos.length);
     const c = new THREE.Color(), grass = new THREE.Color(0x3d5230), dry = new THREE.Color(0x6a6444), rock = new THREE.Color(0x77736c), dirt = new THREE.Color(0x574632);
-    const put = (i, x, z, y) => {
+    const ridgeC = new THREE.Color(0x6a6c74), snowC = new THREE.Color(0xdde3ea);
+    const P = this.pal, B = t.bio;
+    P.temperate = (cc, x, z, y, m) => {
+      const v = fbm2(x / 23, z / 23, 2, 77);
+      cc.copy(grass).lerp(dry, Math.min(1, Math.max(0, v * 1.6 - 0.45)));
+      if (v < 0.33) cc.lerp(dirt, 0.5);
+      cc.lerp(rock, Math.min(1, Math.max(0, (m - 0.55) * 2.2)));
+      if (y > 110) cc.lerp(ridgeC, Math.min(1, (y - 110) / 60)); // bare high ridge
+      if (y > 138) cc.lerp(snowC, Math.min(1, (y - 138) / 40) * (m < 0.9 ? 1 : 0.5)); // snow-dusted peaks
+      return cc;
+    };
+    // Round 18: one height per grid point (plus a 1-cell halo for normals) instead of 5 per vertex.
+    const n2 = n + 3, HG = new Float32Array(n2 * n2);
+    for (let j = 0; j < n2; j++) for (let i = 0; i < n2; i++) HG[j * n2 + i] = t.height(x0 + (i - 1) * step, z0 + (j - 1) * step);
+    const wet = this._wet = new Float32Array((n + 1) * (n + 1)).fill(NaN);
+    const put = (i, x, z, y, gi, gj) => {
       pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z;
-      const e = 1;
-      const gx = (t.height(x + e, z) - t.height(x - e, z)) / 2, gz = (t.height(x, z + e) - t.height(x, z - e)) / 2;
+      const gx = (HG[gj * n2 + gi + 1] - HG[gj * n2 + gi - 1]) / (2 * step), gz = (HG[(gj + 1) * n2 + gi] - HG[(gj - 1) * n2 + gi]) / (2 * step);
       const l = Math.hypot(gx, 1, gz);
       nrm[i * 3] = -gx / l; nrm[i * 3 + 1] = 1 / l; nrm[i * 3 + 2] = -gz / l;
       const m = Math.hypot(gx, gz);
-      const v = fbm2(x / 23, z / 23, 2, 77);
-      c.copy(grass).lerp(dry, Math.min(1, Math.max(0, v * 1.6 - 0.45)));
-      if (v < 0.33) c.lerp(dirt, 0.5);
-      c.lerp(rock, Math.min(1, Math.max(0, (m - 0.55) * 2.2)));
-      if (y > 110) c.lerp(new THREE.Color(0x6a6c74), Math.min(1, (y - 110) / 60)); // bare high ridge
-      if (y > 138) c.lerp(new THREE.Color(0xdde3ea), Math.min(1, (y - 138) / 40) * (m < 0.9 ? 1 : 0.5)); // snow-dusted peaks
+      const w = B.weights(x, z);
+      if (w.temperate > 0.999 && w.cd > 300) P.temperate(c, x, z, y, m); else B.color(c, x, z, y, m, w, P);
+      const wa = B.waterAt(x, z, w, y);
+      if (wa) { wet[i] = wa.y; if (wa.y > y) c.lerp(P.mud, Math.min(0.7, (wa.y - y) * 0.5)).multiplyScalar(0.85); } // wet, darker beds
       col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
     };
     for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) {
       const x = x0 + i * step, z = z0 + j * step;
-      put(j * (n + 1) + i, x, z, t.height(x, z));
+      put(j * (n + 1) + i, x, z, HG[(j + 1) * n2 + i + 1], i + 1, j + 1);
     }
     const idx = [];
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
@@ -309,12 +432,22 @@ export class OverworldLayer {
       tris += (geo0.index ? geo0.index.count : geo0.attributes.position.count) / 3 * items.length;
     };
     const lo = lod >= 2;
-    for (const type of [0, 1]) {
+    const G = this.geos;
+    const TG = [lo ? G.pineLo : G.pine, lo ? G.juniperLo : G.juniper, lo ? G.spruceLo : G.spruce, G.dead, G.sage, G.hoodoo, G.archRed];
+    for (let type = 0; type < TG.length; type++) {
       const items = sc.trees.filter((tr) => tr.type === type);
-      const g0 = type === 0 ? (lo ? this.geos.pineLo : this.geos.pine) : (lo ? this.geos.juniperLo : this.geos.juniper);
-      inst(g0, items, this.treeMat, (tr, d) => { d.position.set(tr.x, tr.y - 0.15, tr.z); d.rotation.set(0, tr.rot, 0); d.scale.setScalar(tr.s * (type === 0 ? 1.15 : 1)); });
+      if (lo && type === 4) continue; // no far scrub
+      inst(TG[type], items, this.treeMat, (tr, d) => { d.position.set(tr.x, tr.y - (type >= 5 ? 0.6 : 0.15), tr.z); d.rotation.set(0, tr.rot, 0); d.scale.setScalar(tr.s * (type === 0 ? 1.15 : 1)); });
     }
-    if (lod <= 1) inst(lod === 0 ? this.geos.rock : this.geos.rockLo, sc.rocks, this.rockMat, (r, d) => { d.position.set(r.x, r.y - r.s * 0.15, r.z); d.rotation.set(r.tilt * 0.3, r.rot, 0); d.scale.setScalar(r.s); });
+    if (lod <= 1) {
+      inst(lod === 0 ? this.geos.rock : this.geos.rockLo, sc.rocks, this.rockMat, (r, d) => { d.position.set(r.x, r.y - r.s * 0.15, r.z); d.rotation.set(r.tilt * 0.3, r.rot, 0); d.scale.setScalar(r.s); });
+      const rm = group.children[group.children.length - 1];
+      if (rm?.isInstancedMesh && rm.material === this.rockMat && sc.rocks.length) { // round 18: red sandstone / pale granite boulders by region
+        const tc = new THREE.Color(), red = new THREE.Color(1.35, 0.78, 0.55), cold = new THREE.Color(0.95, 1.0, 1.08);
+        sc.rocks.forEach((r, i) => { const w = B.weights(r.x, r.z); tc.setRGB(1, 1, 1).lerp(red, w.red + w.salt * 0.5).lerp(cold, w.tundra); rm.setColorAt(i, tc); });
+        rm.instanceColor.needsUpdate = true;
+      }
+    }
     yield;
     if (lod === 0) {
       const rng = mulberry32((cx * 73856093) ^ (cz * 19349663) ^ 0x9e37);
@@ -323,12 +456,29 @@ export class OverworldLayer {
         const x = x0 + rng() * CHUNK, z = z0 + rng() * CHUNK;
         const patch = fbm2(x / 15, z / 15, 2, 31);
         if (patch < 0.42 || rng() > 0.9) continue;
+        // round 18: blades per region (reeds in the marsh, sparse dry tufts in the desert, none on salt or ice)
+        const w = B.weights(x, z), r6 = rng();
+        if (w.sea > 0.02 || r6 > 1 - w.salt * 0.95 - w.red * 0.75 - w.tundra * 0.45 - w.alpine * 0.3) continue;
+        const y = t.height(x, z);
         if (t.slope(x, z).m > 0.7) continue;
-        blades.push({ x, z, y: t.height(x, z), s: 0.7 + rng() * 0.8, r: rng() * 6.28 });
+        const wa = B.waterAt(x, z, w, y);
+        if (wa && wa.y > y + 0.25 && wa.kind !== "marsh") continue;
+        blades.push({ x, z, y, s: (0.7 + rng() * 0.8) * (w.swamp > 0.5 ? 1.15 : 1), r: rng() * 6.28, reed: w.swamp, dryK: w.red + w.salt, cold: w.tundra + w.alpine * 0.5 });
       }
-      inst(this.geos.grass, blades, this.grassMat, (b, d) => { d.position.set(b.x, b.y - 0.03, b.z); d.rotation.set(0, b.r, 0); d.scale.set(b.s, b.s * (0.8 + (b.r % 1) * 0.6), b.s); });
+      inst(this.geos.grass, blades, this.grassMat, (b, d) => { d.position.set(b.x, b.y - 0.03, b.z); d.rotation.set(0, b.r, 0); d.scale.set(b.s, b.s * (0.8 + (b.r % 1) * 0.6) * (1 + b.reed * 0.8), b.s); });
+      const gm = group.children[group.children.length - 1];
+      if (gm?.isInstancedMesh && gm.material === this.grassMat && blades.some((b) => b.reed + b.dryK + b.cold > 0.01)) {
+        const tc = new THREE.Color(), dryT = new THREE.Color(1.5, 1.2, 0.75), reedT = new THREE.Color(0.85, 1.0, 0.7), coldT = new THREE.Color(1.25, 1.1, 0.85);
+        blades.forEach((b, i) => { tc.setRGB(1, 1, 1).lerp(dryT, b.dryK).lerp(reedT, b.reed).lerp(coldT, b.cold); gm.setColorAt(i, tc); });
+        gm.instanceColor.needsUpdate = true;
+      }
       const last = group.children[group.children.length - 1];
       if (last && last.material === this.grassMat) { last.name = "grass"; last.frustumCulled = false; }
+    }
+    // --- round 18: water surface (lakes / rivers / marsh / ocean) for this chunk ---
+    {
+      const wg = this._waterGeo(cx, cz, n, step, wet, HG, n2);
+      if (wg) { const wm = new THREE.Mesh(wg, this.waterMat); wm.name = "water"; wm.renderOrder = 2; group.add(wm); tris += wg.index.count / 3; }
     }
     // --- cave entrances in this chunk: rock outcrop with a dark mouth ---
     for (const e of t.entrances) {
@@ -341,6 +491,44 @@ export class OverworldLayer {
     for (let i = 1; i < verts * 3; i += 3) { ymin = Math.min(ymin, pos[i]); ymax = Math.max(ymax, pos[i]); }
     const bounds = new THREE.Box3(new THREE.Vector3(x0, ymin - 1, z0), new THREE.Vector3(x0 + CHUNK, ymax + 6, z0 + CHUNK));
     return { obj: group, tris, bounds };
+  }
+
+  /** Round 18: a water sheet over the chunk grid where any water body is (dilated one cell so
+   *  the edge tucks under the banks). Attributes: flow (xz), kind (0 still, 1 river, 2 ocean),
+   *  depth (surface - ground) for the shallow tint and the surf line. */
+  _waterGeo(cx, cz, n, step, wet, HG, n2) {
+    const t = this.terrain, B = t.bio, x0 = cx * CHUNK, z0 = cz * CHUNK, N1 = n + 1;
+    if (!wet.some((v) => !Number.isNaN(v))) return null;
+    const lv = new Float32Array(N1 * N1).fill(NaN);
+    for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) {
+      let v = wet[j * N1 + i];
+      if (Number.isNaN(v)) for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const a = i + di, b = j + dj; if (a >= 0 && b >= 0 && a <= n && b <= n && !Number.isNaN(wet[b * N1 + a])) { v = wet[b * N1 + a]; break; } }
+      lv[j * N1 + i] = v;
+    }
+    const pos = [], flow = [], kind = [], depth = [], idx = [], map = new Int32Array(N1 * N1).fill(-1);
+    const vert = (i, j) => {
+      const k = j * N1 + i; if (map[k] >= 0) return map[k];
+      const x = x0 + i * step, z = z0 + j * step, y = lv[k];
+      const wa = B.waterAt(x, z);
+      map[k] = pos.length / 3; pos.push(x, y, z);
+      flow.push(wa ? wa.fx : 0, wa ? wa.fz : 0); kind.push(!wa ? 0 : wa.kind === "river" ? 1 : wa.kind === "ocean" ? 2 : 0);
+      depth.push(y - HG[(j + 1) * n2 + i + 1]);
+      return map[k];
+    };
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      const a = j * N1 + i, b = a + 1, c = a + N1, d = c + 1;
+      if ([a, b, c, d].some((q) => Number.isNaN(lv[q]))) continue;
+      // skip cells that are entirely above the surface (dry)
+      if (depthOK(HG, n2, i, j, lv[a], lv[b], lv[c], lv[d])) idx.push(vert(i, j), vert(i, j + 1), vert(i + 1, j), vert(i + 1, j), vert(i, j + 1), vert(i + 1, j + 1));
+    }
+    if (!idx.length) return null;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("flow", new THREE.Float32BufferAttribute(flow, 2));
+    g.setAttribute("kind", new THREE.Float32BufferAttribute(kind, 1));
+    g.setAttribute("depth", new THREE.Float32BufferAttribute(depth, 1));
+    g.setIndex(idx); g.computeBoundingSphere();
+    return g;
   }
 
   _entranceObject(e, lod) {

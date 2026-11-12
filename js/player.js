@@ -354,6 +354,8 @@ export class Player {
     }
     if (wishOverride) target = st.speed;
     if (this.sprintAllowed === false && !this.mounted && target > st.speed) target = st.speed; // exhausted: no running
+    // Round 18: wading slows you, swimming more so (no running in deep water).
+    if (this.terrain && this.water > 0.3) target = Math.min(target, this.water > 1.1 ? (this.mounted ? 3.2 : 1.5) : Math.min(target * 0.55 + 0.5, this.mounted ? 6 : 4));
     this.speedTarget = target;
     // Smooth easing: speed up over ~0.3 s, stop a little quicker.
     const k = target > this.speedNow ? 7 : 11;
@@ -470,6 +472,7 @@ export class Player {
     // Vertical: follow a continuous ground height. Step-up limit is measured against the last
     // ground target (not the damped camera), rises are eased, small descents stick to the ground
     // (no float-then-drop on slopes), bigger drops use gravity.
+    this.water = resolved._water || 0; this.waterY = resolved._waterY; // round 18
     let floorEye = resolved._floor + resolved._eye;
     const lastGround = this.groundEye != null ? this.groundEye : from.y;
     // Round 12: airborne (jumping) you can land on anything up to STEP_UP below your current height.

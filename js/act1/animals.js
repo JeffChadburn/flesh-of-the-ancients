@@ -250,7 +250,7 @@ export class Wildlife {
     for (let k = 0; k < 40; k++) {
       const a = this.rng() * Math.PI * 2, d = rmin + this.rng() * (rmax - rmin);
       const x = C.x + Math.cos(a) * d, z = C.z + Math.sin(a) * d;
-      if (this.t.slope(x, z).m < 0.55 && this.t.streamDist(x, z) > 3) return { x, z };
+      if (this.t.slope(x, z).m < 0.55 && this.t.streamDist(x, z) > 3 && !(this.t.waterDepth?.(x, z) > -0.3)) return { x, z };
     }
     return { x: C.x + rmax, z: C.z };
   }

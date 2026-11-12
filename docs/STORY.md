@@ -83,3 +83,20 @@ In the default world, the town is Tako, the hold is Dunrin Hold, the travellers'
 Side quests: **Neka** (stew: roots and berries, which teaches the salve), **Brannoc** (rabbit pelts, which teaches the fur cap), **Mosi** (feathers for bone).
 The skill tree follows the "Skill trees" line above: Hunting, Crafting, Survival and Spirit (the Blood Rites branch, simplified for now).
 Next: the Ash-Walker's ally-or-rival choice, more faces, and the Living Cave.
+
+## World regions (round 18, 2026-11-12)
+
+The overworld is now 6.4 km across (±3.2 km). North is −z.
+
+- **Layout:** `js/world/biomes.js` mixes regions by weight. Large-scale noise warps a north–south climate gradient.
+  - The **temperate heartland** (start, River-Tooth camp, Tako and the towns, all quest places) is kept within about 1.05 km of the origin and is unchanged.
+  - **South** (about 1.0–1.45 km out and beyond): **red-rock canyon country** (banded mesas and benches, winding canyons, hoodoos, rare arches, juniper and sage) and **salt flats & dunes**.
+  - **East:** **marsh** (standing water, reeds, dead trees).
+  - **North:** **alpine peaks** (ridged, snowcapped, spruce), then **tundra & taiga** beyond about 2 km (spruce, snowfields, glacier ice).
+  - **West:** the **ocean** behind a wandering coastline, with a sandy beach (a dark rocky shore in the north).
+- **Water:**
+  - About 14 rivers start in the high country. Each picks the lowest ground in a fan of headings toward the sea or a lower lake, with a water level that only ever falls, so rises are cut through as gorges.
+  - About 16 lakes sit in low, gentle ground, plus the lakes at river ends.
+  - Everything is carved into the height function and rendered per chunk as one water sheet with a flowing / rolling shader.
+- **Wading and swimming:** wading slows Kra. Deeper than 1.15 m he swims at the surface (slow, no running). A "Swim to shore" button appears, and he is pulled to the nearest dry ground after 60 s or 12 s without progress.
+- **Boats (next step):** `terrain.bio.bodies` lists every water body. `terrain.bio.navigable(x, z)` says where a boat could float.
