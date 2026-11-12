@@ -1,6 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script>/* boot-check: show why the game failed to start */
+(function(){var shown=false;function show(msg){if(shown)return;shown=true;var d=document.createElement('div');d.id='boot-err';d.style.cssText='position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:99999;max-width:520px;background:#1b1410;color:#f1e3c8;border:1px solid #8a5a2b;border-radius:12px;padding:18px 20px;font:15px/1.45 system-ui,sans-serif;box-shadow:0 8px 40px #000';d.innerHTML='<b style="font-size:17px">The game could not start on this browser</b><p style="margin:8px 0">'+msg+'</p><p style="margin:8px 0;opacity:.85">Try: a hard refresh (Ctrl+Shift+R), make sure hardware acceleration is on in your browser settings, update the browser, or try Chrome/Edge/Firefox.</p><button onclick="location.href=location.pathname+\'?gfx=low&v=\'+Date.now()" style="padding:8px 14px;border-radius:8px;border:1px solid #8a5a2b;background:#3a2616;color:#f1e3c8;cursor:pointer">Retry in Low graphics</button>';(document.body||document.documentElement).appendChild(d);}
+try{var c=document.createElement('canvas');var gl=c.getContext('webgl2')||c.getContext('webgl');if(!gl){addEventListener('DOMContentLoaded',function(){show('3D graphics (WebGL) are turned off or blocked on this computer.');});}}catch(e){}
+addEventListener('error',function(e){if(e.message)show('Error: '+String(e.message).replace(/</g,'&lt;'));},true);
+addEventListener('unhandledrejection',function(e){show('Error: '+String(e.reason&&e.reason.message||e.reason).replace(/</g,'&lt;'));});
+setTimeout(function(){if(!document.getElementById("boot-err"))shown=true;},20000);window.__bootOK=function(){shown=true;var d=document.getElementById('boot-err');if(d)d.remove();};
+})();</script>
+
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
