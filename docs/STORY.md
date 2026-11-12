@@ -118,3 +118,10 @@ The overworld is now 6.4 km across (±3.2 km). North is −z.
 - **Townsfolk** are ordinary people of the other camps. They have heard of the River-Tooth massacre. They fear the face-wearer, warm to a hunter who brings meat, and only follow Kra once they trust him (gifts, trade, deeds). Their rumours point back to the story: caves not yet found, the Ash-Walker, and ore glinting in the deep caves.
 - **Unlock in the story:** after the second task (m2), or once Kra knows Herb Lore or Woodcutting. Free play: always.
 - **Design notes:** villagers reuse the instanced townsfolk renderer; built buildings are merged into one mesh per settlement; the economy ticks once a second; far-away and offline settlements use an abstract tick (offline catch-up capped at 2 h, at half rate). Colony data is saved in its own key and also inside the story save. NPC towns do not evolve (skipped).
+
+
+## Glowing mushrooms: spirit visions (round 21, 2026-11-12)
+
+- **Lore:** the old ones call the glowing caps *the First Mouth's teeth*. They grow where the breath of the deep reaches the surface: dark forest floors, the marsh, the edge of the ice, and the caves themselves. Eating one "opens the eyes": the spirits show Kra the world as they see it, breathing, melting and singing, full of creatures no one else can see. Shamans (and Old Lume in his youth) ate them to talk to the dead. The giant face that rises at the height of the vision is the closest the tribe has to a picture of the First Mouth: it watches, it opens, it is gone.
+- **Design:** visions are harmless and purely visual (no damage, no colliders). They last about 3½ minutes (come-up, peak, fade) and can be ended from the Pack or the 🍄 End vision button. A flashing-lights warning shows the first time, and ☰ → Calm visuals tones everything down. Not saved: a vision ends on reload.
+- **Future hooks (not built):** a Spirit-branch quest where a vision reveals a hidden cave or a glyph; townsfolk reacting if Kra walks in mid-vision.

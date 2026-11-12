@@ -126,7 +126,7 @@ export class CinematicScore {
     this.out.gain.setTargetAtTime(on ? (this.ducked ? 0.22 : 1) : 0, t, 0.35);
   }
   /** Round 13: dip the score while a character speaks. */
-  duck(on) {
+  duckVoice(on) { // (was duck(): shadowed by the this.duck gain node, so it threw)
     this.ducked = !!on;
     if (this.on) { const t = this.ctx.currentTime; this.out.gain.cancelScheduledValues(t); this.out.gain.setTargetAtTime(on ? 0.22 : 1, t, on ? 0.15 : 0.6); }
   }

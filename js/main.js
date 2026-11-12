@@ -35,6 +35,11 @@ import { Boats } from "./world/boats.js";
 import { Colony, AGES as COL_AGES } from "./world/colony.js"; // round 20
 import { TownTalk } from "./act1/talk.js";
 import { ColonyUI } from "./act1/colony-ui.js";
+import { Trip, MELT } from "./trip.js"; // round 21
+const trip_MELT = () => MELT.value.x;
+import { Visions } from "./world/visions.js";
+import { TripMusic } from "./tripmusic.js";
+import { Shrooms } from "./world/shrooms.js";
 
 const errors = [];
 window.addEventListener("error", (e) => errors.push(String(e.message || e.error || e)));
@@ -388,6 +393,7 @@ function ensureWorld() {
     kills: () => { const st = story.surv.stats; return (st.small || 0) + (st.deer || 0); }, questsDone: () => (story.active ? story.quests.completed().length : 0), time: () => game.time,
     markHint: (x, z, label) => { game.hint = { x, z, label, text: label, mode: "overworld", until: game.time + 40 }; compassKey = ""; } });
   world.people.skip = (k) => world.talk.joined(k);
+  world.shrooms = new Shrooms(world.terrain, world.settleRoot); // round 21
   colonyUI = new ColonyUI({ root: gameEl, stanceBar: document.getElementById("stance-bar"), colony: world.colony, feet: () => feetPos(), yaw: () => player.yaw,
     surv: () => (pack() ? story.surv : null), toast: (m, k) => storyUI.toast(m, k), debug: URLP.has("debug") || URLP.has("play"),
     mode: () => world.mode, busy: () => world.mode !== "overworld" || !!game.boat || !!player?.mounted || !!storyUI.modal || game.dead,
@@ -404,6 +410,62 @@ function ensureWorld() {
 }
 
 let colonyUI = null;
+// ---------------- Round 21: glowing mushrooms + the trip ----------------
+let calmOn = localStorage.getItem("fota-calm") === "1";
+const trip = new Trip({ renderer, scene, lite: () => gfxQuality() !== "high", calm: () => calmOn, skip: () => [caveman.root, visions.group, world.shrooms?.group] });
+const visions = new Visions({ scene, ground: (x, z) => (world.terrain ? world.terrain.height(x, z) : 0), lite: () => IS_TOUCH || gfxQuality() !== "high" });
+const tripMusic = new TripMusic(audio);
+const calmBtn = document.createElement("button");
+calmBtn.id = "calm-btn"; calmBtn.type = "button"; calmBtn.title = "Tone down flashing and colour cycling (mushroom visions)";
+const syncCalm = () => { calmBtn.textContent = "Calm visuals: " + (calmOn ? "on" : "off"); };
+function setCalm(v) { calmOn = !!v; localStorage.setItem("fota-calm", calmOn ? "1" : "0"); syncCalm(); }
+syncCalm();
+document.getElementById("gfx-btn")?.after(calmBtn);
+calmBtn.addEventListener("click", (e) => { e.stopPropagation(); setCalm(!calmOn); });
+calmBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+const tripBtn = document.createElement("button");
+tripBtn.id = "trip-btn"; tripBtn.type = "button"; tripBtn.className = "hidden"; tripBtn.textContent = "🍄 End vision";
+tripBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+tripBtn.addEventListener("click", (e) => { e.stopPropagation(); endTrip(); });
+document.getElementById("game").appendChild(tripBtn);
+function eatShroom() {
+  if (!story.surv.count("shroom")) return;
+  if (trip.on) { storyUI.toast("The vision is already on you."); return; }
+  const go = (calm) => {
+    if (calm) setCalm(true);
+    localStorage.setItem("fota-flash-ok", "1");
+    story.surv.remove("shroom", 1); storyUI.closePanel(); startTrip();
+  };
+  if (!localStorage.getItem("fota-flash-ok")) {
+    storyUI.ask("⚠ Flashing lights", "This starts a 3–4 minute vision with strong colour cycling, flashing and kaleidoscope effects. If flashing lights bother you, pick calm visuals (also in ☰ → Calm visuals). You can end it at any time: 🍄 End vision, or in the Pack.",
+      [{ id: "go", label: "Eat it" }, { id: "calm", label: "Eat it with calm visuals" }], (id) => go(id === "calm"), true);
+  } else go(false);
+}
+function startTrip() {
+  trip.start(); visions.clear();
+  if (audio.ctx) tripMusic.start();
+  audio.duckMusic(true);
+  storyUI.toast("It tastes of earth and copper. The ground begins to breathe…", "skill");
+  glog({ e: "trip", on: true });
+}
+function endTrip() { if (!trip.on) return; trip.endSoon(5); storyUI.toast("You breathe slowly. The colours drain away."); }
+function tripTick(dt) {
+  const was = trip.on, L = trip.update(dt);
+  if (was && !trip.on) {
+    tripMusic.stop(); audio.duckMusic(false);
+    if (audio.master) audio.master.gain.value = audio.muted ? 0 : 0.7;
+    storyUI.toast("The vision fades. The world is only the world again.");
+    glog({ e: "trip", on: false });
+    if (storyUI.tab === "inv") storyUI.renderPanel();
+  }
+  if (trip.on && !tripMusic.on && audio.ctx) tripMusic.start();
+  if (trip.on || visions.list.length) { const f = player ? feetPos() : viewCam.position; visions.update(dt, L, viewCam.position, f, world.mode !== "overworld", trip.t, trip.phase === "peak"); }
+  if (tripMusic.on) tripMusic.update(L, trip.phase === "peak" ? L : 0, audio.muted);
+  if (trip.on && audio.master) audio.master.gain.value = audio.muted ? 0 : 0.7 * (1 - 0.55 * L);
+  if (trip.on && world.mode === "overworld") trip.tintSky(scene);
+  if (tripBtn._on !== trip.on) { tripBtn._on = trip.on; tripBtn.classList.toggle("hidden", !trip.on); }
+}
+
 /** Round 20: (re)load the settlements saved for this mode (story / free play) and world seed. */
 function syncColony(fresh = false) {
   const C = world.colony; if (!C) return;
@@ -770,6 +832,7 @@ storyUI.voice.onDuck = (on) => audio.duckMusic(on);
 storyUI.voice.onBroken = () => syncVoice();
 syncVoice();
 window.__VOICE__ = storyUI.voice;
+storyUI.tripOn = () => trip.on; // round 21
 const story = new Story({
   ui: storyUI, audio,
   time: () => game.time,
@@ -784,6 +847,10 @@ const story = new Story({
   monster: () => game.monster,
   caveKind: () => cave?.kind || null,
   get talk() { return world.talk || null; }, // round 20
+  shroomNear: (f) => (world.mode === "overworld" ? world.shrooms?.near(f) || null : null), // round 21
+  pickShroom: (sp) => { if (!story.surv.add("shroom", 2)) { storyUI.toast("No room in your pack", "bad"); return; } world.shrooms.take(sp); storyUI.toast("+2 Glowing mushroom. They pulse faintly in your hand.", "good"); },
+  eatShroom: () => eatShroom(),
+  endTrip: () => endTrip(),
   colonyJSON: () => world.colony?.toJSON() || null,
   talkJSON: () => world.talk?.toJSON() || null,
   colonyRestore: (o) => { if (world.colony && !world.colony.list.length && o?.list?.length) { world.colony.load(o, false); } },
@@ -1459,6 +1526,7 @@ function mapState() {
     if (site && story.active) out.stream = site.stream;
     if (world.colony) for (const c of world.colony.list) out.towns.push({ x: c.x, z: c.z, name: `${c.name} · ${COL_AGES[c.age].name} · 👥${c.vill.length}`, kind: "village", color: "#7fe0ff", known: true }); // round 20
     if (world.boats) out.boats = world.boats.list.map((b) => ({ x: b.x, z: b.z, yaw: b.yaw, kind: b.kind, mine: b === game.boat || b === game.myBoat, riding: b === game.boat }));
+    if (world.shrooms) for (const q of world.shrooms.marks()) out.marks.push({ x: q.x, z: q.z, color: "#ff6af0", label: "🍄" }); // round 21
     out.npcs = world.places ? Object.entries(world.places.npc).map(([id, n]) => ({ x: n.x, z: n.z, mark: story.npcMark(id) })) : [];
   } else if (cave) {
     out.title = nameEl?.textContent || "Cave";
@@ -1712,7 +1780,8 @@ function tick(now) {
     viewCam.quaternion.copy(camera.quaternion);
   }
   caveman.setPixelHeight(renderer.domElement.height);
-  renderer.render(scene, viewCam);
+  tripTick(dt); // round 21
+  if (trip.on && trip.level > 0.002) trip.render(renderer, scene, viewCam); else renderer.render(scene, viewCam);
   if (debugOn && now - debugLast > 250) { debugLast = now; renderDebug(); }
   requestAnimationFrame(tick);
 }
@@ -1938,6 +2007,9 @@ function tickOverworld(dt, info, now) {
     extra = extra || { marks: [], dots: [] };
     for (const c of world.colony.list) extra.marks.push({ x: c.x, z: c.z, color: "#7fe0ff", r: 0.026, edge: true, label: Math.hypot(c.x - p.x, c.z - p.z) < 200 ? c.name : "" });
   }
+  if (world.shrooms && mapFilters.places) { // round 21: mushroom patches you have seen
+    const sm = world.shrooms.marks(); if (sm.length) { extra = extra || { marks: [], dots: [] }; for (const q of sm) if (Math.abs(q.x - p.x) < 500 && Math.abs(q.z - p.z) < 500) extra.marks.push({ x: q.x, z: q.z, color: "#ff6af0", r: 0.013, label: "🍄" }); }
+  }
   if (extra) extra.noLabels = !mapFilters.labels;
   minimap.drawOverworld(t, p, player.yaw, mapFilters.caves ? world.discovered : new Set(), extra);
   updateLowHint(info);
@@ -1978,6 +2050,7 @@ function tickOverworld(dt, info, now) {
   if (world.settle) {
     world.settle.update(dt, p);
     world.people.update(dt, p);
+    world.shrooms?.update(dt, p, now / 1000); // round 21
     const f20 = feetPos(); // round 20: Kra's settlements + talkative townsfolk
     world.colony?.update(dt, f20);
     if (!storyUI.modal && !game.dead) world.talk?.update(dt, f20);
@@ -2473,6 +2546,11 @@ window.__CAVE__ = {
     clearColony: () => { world.colony.clear(); world.colony.save(); },
     talkNear: () => { const n = world.people.nearest(feetPos().x, feetPos().z); if (!n) return null; world.talk.talk(n.p); return { name: n.p.ident.name, voice: n.p.ident.voice, trait: n.p.ident.trait, ext: !!n.p.ident.ext, d: +n.d.toFixed(1) }; },
     peopleNear: (n = 8) => { const f = feetPos(); return world.people.list.filter((p) => p.ident).map((p) => ({ name: p.ident.name, voice: p.ident.voice, ext: !!p.ident.ext, x: +p.x.toFixed(1), z: +p.z.toFixed(1), d: +Math.hypot(p.x - f.x, p.z - f.z).toFixed(1) })).sort((a, b) => a.d - b.d).slice(0, n); },
+    trip: () => ({ on: trip.on, t: +trip.t.toFixed(1), level: +trip.level.toFixed(2), phase: trip.phase, melt: +trip_MELT().toFixed(2), visions: visions.list.map((v) => v.kind), spawned: visions.n, music: tripMusic.on, calm: calmOn, btn: !tripBtn.classList.contains("hidden") }),
+    tripStart: () => startTrip(), tripSkip: (t) => { trip.t = t; return trip.phase; }, tripEnd: () => endTrip(), setCalm: (v) => setCalm(v),
+    eatShroom: () => eatShroom(),
+    shrooms: () => (world.shrooms ? { n: world.shrooms.spots.length, kinds: world.shrooms.spots.reduce((o, q) => ((o[q.kind] = (o[q.kind] || 0) + 1), o), {}), seen: world.shrooms.marks().length, live: world.shrooms.live.size, near: world.shrooms.spots.find((q) => q.near) || null } : null),
+    nearestShroom: () => { const f = feetPos(); return world.shrooms.spots.filter((q) => world.shrooms.available(q)).map((q) => ({ ...q, d: Math.hypot(q.x - f.x, q.z - f.z) })).sort((a, b) => a.d - b.d)[0]; },
     pickups: () => story.pickups.map((k) => ({ id: k.id, ore: !!k.ore, taken: k.taken, x: +k.x.toFixed(1), y: +k.y.toFixed(1), z: +k.z.toFixed(1) })),
     toPickup: (i) => { const k = story.pickups[i]; if (!k) return null; player.placeWorld(k.x + 0.6, k.y + 0.05, k.z + 0.6); return true; },
     setTool: (k, v = true) => { story.surv.tools[k] = v; return story.surv.tools; },

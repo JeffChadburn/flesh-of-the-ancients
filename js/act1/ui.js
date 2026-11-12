@@ -9,7 +9,7 @@ import { Inspector } from "./inspect.js";
 
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 const ITEM_COLORS = { berries: "#7a1f3a", roots: "#8a6a3a", meat: "#9a3a34", cooked: "#8a5a2a", organ: "#6a1018", pelt: "#8a7a64", hide: "#7a5636", feather: "#4a4a54", skin: "#6a4a3c", blood: "#5a0808", morgan: "#3a0a2a",
-  bone: "#cfc3a6", sinew: "#9a6a52", flint: "#6a7484", ochre: "#a8401c", herbs: "#4a7a3a", salve: "#8a7a4a", logs: "#7a5a3a", copper: "#3a8a6a", tin: "#a8acb0", iron: "#8a4a2a", coal: "#2a2a2c" };
+  bone: "#cfc3a6", sinew: "#9a6a52", flint: "#6a7484", ochre: "#a8401c", herbs: "#4a7a3a", salve: "#8a7a4a", logs: "#7a5a3a", copper: "#3a8a6a", shroom: "#e040d0", tin: "#a8acb0", iron: "#8a4a2a", coal: "#2a2a2c" };
 
 export class StoryUI {
   constructor(root, { touch = false } = {}) {
@@ -204,7 +204,7 @@ export class StoryUI {
         const it = s.inv[i];
         if (!it) { h += `<div class="slot empty"></div>`; continue; }
         const d = ITEMS[it.id];
-        const act = d.food ? `<button data-a="eat" data-id="${it.id}">Eat</button>` : it.id === "morgan" ? `<button data-a="eatm" data-id="morgan">Eat</button>` : d.heal ? `<button data-a="use" data-id="${it.id}">Use</button>` : "";
+        const act = it.id === "shroom" ? `<button data-a="shroom" data-id="shroom">Eat</button>` : d.food ? `<button data-a="eat" data-id="${it.id}">Eat</button>` : it.id === "morgan" ? `<button data-a="eatm" data-id="morgan">Eat</button>` : d.heal ? `<button data-a="use" data-id="${it.id}">Use</button>` : "";
         h += `<div class="slot" data-insp="${it.id}" data-n="${it.n}"><i style="background:${ITEM_COLORS[it.id] || "#555"}"></i><span>${d.name}</span><em>×${it.n}</em>${s.inspected?.has(it.id) ? "" : `<b class="new-dot" title="Not inspected yet">ⓘ</b>`}${act}</div>`;
       }
       h += "</div>";
@@ -212,6 +212,7 @@ export class StoryUI {
       const extras = [s.faces ? ["facesuit", `🎭 Face suit (${s.faces})`] : null, s.tools.knife ? ["knife", "🔪 Stone knife"] : null, s.tools.spear ? ["spear", "🦴 Spear"] : null].filter(Boolean);
       if (extras.length) h += `<div class="inv-head">Worn &amp; tools (tap to inspect)</div><div class="gear-row">` + extras.map(([id, l]) => `<button class="gear insp" data-insp="${id}">${l} ⓘ</button>`).join("") + "</div>";
       h += `<div class="inv-tip">Tap an item to inspect it.</div>`;
+      if (this.tripOn?.()) h += `<button class="trip-end-btn" data-a="endtrip">🍄 End the vision (fade out now)</button>`; // round 21
       // round 16: clothing (Wear / Remove)
       const owned = Object.keys(GEAR).filter((g) => s.crafted.has(g));
       if (owned.length) h += `<div class="inv-head">Clothing</div><div class="gear-row">` + owned.map((g) => `<button class="gear${s.wear.has(g) ? " on" : ""}" data-a="wear" data-id="${g}">${s.wear.has(g) ? "✓ " : ""}${GEAR[g]}</button><button class="gear insp" data-insp="${g}" aria-label="Inspect ${GEAR[g]}">ⓘ</button>`).join("") + "</div>";

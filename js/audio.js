@@ -24,7 +24,7 @@ export class CaveAudio {
     this.moodDepth = 0;
   }
 
-  duckMusic(on) { this.music?.duck?.(on); }
+  duckMusic(on) { this.music?.duckVoice?.(on); }
 
   toggleMusic() {
     this.musicOn = !this.musicOn;

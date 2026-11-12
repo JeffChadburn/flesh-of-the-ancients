@@ -677,3 +677,9 @@ button:hover, .file-btn:hover { border-color: var(--accent); color: #fff; }
 #colony-panel .cp-need { font-size: 13px; opacity: 0.75; } #colony-panel .cp-need.ok { color: #9fe3a8; opacity: 1; }
 #colony-panel > .cp-box > button { margin-top: 8px; width: 100%; }
 #game.building .toasts { top: 190px; }
+
+/* ---------- Round 21: mushroom visions ---------- */
+#trip-btn { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 16; padding: 8px 14px; border-radius: 20px; border: 1px solid #ff6af0; background: rgba(40, 10, 40, 0.85); color: #ffe0fb; font: 700 13px Georgia, serif; }
+#trip-btn.hidden { display: none; }
+.trip-end-btn { display: block; width: 100%; margin: 8px 0; padding: 10px; border-radius: 10px; border: 1px solid #ff6af0; background: #3a1038; color: #ffe0fb; font: 700 14px Georgia, serif; }
+@media (max-width: 700px), (pointer: coarse) { #trip-btn { top: 215px; left: 10px; transform: none; } }

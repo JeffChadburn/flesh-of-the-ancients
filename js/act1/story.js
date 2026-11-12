@@ -9,6 +9,7 @@ import { Survival, ITEMS, SKILLS, RECIPES, TREE, GEAR, readSave, writeSave } fro
 import { QuestLog, QUESTS, QUEST, NPCS, fill } from "./quests.js";
 import { makeBody, markFaceTaken, bake } from "./camp.js";
 import { queryVolume } from "../volume.js";
+import { makeCluster } from "../world/shrooms.js";
 
 const LUME_LINES = [
   { who: "Old Lume", text: "Kra... you breathe. Good. Come close. My eyes are full of dark." },
@@ -284,6 +285,9 @@ export class Story {
         const k = this.deadwoodNear(f, t);
         if (k) return { label: "Gather deadwood logs", act: () => this.gatherWood(k) };
       }
+      // round 21: glowing mushrooms
+      const sh = (this.active || this.sandbox) && env.shroomNear?.(f);
+      if (sh) return { label: "Pick the glowing mushrooms", act: () => env.pickShroom(sh) };
       // round 20: anyone in a town (or Kra's own villagers) can be talked to
       const P0 = this.P;
       const named = this.active && P0 && Object.entries(P0.npc).some(([id, n]) => this.npcVisible(id) && d2(n) < 2.4);
@@ -519,6 +523,8 @@ export class Story {
     const s = this.surv, ui = this.env.ui;
     if (a === "eat") { const m = s.eat(id); if (m) ui.toast(m); this._log({ e: "eat", id }); }
     if (a === "eatm") this.bloodMemory();
+    if (a === "shroom") { this.env.eatShroom?.(); this._log({ e: "eat", id: "shroom" }); } // round 21
+    if (a === "endtrip") this.env.endTrip?.();
     if (a === "learn") {
       if (s.learn(id, (q) => this.quests.done(q))) { const k = s.tierInfo(id); ui.toast(`Skill learned: ${k.t.name}`, "skill"); this.env.applyStats(); this._log({ e: "learn", id }); }
     }
@@ -635,6 +641,11 @@ export class Story {
       if (!k.taken) { const m = new THREE.Mesh(vg, vm[id]); m.position.set(k.x, k.y + 0.25, k.z); m.scale.set(1.2, 0.8, 1); m.name = "ore"; env.addCaveObject(m); k.obj = m; }
       this.pickups.push(k);
     });
+    // round 21: a glowing mushroom patch in about half the caves
+    if (h % 2 === 1) {
+      const sp = env.caveSpot(0.52), i = 20;
+      if (sp) { const k = { id: "shroom", n: 2, x: sp.x, y: sp.y, z: sp.z, i, cave: key, taken: taken.has(i) }; if (!k.taken) { const m = makeCluster(h + 7, 1.4); m.position.set(sp.x, sp.y, sp.z); m.name = "shrooms"; env.addCaveObject(m); k.obj = m; } this.pickups.push(k); }
+    }
   }
   onCaveLoaded(kind, key = kind) {
     this.placePickups(key);

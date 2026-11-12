@@ -27,6 +27,7 @@ export const ITEMS = {
   tin: { name: "Tin ore", stack: 8, icon: "⚪" },
   iron: { name: "Iron ore", stack: 8, icon: "⚙️" },
   coal: { name: "Coal", stack: 8, icon: "⬛" },
+  shroom: { name: "Glowing mushroom", stack: 6, icon: "🍄" }, // round 21: eaten from the Pack: a spirit vision (the trip)
 };
 export const SKILLS = {
   tools: { name: "Stone Tools", desc: "Knife and spear: harvest carcasses, craft simple gear." },

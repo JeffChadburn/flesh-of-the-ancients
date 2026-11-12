@@ -239,6 +239,19 @@ Draw calls go up slightly because each cell is its own mesh. The triangle count 
 
 ## Changelog
 
+- **Round 21: glowing mushrooms and spirit visions.**
+  - *Glowing mushrooms* (`js/world/shrooms.js`): rare clusters of small glowing caps (blue, pink, green, orange, with a soft halo). About 65 patches: mostly on the forest floor, some in the marsh and at the edge of the frozen north. About half the caves have a patch too, and there is one a short walk from the start (by Tako). Patches you have seen show on the minimap and big map as 🍄. Picked patches regrow after 30 minutes.
+  - *Eat one* from the Pack (it has an Inspect entry with its lore). The first time, a flashing-lights warning lets you pick calm visuals.
+  - *The vision* (`js/trip.js`) lasts about 3½ minutes: a ~20 s come-up, a strong peak (about 45 s to 2 min) and a slow fade.
+    - Full-screen effect: hue cycling in bands, boosted colour, wavy and breathing view, colour fringes, tracers (each frame smears into the last), kaleidoscope pulses at the peak.
+    - The world melts: trees, rocks, buildings and the ground sway, droop and roll. The sky and fog cycle through the rainbow.
+    - The HUD and buttons are not distorted, and all controls keep working.
+  - *Visions* (`js/world/visions.js`): harmless cartoon creatures pop in around you and vanish with a shimmer: googly-eyed bouncing blobs, dancing deer, floating fish, smiling mushroom people, giant snails, many-eyed blobs, tentacle trees and a giant floating face. Once, at the peak, a huge face rises in front of you, stares and opens its mouth (purely visual).
+  - *Music* (`js/tripmusic.js`, Web Audio): drone and pad, an arpeggiated synth into a long echo, a gliding pitch-bending melody, and a pulsing beat at the peak. It fades with the vision; the normal score and sounds are turned down meanwhile.
+  - *Options:* ☰ → **Calm visuals** tones down flashing, colour cycling, waves, tracers and melting. **🍄 End vision** (top of the screen, and in the Pack) fades it out in a few seconds. On Low graphics the effect renders at half resolution.
+  - A vision in progress is not saved: it simply ends on reload.
+  - Fix: the music now dips properly while characters speak (the dip used to throw an error).
+
 - **Round 20: talkative townsfolk, your own settlements, and the ages.**
   - *Talk to anyone:* every person in a town (and your own villagers) can be talked to with E / **Talk**, in the story and in free play. They stop and turn when you walk up.
     - Each has a name, a trade, a temperament and their own voice (spoken with subtitles when Voices are on).
