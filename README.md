@@ -225,6 +225,36 @@ Draw calls go up slightly because each cell is its own mesh. The triangle count 
 
 ## Changelog
 
+- **Round 13: Running jumps, a phone-first HUD, findable towns, spoken story, cave unsticking.**
+  - *Running jump:* Jump now works while walking or sprinting and keeps your momentum (about 11.5 m covered in a 0.8 s sprint jump), so you can clear rocks, logs and ledges up to about 1 m. There were two causes. On phones, the browser never sends a click for a second finger while the joystick is held, so the Jump button now fires on `pointerdown`. Running downhill, the ground-follow briefly read "airborne" and ate the jump. Added a 0.15 s coyote time and a 0.16 s jump buffer.
+  - *Phone HUD:* the objectives box is now a **📜 Tasks** side button with a badge (and a 🎒 Pack button) on the left edge. It opens a panel that closes when you tap it, and on phones it also closes by itself after a few seconds. On phones it pops open for 4.5 s when the task changes. **J** toggles it on desktop. At phone size, elevation, seed, kills and deaths are hidden; the meters shrink to H/T/S; the minimap is 100 px; and Jump is a round button next to Stab, clear of the stance pills.
+  - *Finding towns:* A compass pill (under the meters) points at the nearest settlement, with its name, kind and distance. It is hidden in caves and inside a settlement. Every hearth sends up a tall smoke column you can see from far off. One town is now always placed 200-320 m from the Act I camp; on the default world that is "Tako", 270 m away. Minimap labels are readable on phones.
+  - *Story voices:* the characters speak their lines aloud through the browser's free Web Speech API, with no accounts or services. Each speaker gets their own voice, chosen from the device's voices with deterministic fallbacks: Old Lume is old and slow, the narrator deep and slow, and Kra (if he ever speaks) younger. Subtitles stay in sync. A line moves on by itself 0.7 s after it is spoken, and a tap or E skips. The music ducks while someone speaks. New **Voices on/off** and **Subtitles on/off** toggles sit with Sound and Music and are saved in the browser. Speech is primed on the first tap (for iOS). If the device has no speech, or the engine fails, the dialogue falls back to text you tap through.
+  - *Caves:*
+    - Blocked moves now slide: the step is retried turned 30, 55 and 80 degrees, and a slide is never allowed to cut through rock.
+    - If you push for more than 1 s without getting 0.4 m anywhere, you get a squeeze with a thinner body against lumpy rock, or a nudge toward the middle of the passage that never pulls you backwards. Low roofs still ask you to crouch.
+    - If you are snapped back every frame in a squeeze, you now drop a stance automatically.
+    - The leg leading into a cavern's mouth station is no longer cut where it grazes the dome. This fixed an endless snap-back loop (seed 7, S45).
+    - Wall triangles smaller than 0.005 m² are ignored.
+    - Knee-high formations (≤ 0.42 m) are stepped over, and taller ones are cleared mid-jump.
+    - The chase camera now pulls in front of stalagmites and columns instead of letting them block your view of Kra.
+  - *Walking-route bots, mag 0.8, before → after:*
+
+    | Cave | Stuck frames | Snap-back rescues |
+    |---|---|---|
+    | Seed 42 | 9674 → 6214 | 0 → 0 |
+    | Seed 7 | 9109 → 9016 | 8609 → 0 |
+    | Seed 90210 | 16271 → 15740 | 0 → 0 |
+    | Seed 1234 | 14132 → 11831 | 0 → 0 |
+    | Carlsbad | 270 → 303 | 0 → 0 |
+
+    Failing routes are unchanged: 4 / 4 / 7 / 6 / 0.
+    - Most of those bot fails come from cutting corners toward a station 2 m away through rock. With route-following (0.7 m reach), seed 42 has no fails.
+    - Seed 7 now gets past S45 and stops at S49, a high step at a cavern that the bot cannot climb because it never jumps.
+    - Seed 90210 gets past S19, and its stuck frames fall from 4505 to 2949.
+    - Seed 1234 still stops at S18.
+    - Wall-crossing probe: no regression (seed 42: 13 → 12).
+
 - **Round 12: Faster running, settlements, people, horses, jumping (+ playtest round-3 minors).**
   - *Running 3x:* standing sprint 4.6 → **13.8 m/s**; walk 2.3 → 2.6 m/s (crouch 1.35 / crawl 0.78 unchanged). Stride, footstep cadence and the caveman's run cycle lengthen with speed. The main loop now substeps by distance as well as time (≤ 0.15 m per step, max 16 per frame). Cave check (seed 42, bots shoving into walls at full sprint): 0 rescues, and crossings per metre travelled match the old 4.6 m/s baseline (without substeps it would be ~10x worse). Chunk streaming keeps up (LOAD_RING 4 × 64 m is ~19 s of sprinting ahead).
   - *Settlements* (`js/world/settlements.js`), seeded per world and placed 140-1050 m from the origin. They keep away from the Act I camp (≥130-260 m), the falls and every cave mouth (≥80-150 m), on flat, low ground: **2 lakeside towns** (a 22 × 8 m longhouse on a plaza, 38-52 huts, radial and ring paths, drying racks, canoes on a carved lake), **5 villages** (10-20 huts inside a palisade with a gate, racks, a central fire) and **9 camps** (3-5 hide tents round a fire). One village and two camps are always within a short run. Yards are flattened into the terrain, trees and wildlife stay out, and huts, tents, posts, fires, racks, the longhouse and the lake shore are solid. Each one is built lazily as about 8 instanced draws within 480 m (380 m on phones) and dropped past 600 m. Names show on the minimap (far ones as pips on the rim) and as the place label when you walk in.

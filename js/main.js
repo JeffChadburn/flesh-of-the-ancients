@@ -162,6 +162,7 @@ function setCaveLighting() {
   if (world.camp) world.camp.fireLight.intensity = 0;
   if (world.wildlife) world.wildlife.setVisible(false);
   if (world.settleRoot) world.settleRoot.visible = false;
+  compassEl?.classList.add("hidden");
   storyUI.setClock("Underground");
   scene.fog.color.set(0x000000);
   scene.background.set(CAVE_BG);
@@ -265,6 +266,15 @@ function loadCave(nextCave, { fromEntrance = null } = {}) {
 }
 
 const wallMeshCache = { t: -1, list: [] };
+const formMeshCache = { t: -1e9, list: [] };
+function caveFormMeshes() {
+  const now = performance.now();
+  if (now - formMeshCache.t < 500) return formMeshCache.list;
+  const list = [];
+  for (const r of [world.caveLayer?.root, caveGroup].filter(Boolean)) r.traverse((o) => { if (o.isInstancedMesh && o.userData.formation && o.visible && o.count > 0) { if (!o.boundingSphere) o.computeBoundingSphere(); list.push(o); } });
+  formMeshCache.t = now; formMeshCache.list = list;
+  return list;
+}
 function caveWallMeshes() {
   // Rendered passage rock currently loaded (streamed cells, or the whole-cave group); cached briefly.
   const now = performance.now();
@@ -492,6 +502,20 @@ function syncMute() {
   }
 }
 syncMute();
+// Round 13: spoken story voices + subtitles toggles (saved in localStorage).
+const voiceBtn = document.getElementById("voice-btn"), subsBtn = document.getElementById("subs-btn");
+function syncVoice() {
+  const v = storyUI.voice;
+  if (voiceBtn) { voiceBtn.textContent = !v.available || v.broken ? "No voices" : v.enabled ? "Voices on" : "Voices off"; voiceBtn.classList.toggle("off", !v.active); voiceBtn.disabled = !v.available; }
+  if (subsBtn) { subsBtn.textContent = v.subtitles ? "Subtitles on" : "Subtitles off"; subsBtn.classList.toggle("off", !v.subtitles); }
+  if (!v.active) storyUI.textOnly();
+  else storyUI.dialog.classList.toggle("nosubs", storyUI.dialog.classList.contains("spoken") && !v.subtitles);
+}
+for (const [b, f] of [[voiceBtn, () => storyUI.voice.setEnabled(!storyUI.voice.enabled)], [subsBtn, () => storyUI.voice.setSubtitles(!storyUI.voice.subtitles)]]) {
+  if (!b) continue;
+  b.addEventListener("click", (e) => { e.stopPropagation(); storyUI.voice.prime(); f(); syncVoice(); });
+  b.addEventListener("pointerdown", (e) => e.stopPropagation());
+}
 function toggleMusic() {
   audio.toggleMusic();
   audio.resume();
@@ -594,6 +618,7 @@ if (fileInput) {
 
 function armAudio() {
   audio.resume();
+  storyUI?.voice.prime(); // round 13: iOS only speaks after a gesture
 }
 // Round 10: the control hint shows for a few seconds after a game starts (after any title card),
 // then hides for good; first movement / look input hides it sooner. It never sits under the title.
@@ -670,6 +695,10 @@ const explored = new Set();
 
 // ---------------- Act 1 story (Flesh of the Ancients) ----------------
 const storyUI = new StoryUI(gameEl, { touch: IS_TOUCH });
+storyUI.voice.onDuck = (on) => audio.duckMusic(on);
+storyUI.voice.onBroken = () => syncVoice();
+syncVoice();
+window.__VOICE__ = storyUI.voice;
 const story = new Story({
   ui: storyUI, audio,
   time: () => game.time,
@@ -1016,6 +1045,12 @@ _camRC.firstHitOnly = true;
  *  parallel rays (near-plane footprint) so the frustum corners don't poke through either. */
 function camWallLimit(eye, sx, sy, want) {
   const meshes = caveWallMeshes().slice();
+  // Round 13: formations (stalagmites / columns, instanced per cell) count too, so the chase
+  // camera pulls in front of a column instead of putting it between you and Kra.
+  for (const o of caveFormMeshes()) {
+    const bs = o.boundingSphere; if (!bs) continue;
+    if (bs.center.distanceTo(eye) < bs.radius + want + 1) meshes.push(o);
+  }
   // The entrance's daylight disc stands just outside the mouth: never let the camera back through it.
   for (const r of [world.caveLayer?.resident, caveGroup]) if (r) for (const o of r.children) if (o.name === "daylight" || o.name === "mouth-cap") meshes.push(o);
   if (!meshes.length) return want;
@@ -1218,6 +1253,7 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "KeyE" && storyUI.dialog.classList.contains("hidden") && canToggleMount()) { e.preventDefault(); toggleMount(); }
   else if (e.code === "KeyE" || (e.code === "Space" && !storyUI.dialog.classList.contains("hidden"))) { e.preventDefault(); story.interact(); }
   else if (e.code === "Space" && !storyUI.modal && !game.dead) { e.preventDefault(); player?.jump(); }
+  if (story.active && e.code === "KeyJ") storyUI.toggleTasks();
   if (story.active && e.code === "KeyI") { storyUI.togglePanel("inv", story.surv); }
   if (story.active && e.code === "KeyK") { storyUI.togglePanel("skills", story.surv); }
   if (story.active && e.code === "Tab") { e.preventDefault(); storyUI.togglePanel("craft", story.surv); }
@@ -1228,8 +1264,12 @@ window.addEventListener("keydown", (e) => {
 storyUI.actBtn.addEventListener("click", () => { armAudio(); story.interact(); });
 // ---------------- Round 12: riding ----------------
 const mountBtn = document.getElementById("btn-mount");
-document.getElementById("btn-jump")?.addEventListener("click", (e) => { e.stopPropagation(); armAudio(); if (!game.dead) player?.jump(); });
-mountBtn?.addEventListener("click", (e) => { e.stopPropagation(); armAudio(); if (canToggleMount()) toggleMount(); });
+// Round 13: pointerdown, not click: with a finger already on the joystick, mobile browsers don't
+// synthesise a click for the second touch, which is why jumping only worked when standing still.
+document.getElementById("btn-jump")?.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); armAudio(); if (!game.dead) player?.jump(); });
+document.getElementById("btn-jump")?.addEventListener("click", (e) => e.stopPropagation());
+mountBtn?.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); armAudio(); if (canToggleMount()) toggleMount(); });
+mountBtn?.addEventListener("click", (e) => e.stopPropagation());
 function canToggleMount() {
   if (world.mode !== "overworld" || !player || !world.wildlife || game.dead || world.busy) return false;
   if (game.horse) return true;
@@ -1276,6 +1316,26 @@ document.getElementById("menu-main-btn")?.addEventListener("click", (e) => { e.s
 document.getElementById("pack-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); if (story.active) storyUI.openPanel("inv", story.surv); });
 
 let animSpeed = 0;
+// Round 13: HUD pointer to the nearest settlement (towns / villages preferred), with distance.
+const compassEl = document.getElementById("compass");
+let compassKey = "";
+function updateCompass(p, inside) {
+  if (!compassEl) return;
+  const n = world.settle?.nearest(p.x, p.z);
+  if (!n || inside || game.camOverride) { if (compassKey !== "off") { compassKey = "off"; compassEl.classList.add("hidden"); } return; }
+  const dx = n.s.x - p.x, dz = n.s.z - p.z;
+  const rel = Math.atan2(-dx, -dz) - player.yaw;
+  const kind = n.s.kind === "city" ? "town" : n.s.kind;
+  const dist = n.d > 950 ? (n.d / 1000).toFixed(1) + " km" : Math.round(n.d / 10) * 10 + " m";
+  const key = n.s.name + dist;
+  if (key !== compassKey) {
+    compassKey = key;
+    compassEl.classList.remove("hidden");
+    compassEl.querySelector(".n").textContent = `${n.s.name} (${kind})`;
+    compassEl.querySelector(".d").textContent = dist;
+  }
+  compassEl.querySelector(".arr").style.transform = `rotate(${(-rel * 180) / Math.PI}deg)`;
+}
 /** Round 12: substeps by time and by distance (sprint 13.8 m/s, gallop 19.5 m/s): <= ~0.15 m per
  *  step so the wall BVH rays / circle colliders never get skipped; capped at 16 per frame. The
  *  speed eases in over ~0.3 s, so the current speed + a margin bounds this frame's travel. */
@@ -1499,6 +1559,7 @@ function tickOverworld(dt, info, now) {
     world.settle.update(dt, p);
     world.people.update(dt, p);
     town = world.settle.at(p.x, p.z);
+    updateCompass(p, town);
   }
   if (game.horse && !player.mounted) { world.wildlife.dismount(game.horse); game.horse = null; } // teleported / respawned
   updateMountUI();
@@ -1854,6 +1915,8 @@ window.__CAVE__ = {
   act1: {
     get story() { const st = story.currentStep(); return { active: story.active, flags: { ...story.flags }, step: st ? st.title : "done", lines: st ? st.lines : [], surv: story.surv.toJSON(), glyphs: story.glyphs.length, prompt: story.prompt?.label || null, log: story.log.slice(-40), modal: storyUI.modal, armed: game.armed, health: game.health, maxHealth: game.maxHealth }; },
     interact: () => story.interact(),
+    talkLume: () => story.talkLume(),
+    advance: () => storyUI.advance(),
     give: (id, n = 1) => story.surv.add(id, n),
     choose: (id) => { const b = document.querySelector(`.choice .opt[data-id="${id}"]`); if (!b) return false; b.click(); return true; },
     panel: (tab) => (tab ? storyUI.openPanel(tab, story.surv) : storyUI.closePanel()),
@@ -2260,7 +2323,7 @@ window.__CAVE__ = {
     if (opts.stream && STREAM) chunks.prime(streamCtx(), 25); // teleport: load like a spawn
     const r0 = P.rescues || 0;
     let frames = 0, stuck = 0, maxStuckRun = 0, run = 0, maxUp = 0, maxDown = 0, maxAbove = 0, maxBelow = 0, airFrames = 0, dist = 0, speedSum = 0;
-    const stuckAt = [], reached = []; let downAt = null; let streamMiss = 0, maxLoaded = 0;
+    const stuckAt = [], reached = [], causes = {}; let downAt = null; let streamMiss = 0, maxLoaded = 0;
     let prevY = cam.position.y;
     for (let w = 1; w < pts.length; w++) {
       const a = pts[w - 1], b = pts[w];
@@ -2299,7 +2362,7 @@ window.__CAVE__ = {
         const g = P.groundEye ?? y1;
         maxAbove = Math.max(maxAbove, y1 - g); maxBelow = Math.min(maxBelow, y1 - g);
         if (P.grounded === false) airFrames++;
-        if (frames > 20 && moved < P.speedNow * dt * 0.25) { stuck++; run++; if (run === 10) stuckAt.push({ near: b.id, x: +px.toFixed(1), z: +pz.toFixed(1) }); } else run = 0;
+        if (frames > 20 && moved < P.speedNow * dt * 0.25) { stuck++; run++; causes[P.lastBlock || "other"] = (causes[P.lastBlock || "other"] || 0) + 1; if (run === 10) stuckAt.push({ near: b.id, x: +px.toFixed(1), z: +pz.toFixed(1) }); } else run = 0;
         maxStuckRun = Math.max(maxStuckRun, run);
       }
       reached.push(b.id + (ok ? "" : "(FAIL)"));
@@ -2307,8 +2370,9 @@ window.__CAVE__ = {
     }
     P.joy.active = false; P.joy.mag = 0;
     const r = (v) => +v.toFixed(3);
-    return { frames, dist: r(dist), avgSpeed: r(speedSum / Math.max(1, frames)), maxUpPerFrame: r(maxUp), maxDownPerFrame: r(maxDown), downAt, maxAboveGround: r(maxAbove), maxBelowGround: r(maxBelow), airFrames, stuckFrames: stuck, maxStuckRun, stuckAt: stuckAt.slice(0, 8), rescues: (P.rescues || 0) - r0, reached: reached.join(" "), ...(opts.stream ? { streamMiss, maxLoaded } : {}) };
+    return { frames, dist: r(dist), avgSpeed: r(speedSum / Math.max(1, frames)), maxUpPerFrame: r(maxUp), maxDownPerFrame: r(maxDown), downAt, maxAboveGround: r(maxAbove), maxBelowGround: r(maxBelow), airFrames, stuckFrames: stuck, maxStuckRun, stuckAt: stuckAt.slice(0, 8), rescues: (P.rescues || 0) - r0, reached: reached.join(" "), causes, ...(opts.stream ? { streamMiss, maxLoaded } : {}) };
   },
+  _dbg: () => ({ player, volume: player.volume }),
   joySpeedTable: () => [0, 0.1, 0.2, 0.4, 0.6, 0.85, 0.95, 1.05, 1.2].map((m) => [m, +Player.joySpeed(m, STANCES.stand).toFixed(2), +Player.joySpeed(m, STANCES.crouch).toFixed(2), +Player.joySpeed(m, STANCES.crawl).toFixed(2)]),
   bakeStats: (id) => { const s = stationMap(cave).get(id); const p = stationWorld(s); const m = caveGroup.getObjectByName("passages"); const pa = m.geometry.attributes.position, b = m.geometry.attributes.aBake; let n = 0, sum = 0, mx = 0, hi = 0; for (let i = 0; i < pa.count; i++) { const dx = pa.getX(i) - p.x, dz = pa.getZ(i) - p.z; if (Math.hypot(dx, dz) < 60 && pa.getY(i) > p.y + 15) { n++; sum += b.getX(i); mx = Math.max(mx, b.getX(i)); hi = Math.max(hi, pa.getY(i) - p.y); } } return { n, avg: sum / Math.max(1, n), mx, hi }; },
   triBreakdown: () => { const out = {}; caveGroup?.traverse((o) => { if (!o.geometry) return; const t = (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3 * (o.isInstancedMesh ? o.count : 1); const k = o.name || o.type; out[k] = (out[k] || 0) + Math.round(t); }); return out; },

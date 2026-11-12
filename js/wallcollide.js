@@ -20,6 +20,17 @@ const rc = new THREE.Raycaster();
 const O = new THREE.Vector3(), D = new THREE.Vector3();
 const PUSH_DIRS = [...Array(10)].map((_, i) => [Math.cos((i / 10) * Math.PI * 2), Math.sin((i / 10) * Math.PI * 2)]);
 
+// Round 13: a triangle under ~0.005 m^2 (a sliver or a degenerate fragment the mesher left floating)
+// is not a wall you could see well enough to expect it to stop you.
+const TA = new THREE.Vector3(), TB = new THREE.Vector3(), TC = new THREE.Vector3();
+function tinyTri(h) {
+  const pos = h.object?.geometry?.attributes?.position, f = h.face;
+  if (!pos || !f) return false;
+  TA.fromBufferAttribute(pos, f.a); TB.fromBufferAttribute(pos, f.b); TC.fromBufferAttribute(pos, f.c);
+  TB.sub(TA); TC.sub(TA);
+  return TB.cross(TC).length() * 0.5 < 0.005;
+}
+
 /** First wall hit (front-facing, wall-like) along a horizontal ray; null if none within far. */
 function wallHit(meshes, ox, oy, oz, dx, dz, far, head = false) {
   O.set(ox, oy, oz); D.set(dx, 0, dz);
@@ -30,6 +41,7 @@ function wallHit(meshes, ox, oy, oz, dx, dz, far, head = false) {
     if (n.x * dx + n.z * dz >= 0) continue; // seen from behind (culled): not a wall from here
     if (n.y > 0.45 || n.y < -0.6) continue; // floor slopes / ceiling lumps are the volume's business
     if (head && n.y > 0.2) continue; // underside of a higher passage's floor at head height: an overhang, not a wall
+    if (tinyTri(h)) continue; // round 13: slivers / degenerate fragments don't snag you
     const hl = Math.hypot(n.x, n.z) || 1;
     return { dist: h.distance, nx: n.x / hl, nz: n.z / hl };
   }

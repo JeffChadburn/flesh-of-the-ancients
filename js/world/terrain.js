@@ -290,7 +290,7 @@ export class Terrain {
     for (let cx = c0x; cx <= c1x; cx++) for (let cz = c0z; cz <= c1z; cz++) {
       const sc = this.scatter(cx, cz);
       for (const t of sc.trees) if (Math.abs(t.x - x) < r + 1 && Math.abs(t.z - z) < r + 1) out.push({ x: t.x, z: t.z, r: 0.22 * t.s + 0.08 });
-      for (const k of sc.rocks) if (k.s > 0.7 && Math.abs(k.x - x) < r + 3 && Math.abs(k.z - z) < r + 3) out.push({ x: k.x, z: k.z, r: k.s * 0.85 });
+      for (const k of sc.rocks) if (k.s > 0.7 && Math.abs(k.x - x) < r + 3 && Math.abs(k.z - z) < r + 3) out.push({ x: k.x, z: k.z, r: k.s * 0.85, top: k.y + k.s * 0.6 }); // round 13: top = jump over / stand on
     }
     if (this.settleGrid) {
       const C = this.settleGrid.C, seen = new Set();
@@ -324,8 +324,16 @@ export class Terrain {
   /** Same contract as volume.js constrainToVolume: returns position + _floor/_eye/_ceil. */
   constrain(proposed, from, radius, st) {
     const p = proposed.clone();
+    const feet = from.y - st.eye;
+    let standOn = -Infinity;
     for (let it = 0; it < 2; it++) {
       for (const c of this.collidersNear(p.x, p.z, 2)) {
+        // Round 13: boulders have a top. Feet above it (mid-jump, or already standing on it) pass
+        // over; inside its footprint the top becomes the floor, so you can hop up and stand on rocks.
+        if (c.top != null && feet > c.top - 0.42) {
+          if (Math.hypot(p.x - c.x, p.z - c.z) < c.r * 0.8) standOn = Math.max(standOn, c.top);
+          continue;
+        }
         const dx = p.x - c.x, dz = p.z - c.z, d = Math.hypot(dx, dz), min = c.r + radius;
         if (d < min) {
           if (d < 1e-4) { p.x = from.x; p.z = from.z; continue; }
@@ -336,7 +344,7 @@ export class Terrain {
     }
     p.x = Math.max(-BOUND, Math.min(BOUND, p.x));
     p.z = Math.max(-BOUND, Math.min(BOUND, p.z));
-    p._floor = this.height(p.x, p.z);
+    p._floor = Math.max(this.height(p.x, p.z), standOn);
     p._eye = st.eye;
     p._ceil = p._floor + 1000;
     return p;

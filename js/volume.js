@@ -131,6 +131,10 @@ function overHall(volume, x, z, floor, seg) {
   // insideHall); passages above the dome keep their own rock and stay walkable.
   for (const h of hs) {
     if (seg.from === h.id || seg.to === h.id || floor <= h.floor + 1.6) continue;
+    // Round 13: the leg leading into the hall's mouth station is part of the same ramp; cutting the
+    // stretch of it that grazes the dome left a gap you were snapped back from forever (seed 7 S45).
+    if (!h._nb) { h._nb = new Set(); for (const sg of volume.segments) { if (sg.from === h.id) h._nb.add(sg.to); if (sg.to === h.id) h._nb.add(sg.from); } }
+    if (h._nb.has(seg.from) || h._nb.has(seg.to)) continue;
     const d = Math.hypot(x - h.x, z - h.z);
     if (d >= h.r) continue;
     const dy = Math.max(0, floor + 0.9 - h.y) / Math.max(1, h.up * 0.92);
@@ -305,9 +309,12 @@ function pushObstacles(volume, x, y, z, floor, radius) {
     let hit = false;
     for (const o of obstacles) {
       if (o.skip) continue;
+      // Round 13: knee-high bumps (<= 0.42 m) are stepped over, and anything you are already level
+      // with the top of (mid-jump) is cleared, instead of stopping you dead.
+      if ((o.height || 1) <= 0.42) continue;
       const top = (o.y ?? floor) + (o.height || 1);
       const base = o.y ?? floor;
-      if (y + 0.2 < base || y - STAND_EYE > top) continue;
+      if (y + 0.2 < base || y - STAND_EYE > top - 0.15) continue;
       const dx = px - o.x;
       const dz = pz - o.z;
       const d = Math.hypot(dx, dz);

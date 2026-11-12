@@ -24,6 +24,8 @@ export class CaveAudio {
     this.moodDepth = 0;
   }
 
+  duckMusic(on) { this.music?.duck?.(on); }
+
   toggleMusic() {
     this.musicOn = !this.musicOn;
     try { localStorage.setItem("cavern-music", this.musicOn ? "1" : "0"); } catch {}

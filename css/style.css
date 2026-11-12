@@ -490,3 +490,62 @@ button:hover, .file-btn:hover { border-color: var(--accent); color: #fff; }
   border: 2px solid rgba(255, 225, 190, 0.8); border-radius: 50%; box-shadow: 0 0 4px rgba(0, 0, 0, 0.9); }
 #reticle::after { content: ""; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%; background: #ffe2c4; }
 #reticle.hidden { display: none; }
+
+/* ---------------- Round 13: tidy HUD, side rail, settlement compass ---------------- */
+.objective { display: none; pointer-events: auto; cursor: pointer; }
+.objective.open { display: block; }
+.side-rail { position: absolute; left: 10px; top: 42%; z-index: 7; display: flex; flex-direction: column; gap: 8px; }
+.rail-btn { position: relative; display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; font: 12px ui-sans-serif, system-ui, sans-serif; }
+.rail-btn .ic { font-size: 16px; line-height: 1; }
+.rail-btn.active { border-color: rgba(244, 207, 142, 0.9); }
+.rail-btn .badge { position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; border-radius: 50%; background: #ff8a40; box-shadow: 0 0 6px #ff8a40; }
+.rail-btn .badge.hidden, .side-rail.hidden, .rail-btn.hidden { display: none; }
+.inv-btn { position: relative; left: auto; bottom: auto; padding: 6px 10px; }
+#compass { position: absolute; top: 172px; left: 12px; z-index: 6; pointer-events: none; display: flex; align-items: center; gap: 7px;
+  padding: 4px 12px 4px 8px; border-radius: 999px; background: rgba(10, 8, 6, 0.5); border: 1px solid rgba(255, 211, 106, 0.35);
+  font: 13px ui-sans-serif, system-ui, sans-serif; color: #f6e2b0; text-shadow: 0 1px 2px #000; white-space: nowrap; }
+#compass.hidden { display: none; }
+#compass .arr { display: inline-block; width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 14px solid #ffd36a; transform-origin: 50% 60%; filter: drop-shadow(0 0 3px rgba(255, 190, 80, 0.8)); }
+#compass .d { opacity: 0.75; font-size: 12px; }
+/* desktop: objective sits top-centre; compass goes just under it when both show */
+/* (round 13: the compass sits under the meters, clear of the objective panel) */
+@media (max-width: 700px), (pointer: coarse) {
+  /* top-left: name + hearts + clock only; numbers live in the ☰ menu / debug */
+  #hud { top: 8px; left: 8px; max-width: calc(100% - 130px); }
+  #cave-name { font-size: 15px; margin: 0; }
+  #readout, #seed-line, #kills, #deaths { display: none !important; }
+  #status { margin-top: 3px; font-size: 12px; }
+  .clock-line { margin-top: 2px; font-size: 10px; opacity: 0.85; }
+  .meters { width: 92px; gap: 2px; margin-top: 4px; }
+  .meters .meter { grid-template-columns: 10px 1fr; gap: 4px; }
+  .meters .meter span { font-size: 0; }
+  .meters .meter span::before { font-size: 9px; }
+  .meters .meter[data-k=hunger] span::before { content: "H"; }
+  .meters .meter[data-k=thirst] span::before { content: "T"; }
+  .meters .meter[data-k=stamina] span::before { content: "S"; }
+  .meters i { height: 5px; }
+  #place { font-size: 12px; }
+  #minimap { width: 100px !important; height: 100px !important; top: 8px; right: 8px; }
+  #menu-btn { top: 114px; right: 8px; width: 38px; height: 34px; font-size: 17px; }
+  #game.menu-open #about-btn { top: 154px; right: 8px; }
+  #game.menu-open #toolbar { top: 194px; right: 8px; }
+  #compass { top: 156px; bottom: auto; left: 8px; transform: none; font-size: 12px; padding: 3px 10px 3px 6px; }
+  .side-rail { left: 6px; top: 34%; }
+  .rail-btn { padding: 7px 8px; }
+  .rail-btn .lb { display: none; }
+  .objective { top: 30%; bottom: auto; left: 52px; max-width: 62vw; }
+  /* right column: smaller pills; Jump becomes a round action button above Stab */
+  #stance-bar { right: 8px; bottom: 18px; gap: 6px; }
+  #stance-bar button { min-width: 74px; padding: 7px 8px; font-size: 11px; }
+  #stance-bar #btn-jump { position: fixed; right: 138px; bottom: 124px; width: 66px; min-width: 0; height: 66px; border-radius: 50%; padding: 0; font: 700 13px Georgia, serif; }
+  #attack-btn { right: 122px; bottom: 20px; width: 84px; height: 84px; }
+  .act-btn { right: 214px; bottom: 120px; width: 66px; height: 66px; font-size: 12px; }
+  #hint { top: auto; bottom: 214px; font-size: 12px; max-width: 70vw; padding: 5px 10px; }
+  .act-prompt { bottom: 196px; }
+  .toasts { top: 22%; }
+}
+/* Round 13: spoken dialogue. Subtitles off hides the text only while it is being heard. */
+.dialog.nosubs .line { display: none; }
+.dialog.spoken .who::after { content: " \1F50A"; font-size: 0.85em; opacity: 0.75; }
+.dialog.spoken.narration .who::after { content: "\1F50A"; }
+#voice-btn.off, #subs-btn.off { opacity: 0.6; }

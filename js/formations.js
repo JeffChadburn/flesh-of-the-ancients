@@ -253,6 +253,7 @@ export function addFormations(group, cave, material, lookup = null, opts = {}) {
     }
     geometry.setAttribute("aBake", new THREE.InstancedBufferAttribute(bake, 1));
     const mesh = new THREE.InstancedMesh(geometry, wet, items.length);
+    mesh.userData.formation = true; // round 13: the chase camera keeps these out of the way
     mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
     const hasColor = !!mesh.instanceColor || true;
     for (let i = 0; i < items.length; i++) {
@@ -307,6 +308,7 @@ export function buildInstanced(geometry, items, material) {
   if (!items.length) return null;
   if (!geometry.attributes.aBake) geometry.setAttribute("aBake", new THREE.BufferAttribute(new Float32Array(geometry.attributes.position.count), 1));
   const mesh = new THREE.InstancedMesh(geometry, material, items.length);
+  mesh.userData.formation = true; // round 13: the chase camera keeps these out of the way
   mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
   for (let i = 0; i < items.length; i++) {
     mesh.setMatrixAt(i, items[i].matrix);

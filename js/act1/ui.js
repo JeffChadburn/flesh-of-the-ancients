@@ -4,12 +4,14 @@
  * title cards, toasts and the main menu. Built here so index.html stays small.
  */
 import { ITEMS, SKILLS, RECIPES } from "./survival.js";
+import { StoryVoice } from "./voice.js";
 
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 const ITEM_COLORS = { berries: "#7a1f3a", roots: "#8a6a3a", meat: "#9a3a34", cooked: "#8a5a2a", organ: "#6a1018", pelt: "#8a7a64", hide: "#7a5636", feather: "#4a4a54", skin: "#6a4a3c", blood: "#5a0808", morgan: "#3a0a2a" };
 
 export class StoryUI {
   constructor(root, { touch = false } = {}) {
+    this.voice = new StoryVoice(); // round 13: spoken dialogue (Web Speech), subtitles optional
     this.root = root; this.touch = touch;
     const hud = document.getElementById("hud");
     this.clock = el("div", "clock-line"); hud.appendChild(this.clock);
@@ -24,7 +26,15 @@ export class StoryUI {
     this.obj = el("div", "objective hidden"); root.appendChild(this.obj);
     this.prompt = el("div", "act-prompt hidden"); root.appendChild(this.prompt);
     this.actBtn = el("button", "act-btn hidden", "Use"); this.actBtn.type = "button"; root.appendChild(this.actBtn);
-    this.invBtn = el("button", "inv-btn hidden", "Pack"); this.invBtn.type = "button"; root.appendChild(this.invBtn);
+    // Round 13: a side rail with the tasks button (objective tracker folds into it) and the pack.
+    this.rail = el("div", "side-rail hidden"); root.appendChild(this.rail);
+    this.tasksBtn = el("button", "rail-btn tasks-btn", `<span class="ic">&#128220;</span><span class="lb">Tasks</span><i class="badge hidden"></i>`);
+    this.tasksBtn.type = "button"; this.tasksBtn.setAttribute("aria-label", "Tasks"); this.tasksBtn.title = "Tasks (J)"; this.rail.appendChild(this.tasksBtn);
+    this.invBtn = el("button", "rail-btn inv-btn hidden", `<span class="ic">&#127890;</span><span class="lb">Pack</span>`); this.invBtn.type = "button"; this.invBtn.setAttribute("aria-label", "Pack"); this.rail.appendChild(this.invBtn);
+    this.tasksOpen = !touch; // desktop: open by default; phone: folded into the button
+    this.obj.classList.toggle("open", this.tasksOpen);
+    this.tasksBtn.addEventListener("click", (ev) => { ev.stopPropagation(); this.toggleTasks(); });
+    this.obj.addEventListener("click", (ev) => { ev.stopPropagation(); this.toggleTasks(false); });
     this.dialog = el("div", "dialog hidden", `<div class="who"></div><div class="line"></div><div class="more">${touch ? "Tap" : "E / click"} to continue</div>`); root.appendChild(this.dialog);
     this.panel = el("div", "panel hidden", `<div class="tabs"><button data-t="inv">Inventory <kbd>I</kbd></button><button data-t="craft">Crafting <kbd>Tab</kbd></button><button data-t="skills">Skills <kbd>K</kbd></button><button class="close">✕</button></div><div class="body"></div>`);
     root.appendChild(this.panel);
@@ -32,7 +42,7 @@ export class StoryUI {
     this.card = el("div", "title-card hidden"); root.appendChild(this.card);
     this.toasts = el("div", "toasts"); root.appendChild(this.toasts);
     this.menu = el("div", "main-menu hidden"); root.appendChild(this.menu);
-    for (const e of [this.actBtn, this.invBtn, this.dialog, this.panel, this.choice, this.menu, this.card]) {
+    for (const e of [this.actBtn, this.rail, this.obj, this.dialog, this.panel, this.choice, this.menu, this.card]) {
       e.addEventListener("pointerdown", (ev) => ev.stopPropagation());
       e.addEventListener("click", (ev) => ev.stopPropagation());
     }
@@ -49,6 +59,7 @@ export class StoryUI {
   setStoryVisible(on) {
     this.meters.classList.toggle("hidden", !on);
     this.obj.classList.toggle("hidden", !on);
+    this.rail.classList.toggle("hidden", !on);
     this.invBtn.classList.toggle("hidden", !on || !this.touch);
   }
 
@@ -64,7 +75,24 @@ export class StoryUI {
     this.facesEl.textContent = s.faces ? `Face suit: ${s.faces} face${s.faces > 1 ? "s" : ""}  (+${s.faces} armour)` : "";
   }
 
+  /** Round 13: open / close the objective panel (phone: it closes on its own after a few seconds). */
+  toggleTasks(on = !this.tasksOpen, autoClose = this.touch ? 7 : 0) {
+    this.tasksOpen = on;
+    this.obj.classList.toggle("open", on);
+    this.tasksBtn.classList.toggle("active", on);
+    if (on) this.tasksBtn.querySelector(".badge").classList.add("hidden");
+    clearTimeout(this._tasksT);
+    if (on && autoClose) this._tasksT = setTimeout(() => this.toggleTasks(false), autoClose * 1000);
+  }
+
   setObjective(title, lines = []) {
+    const key = title + "|" + lines.map((l) => l[0] + (l[1] ? 1 : 0)).join("|");
+    if (key === this._objKey) return;
+    const newStep = this._objTitle !== undefined && title !== this._objTitle;
+    const changed = this._objKey !== undefined;
+    this._objKey = key; this._objTitle = title;
+    // a new task (or a ticked line): pop the panel open briefly on phones, badge the button
+    if (changed && this.touch && !this.tasksOpen) { if (newStep) this.toggleTasks(true, 4.5); else this.tasksBtn.querySelector(".badge").classList.remove("hidden"); }
     this.obj.innerHTML = `<div class="o-title">${title}</div>` + lines.map(([t, done]) => `<div class="o-line${done ? " done" : ""}">${done ? "✓" : "•"} ${t}</div>`).join("");
   }
 
@@ -93,14 +121,30 @@ export class StoryUI {
     this.dialog.classList.remove("hidden");
     this.advance(true);
   }
+  /** Show the current line as plain text waiting for a tap (voice turned off / unavailable). */
+  textOnly() {
+    clearTimeout(this._autoT);
+    this.dialog.classList.remove("spoken", "nosubs");
+    this.dialog.querySelector(".more").textContent = this.touch ? "Tap to continue" : "E / click to continue";
+  }
   advance(first = false) {
     if (this.dialog.classList.contains("hidden")) return false;
     if (!first && performance.now() - (this._lineAt || 0) < 350) return true;
+    clearTimeout(this._autoT);
+    this.voice.stop(false); // a tap skips the rest of the spoken line
     const next = this.dialogQueue.shift();
     if (!next) { this.dialog.classList.add("hidden"); const f = this.onDialogDone; this.onDialogDone = null; f?.(); return true; }
     this.dialog.querySelector(".who").textContent = next.who || "";
     this.dialog.querySelector(".line").textContent = next.text;
     this.dialog.classList.toggle("narration", !next.who);
+    // Round 13: speak the line; when it ends (plus a short pause) the next one follows by itself.
+    const spoken = this.voice.speak(next.text, next.who || "", (why) => {
+      if (this.voice.broken) { this.textOnly(); return; } // speech failed: leave the line up to read
+      this._autoT = setTimeout(() => { if (!this.dialog.classList.contains("hidden")) this.advance(true); }, 700);
+    });
+    this.dialog.classList.toggle("spoken", spoken);
+    this.dialog.classList.toggle("nosubs", spoken && !this.voice.subtitles); // text only ever hides while it is being heard
+    this.dialog.querySelector(".more").textContent = spoken ? (this.touch ? "Tap to skip" : "E / click to skip") : (this.touch ? "Tap to continue" : "E / click to continue");
     this._lineAt = performance.now();
     this.onLine?.(this._li++, next);
     return true;

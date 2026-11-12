@@ -22,6 +22,7 @@
       <div id="place" aria-live="polite"></div>
       <div id="status"><span id="hp" aria-label="Health"></span><span id="kills">Kills 0</span><span id="deaths">Deaths 0</span></div>
     </div>
+    <div id="compass" class="hidden" aria-live="off"><span class="arr"></span><span class="n"></span><span class="d"></span></div>
     <button id="menu-btn" type="button" aria-label="Menu">&#9776;</button>
     <button id="about-btn" type="button">About</button>
     <div id="toolbar">
@@ -34,6 +35,8 @@
       <button id="go-seed" class="proto" type="button">Load</button>
       <button id="mute-btn" type="button">Sound on</button>
       <button id="music-btn" type="button" title="Creepy music (M)">Music on</button>
+      <button id="voice-btn" type="button" title="Spoken story voices">Voices on</button>
+      <button id="subs-btn" type="button" title="Story subtitles">Subtitles on</button>
       <button id="reset-tally" class="proto" type="button" title="Reset kills and deaths">Reset tally</button>
       <button id="debug-btn" class="proto" type="button" title="Chunk / memory overlay (G)">Debug</button>
       <label class="file-btn proto">Open survey<input id="survey-file" type="file" accept=".json,.csv,application/json,text/csv" hidden /></label>

@@ -195,7 +195,7 @@ export class Minimap {
       const x = w / 2 + (e.x - playerPos.x) * scale, y = h / 2 + (e.z - playerPos.z) * scale;
       ctx.fillStyle = e.cave === "carlsbad" ? "#ffcf6a" : "#e8e0d0";
       ctx.beginPath(); ctx.arc(x, y, Math.max(3, w * 0.025), Math.PI, 0); ctx.closePath(); ctx.fill();
-      ctx.font = `${Math.round(w * 0.055)}px sans-serif`;
+      ctx.font = `${Math.round(Math.max(w * 0.055, 10.5 * (w / (c.clientWidth || w))))}px sans-serif`; /* round 13: readable on a 100 px phone map */
       ctx.fillText(e.name.split(" ")[0], x + 6, y - 4);
     }
     if (extra) {
@@ -213,7 +213,7 @@ export class Minimap {
           if (d > rim) { x = w / 2 + (dx / d) * rim; y = h / 2 + (dy / d) * rim; ctx.globalAlpha = 0.75; ctx.fillStyle = m.color; ctx.beginPath(); ctx.arc(x, y, Math.max(2, w * 0.014), 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1; continue; }
         }
         ctx.fillStyle = m.color; ctx.beginPath(); ctx.arc(x, y, Math.max(3, w * (m.r || 0.022)), 0, Math.PI * 2); ctx.fill();
-        if (m.label) { ctx.font = `${Math.round(w * 0.055)}px sans-serif`; ctx.fillText(m.label, x + 6, y + 4); }
+        if (m.label) { ctx.font = `${Math.round(Math.max(w * 0.055, 10.5 * (w / (c.clientWidth || w))))}px sans-serif`; /* round 13: readable on a 100 px phone map */ ctx.fillText(m.label, x + 6, y + 4); }
       }
       for (const d of extra.dots || []) { const [x, y] = P(d.x, d.z); ctx.fillStyle = d.color; ctx.fillRect(x - 2, y - 2, 4, 4); }
     }

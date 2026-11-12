@@ -39,11 +39,12 @@ export function planSettlements(t) {
     return kind;
   };
   const camp = t.act1?.camp || { x: t.spawn?.x || 0, z: t.spawn?.z || 0 };
+  let around = { x: 0, z: 0 };
   const site = (kind, R, rMin, rMax, sepAct1, sepEnt, sepOther, maxSlope, lake) => {
     for (let tries = 0; tries < 900; tries++) {
       const relax = tries > 500 ? 1.6 : 1;
       const r = rMin + Math.sqrt(rng()) * (rMax - rMin), a = rng() * Math.PI * 2;
-      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      const x = around.x + Math.cos(a) * r, z = around.z + Math.sin(a) * r;
       if (Math.hypot(x - camp.x, z - camp.z) < sepAct1) continue;
       if (t.act1 && Math.hypot(x - t.act1.pool.x, z - t.act1.pool.z) < sepAct1 * 0.8) continue;
       if (t.entrances.some((e) => Math.hypot(e.x - x, e.z - z) < sepEnt + R)) continue;
@@ -86,7 +87,17 @@ export function planSettlements(t) {
   };
   // distances are from the world origin (the caves cluster within ~280 m of it); one village and
   // two camps are kept within a short run so they're found early
-  add("city", 2, 320, 760, 260, 150, 240, 0.16, true);
+  // Round 13: one town a short walk (about 200-320 m) from the Act I camp, so it's found from the start
+  // (its smoke shows over the trees); fall back to a village there if no flat lakeside ground fits.
+  if (t.act1) {
+    around = camp;
+    const n0 = out.length;
+    add("city", 1, 200, 320, 190, 120, 200, 0.2, true);
+    if (out.length === n0) add("village", 1, 150, 300, 140, 100, 150, 0.24);
+    if (out.length > n0) out[n0].nearCamp = true;
+    around = { x: 0, z: 0 };
+  }
+  add("city", t.act1 && out.some((q) => q.kind === "city") ? 1 : 2, 320, 760, 260, 150, 240, 0.16, true);
   add("village", 1, 200, 380, 190, 110, 150, 0.2);
   add("village", 4, 260, 950, 200, 110, 160, 0.2);
   add("camp", 2, 140, 320, 130, 80, 100, 0.26);
@@ -357,6 +368,28 @@ export class SettlementLayer {
     this.near = lite ? 380 : 480; this.far = this.near + 120;
     this.onBuild = null; this.onDrop = null;
     this.time = 0;
+    this._beacons(scene);
+  }
+
+  /** Round 13: smoke columns over every settlement's fires, always present and unfogged, so a
+   *  village or town reads from a long way off (one instanced, transparent draw for all). */
+  _beacons(scene) {
+    const H = 80, geo = new THREE.CylinderGeometry(7, 0.9, H, 9, 8, true).translate(0, H / 2, 0);
+    const pos = geo.attributes.position, col = [];
+    for (let i = 0; i < pos.count; i++) {
+      const v = pos.getY(i) / H, wob = Math.sin(v * 9 + i) * 0.6 * v;
+      pos.setX(i, pos.getX(i) + v * v * 14 + wob); // drifts downwind and widens
+      col.push(0.78, 0.76, 0.72, Math.max(0, 0.42 * (1 - v) * Math.min(1, v * 8 + 0.25)));
+    }
+    geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 4));
+    const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false });
+    const fires = [];
+    for (const st of this.list) for (const f of st.fires) fires.push({ ...f, k: st.kind === "camp" ? 0.55 : st.kind === "village" ? 0.85 : 1.15 });
+    const m = new THREE.InstancedMesh(geo, mat, Math.max(1, fires.length));
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc = new THREE.Vector3();
+    fires.forEach((f, i) => { q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.7 + i * 0.13); v.set(f.x, this.t.height(f.x, f.z) + 0.8, f.z); sc.set(f.k, f.k, f.k); m.setMatrixAt(i, m4.compose(v, q, sc)); });
+    m.count = fires.length; m.computeBoundingSphere(); m.frustumCulled = false; m.renderOrder = 2; m.name = "smoke-beacons";
+    scene.add(m); this.smoke = m;
   }
   update(dt, p) {
     this.time += dt;
@@ -386,7 +419,13 @@ export class SettlementLayer {
     g.userData.pathGeo?.dispose(); g.userData.lakeGeo?.dispose();
     this.groups.delete(s.id); this.onDrop?.(s);
   }
-  dispose() { for (const s of this.list) this.drop(s); }
+  dispose() { for (const s of this.list) this.drop(s); if (this.smoke) { this.smoke.parent?.remove(this.smoke); this.smoke.geometry.dispose(); this.smoke.material.dispose(); } }
+  /** Nearest settlement (towns and villages count 1.6x closer than camps: they're worth the walk). */
+  nearest(x, z) {
+    let best = null, bd = Infinity;
+    for (const s of this.list) { const d = Math.hypot(s.x - x, s.z - z), w = s.kind === "camp" ? d * 1.6 : d; if (w < bd) { bd = w; best = s; } }
+    return best && { s: best, d: Math.hypot(best.x - x, best.z - z) };
+  }
   /** Settlement whose yard the point is in (for the place label). */
   at(x, z) { return this.list.find((s) => Math.hypot(s.x - x, s.z - z) < s.R + 12) || null; }
   drawCalls() { let n = 0; for (const g of this.groups.values()) g.traverse((o) => { if (o.isMesh) n++; }); return n; }

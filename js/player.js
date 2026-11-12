@@ -50,7 +50,7 @@ export class Player {
    */
   setTerrain(terrain, x, z, yaw = 0) {
     this.terrain = terrain;
-    this.mounted = false;
+    this.mounted = false; this.jumping = false; this.jumpBuf = 0;
     this.cave = null;
     this.smap = new Map();
     this.volume = null;
@@ -95,7 +95,7 @@ export class Player {
   }
 
   /** Round 12: request a jump (applied on the next update if standing / mounted on the ground). */
-  jump() { this.jumpReq = true; }
+  jump() { this.jumpBuf = 0.16; } // round 13: buffered, so a tap just before landing still jumps
 
   stanceDef() {
     if (this.mounted) return MOUNTED;
@@ -250,7 +250,7 @@ export class Player {
     if (this.terrain) {
       this.camera.position.set(x, this.terrain.height(x, z) + this.stanceDef().eye, z);
       this.lastValid.copy(this.camera.position);
-      this.groundEye = null; this.grounded = true; this.vy = 0;
+      this.groundEye = null; this.grounded = true; this.vy = 0; this.jumping = false;
       this.applyLook();
       return;
     }
@@ -349,18 +349,91 @@ export class Player {
     }
 
     const from = this.camera.position.clone();
-    const proposed = from.clone().add(delta);
-    let resolved = this._constrain(proposed, from, st.radius, st);
-    // Caves: clamp against the rendered rock too, so you can never walk through a visible wall.
-    if (!this.terrain && this.walls && (resolved.x !== from.x || resolved.z !== from.z)) {
-      const w = this.walls.resolve(from, resolved, resolved._floor, resolved._ceil, st);
-      if (w.hit || w.x !== resolved.x || w.z !== resolved.z) {
-        const again = this._constrain(new THREE.Vector3(w.x, proposed.y, w.z), from, st.radius, st);
-        if (again._inside) resolved = again; else { resolved.x = from.x; resolved.z = from.z; }
+    const attempt = (d, squeeze = false) => {
+      const proposed = from.clone().add(d);
+      let resolved = this._constrain(proposed, from, st.radius, st);
+      // round 13 diagnostics: what shortened this step (volume / rendered wall / guard / step-up)
+      let block = null;
+      if (d.lengthSq() > 1e-8 && Math.hypot(resolved.x - proposed.x, resolved.z - proposed.z) > d.length() * 0.5) block = "vol";
+      // Caves: clamp against the rendered rock too, so you can never walk through a visible wall.
+      if (!this.terrain && this.walls && (resolved.x !== from.x || resolved.z !== from.z)) {
+        // squeeze (round 13 unstick): the passage volume says it fits, so test the rock with a much
+        // thinner body (brush past a lump); the guard below still never lets you cross a wall.
+        const w = this.walls.resolve(from, resolved, resolved._floor, resolved._ceil, squeeze ? { ...st, radius: (st.radius || 0.28) * 0.4 } : st);
+        if (w.hit || w.x !== resolved.x || w.z !== resolved.z) {
+          if (Math.hypot(w.x - resolved.x, w.z - resolved.z) > d.length() * 0.5) block = "wall";
+          const again = this._constrain(new THREE.Vector3(w.x, proposed.y, w.z), from, st.radius, st);
+          if (again._inside) resolved = again; else { resolved.x = from.x; resolved.z = from.z; }
+        }
+        // Final guard: never end a step on the far side of a visible wall.
+        if (this.walls.crosses(from, resolved, Math.min(resolved._floor, from.y - st.eye), st)
+          || (this.grounded === false && this.walls.crosses(from, resolved, from.y - st.eye, st))) { resolved.x = from.x; resolved.z = from.z; block = "guard"; }
       }
-      // Final guard: never end a step on the far side of a visible wall.
-      if (this.walls.crosses(from, resolved, Math.min(resolved._floor, from.y - st.eye), st)
-        || (this.grounded === false && this.walls.crosses(from, resolved, from.y - st.eye, st))) { resolved.x = from.x; resolved.z = from.z; }
+      return { resolved, block };
+    };
+    let { resolved, block } = attempt(delta);
+    const lowBlock = !!resolved._blockedLow; // a low roof: crouch / crawl is the answer, not a nudge
+    this.lastBlock = block;
+    // Round 13: slide instead of stopping. When the straight move is mostly blocked (a wall met at an
+    // angle, a corner, a low lip), try the same step turned 30 / 55 / 80 degrees either way, shortened
+    // by the cosine, and keep whichever makes the most progress in the wanted direction.
+    const dl = delta.length();
+    if (dl > 1e-5 && !this.terrain) {
+      const prog = (r) => ((r.x - from.x) * delta.x + (r.z - from.z) * delta.z) / dl;
+      let best = prog(resolved);
+      const lastG = this.groundEye != null ? this.groundEye : from.y;
+      if (best < dl * 0.45) {
+        for (const a of [0.52, -0.52, 0.96, -0.96, 1.4, -1.4]) {
+          const c = Math.cos(a), sn = Math.sin(a);
+          const d2 = new THREE.Vector3((delta.x * c - delta.z * sn) * c, 0, (delta.x * sn + delta.z * c) * c);
+          const t = attempt(d2);
+          if (t.resolved._floor + t.resolved._eye - lastG > STEP_UP && this.grounded !== false) continue;
+          if (this.walls && [0.35, 0.8].some((h) => this.walls.crosses(from, t.resolved, from.y - st.eye + h, st))) continue; // slide never cuts through rock
+          const pr = prog(t.resolved);
+          if (pr > best + dl * 0.08) { best = pr; resolved = t.resolved; }
+        }
+      }
+    }
+    // Round 13: auto-unstick. Pushing for over 1 s without getting anywhere (a sliver of rock, a
+    // pinch the slide can't solve) eases you toward the middle of the passage, a little ahead.
+    {
+      const want = moving ? speed * dt : 0;
+      const got = Math.hypot(resolved.x - from.x, resolved.z - from.z);
+      // Net progress over time, not per frame: sliding back and forth along a lump is still stuck.
+      if (!this.terrain && this.volume && want > 0.002 && !lowBlock) {
+        if (!this._anc || Math.hypot(from.x - this._anc.x, from.z - this._anc.z) > 0.4) { this._anc = { x: from.x, z: from.z }; this.stuckT = 0; }
+        else this.stuckT = (this.stuckT || 0) + dt;
+      } else { this.stuckT = 0; this._anc = null; }
+      let squeezed = false;
+      if (this.stuckT <= 1) this._nudging = false;
+      if (this.squeezeT > 0) this.squeezeT -= dt;
+      if ((this.stuckT > 1 || (this.squeezeT > 0 && got < want * 0.5)) && dl > 1e-6) {
+        const t = attempt(delta.clone().multiplyScalar(0.6), true);
+        const pr = ((t.resolved.x - from.x) * delta.x + (t.resolved.z - from.z) * delta.z) / dl;
+        if (pr > dl * 0.25 && t.resolved._inside) {
+          resolved = t.resolved; squeezed = true; this.lastBlock = "squeeze";
+          if (!(this.squeezeT > 0)) this.unsticks = (this.unsticks || 0) + 1;
+          this.squeezeT = 0.8; // keep easing through the pinch, not 1 s on / 1 frame off
+        }
+      }
+      if (this.stuckT > 1 && !squeezed) {
+        const q = queryVolume(this.volume, from.x, from.y, from.z, st.radius, 0.05);
+        const c = (q.containing && q.containing[0]) || q.best;
+        if (c && c.s) {
+          let nx = c.s.x - from.x, nz = c.s.z - from.z;
+          const nl = Math.hypot(nx, nz);
+          if (nl > 0.05) { nx /= nl; nz /= nl; } else { nx = 0; nz = 0; }
+          const dd = dl > 1e-6 ? 1 / dl : 0;
+          // never pull backwards: drop the part of the centre-ward pull that opposes the input
+          const back = (nx * delta.x + nz * delta.z) * dd;
+          if (back < 0) { nx -= delta.x * dd * back; nz -= delta.z * dd * back; }
+          const step = Math.min(1.2 * dt, 0.05);
+          const t = attempt(new THREE.Vector3((nx * 0.8 + delta.x * dd * 0.6) * step, 0, (nz * 0.8 + delta.z * dd * 0.6) * step));
+          const prog = (r) => (dl > 1e-6 ? ((r.x - from.x) * delta.x + (r.z - from.z) * delta.z) * dd : 0);
+          const better = prog(t.resolved) > prog(resolved) || prog(resolved) < dl * 0.1;
+          if (better && Math.hypot(t.resolved.x - from.x, t.resolved.z - from.z) > 1e-4) { resolved = t.resolved; if (!this._nudging) this.unsticks = (this.unsticks || 0) + 1; this._nudging = true; this.lastBlock = "nudge"; }
+        }
+      }
     }
     const moved = Math.hypot(resolved.x - from.x, resolved.z - from.z);
     this.travelling += moved;
@@ -373,6 +446,7 @@ export class Player {
     // Round 12: airborne (jumping) you can land on anything up to STEP_UP below your current height.
     const stepRef = this.grounded === false ? Math.max(lastGround, from.y) : lastGround;
     if (floorEye - stepRef > STEP_UP && delta.lengthSq() > 0) {
+      this.lastBlock = "step";
       resolved.x = from.x;
       resolved.z = from.z;
       this.vy = 0;
@@ -385,13 +459,17 @@ export class Player {
     this.groundEye = floorEye;
     // Round 12: jump (Space / Jump button). Standing or mounted, from the ground; the take-off speed
     // is cut so the apex stays under the ceiling (caves), and no jump at all with < 0.25 m headroom.
-    if (this.jumpReq) {
-      this.jumpReq = false;
-      const canJump = this.grounded !== false && this.vy === 0 && (this.stance === "stand" || this.mounted);
+    // Round 13: works while moving / sprinting (momentum is kept: the horizontal move above is
+    // independent of the jump). Coyote time: still allowed ~0.15 s after leaving the ground (running
+    // downhill at 13.8 m/s the ground-follow briefly reads "airborne", which used to eat the jump).
+    if (this.jumpBuf > 0) this.jumpBuf -= dt;
+    if (this.jumpBuf > 0) {
+      const canJump = !this.jumping && (this.grounded !== false || (this.airT || 0) < 0.15) && (this.stance === "stand" || this.mounted);
       if (canJump) {
+        this.jumpBuf = 0;
         const head = resolved._ceil - 0.12 - Math.max(from.y, floorEye) - 0.05;
         const h = Math.min(this.mounted ? 1.2 : 1.0, head);
-        if (h >= 0.25) { this.vy = Math.sqrt(2 * GRAVITY * h); this.grounded = false; this.jumps = (this.jumps || 0) + 1; }
+        if (h >= 0.25) { this.vy = Math.sqrt(2 * GRAVITY * h); this.grounded = false; this.jumping = true; this.airT = 1; this.jumps = (this.jumps || 0) + 1; }
       }
     }
     let y;
@@ -401,22 +479,22 @@ export class Player {
       // Ease up (about 60 ms), never lagging more than 0.3 m below.
       y = Math.max(floorEye - 0.3, from.y + (floorEye - from.y) * Math.min(1, dt * 16));
       this.vy = 0;
-      this.grounded = true;
+      this.grounded = true; this.airT = 0; this.jumping = false;
     }
     else if (!rising && this.grounded !== false && gap < 0.6 + Math.hypot(delta.x, delta.z) * 3) {
       // Walking downhill / small dips: stay on the ground; ease any residual step over a few frames.
       y = gap < 0.06 ? floorEye : Math.max(floorEye, from.y - Math.max(0.06, gap * Math.min(1, dt * 14)));
       this.vy = 0;
-      this.grounded = true;
+      this.grounded = true; this.airT = 0; this.jumping = false;
     } else {
       this.vy -= GRAVITY * dt;
       y = from.y + this.vy * dt;
-      this.grounded = false;
+      this.grounded = false; this.airT = (this.airT || 0) + dt;
       if (y <= floorEye) {
         if (this.vy < -3 && this.onLand) { try { this.onLand(Math.min(1, -this.vy / 8)); } catch (_) {} }
         y = floorEye;
         this.vy = 0;
-        this.grounded = true;
+        this.grounded = true; this.airT = 0; this.jumping = false;
       }
     }
     const ceiling = resolved._ceil - 0.12;
@@ -429,11 +507,18 @@ export class Player {
 
     // Safety net: if we ever leave the passage volume, snap back.
     if (!this.terrain && !pointInside(this.volume, resolved.x, y, resolved.z, st.radius, 0.18)) {
+      this.lastBlock = "rescue";
       this.camera.position.copy(this.lastValid);
       this.vy = 0;
       this.rescues += 1;
+      // Round 13: a rescue every frame means you're pushing into a squeeze your stance can't
+      // fit (you'd be snapped back forever): drop a stance automatically, then nudge.
+      this.rescueRun = (this.rescueRun || 0) + 1;
+      this.stuckT = (this.stuckT || 0) + dt;
+      if (this.rescueRun > 12 && !this.mounted && this.stance !== "crawl") { this.setStance(this.stance === "stand" ? "crouch" : "crawl"); this.rescueRun = 0; this.autoDucks = (this.autoDucks || 0) + 1; }
     } else {
       this.lastValid.set(resolved.x, y, resolved.z);
+      this.rescueRun = 0;
     }
     // Head bob + footsteps, scaled by real ground speed (none when blocked by a wall).
     const sp = Math.min(realSpeed, speed + 0.01);
@@ -449,7 +534,7 @@ export class Player {
     const bobAmp = Math.min(1, sp / 2.3) * (this.stance === "stand" ? 0.022 + this.runFrac * 0.03 : 0.012);
     this.bobY = sp > 0.15 ? -Math.abs(Math.sin(this.bobPhase)) * bobAmp + bobAmp * 0.5 : 0;
     this.camera.position.y += this.bobY;
-    this.blockedLow = !!resolved._blockedLow;
+    this.blockedLow = !!resolved._blockedLow || (lowBlock && moved < delta.length() * 0.5);
     this.ahead = this.terrain ? "stand" : clearanceAhead(this.volume, this.camera.position.x, this.camera.position.y, this.camera.position.z, this.yaw);
     this.applyLook();
 
