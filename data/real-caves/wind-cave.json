@@ -1,0 +1,742 @@
+{
+  "format": "cavern-centerline-v1",
+  "name": "Wind Cave (tour routes)",
+  "seed": "wind-cave",
+  "style": "windcave",
+  "scale": 1.0,
+  "units": "meters",
+  "source": {
+    "type": "approximate",
+    "note": "Careful approximation of the developed tour routes (Natural Entrance, Garden of Eden, Fairgrounds, Candlelight) from the NPS public-domain tour-route map. Elevations are taken from labels on that map and converted to metres relative to the natural entrance (4082 ft). A few short boxwork spurs were invented to hint at the maze; they are not surveyed passages. The full 150-mile system shown on the NPS whole-cave lineplot is far too dense to load as a playable centerline.",
+    "license": "US government work (NPS tour maps) are public domain in the United States. This JSON is an approximate playable model, not a survey.",
+    "usable": "approximate-from-pd-plan",
+    "refs": [
+      "https://commons.wikimedia.org/wiki/File:NPS_wind-cave-tour-map.jpg",
+      "https://commons.wikimedia.org/wiki/File:NPS_wind-cave-whole-map.jpg",
+      "https://npmaps.com/wp-content/uploads/wind-cave-tour-map.pdf",
+      "https://www.nps.gov/wica/planyourvisit/guidedtours.htm"
+    ]
+  },
+  "entranceId": "ENT",
+  "exitId": "ELV",
+  "stations": [
+    {
+      "id": "ENT",
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0,
+      "left": 6.0,
+      "right": 6.0,
+      "up": 5.0,
+      "down": 1.2,
+      "kind": "entrance",
+      "label": "Natural Entrance (Cave Entrance)",
+      "zone": "entrance",
+      "tags": [
+        "entrance"
+      ],
+      "module": "junction"
+    },
+    {
+      "id": "GUIDE",
+      "x": 5.0,
+      "y": -30.0,
+      "z": -4.0,
+      "left": 2.4,
+      "right": 2.4,
+      "up": 2.6,
+      "down": 0.8,
+      "kind": "passage",
+      "label": "Guide's Discovery",
+      "zone": "corridor",
+      "module": "tunnel"
+    },
+    {
+      "id": "NORTH",
+      "x": -35.0,
+      "y": 22.0,
+      "z": -30.18,
+      "left": 5.0,
+      "right": 5.0,
+      "up": 4.5,
+      "down": 1.0,
+      "kind": "chamber",
+      "label": "North Room",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "formation zone"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "FAIRY",
+      "x": -110.0,
+      "y": 40.0,
+      "z": -34.14,
+      "left": 3.5,
+      "right": 3.5,
+      "up": 3.2,
+      "down": 0.8,
+      "kind": "chamber",
+      "label": "Fairy Palace",
+      "zone": "corridor",
+      "tags": [
+        "formation zone"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "USR1",
+      "x": 40.0,
+      "y": 8.0,
+      "z": -24.99,
+      "left": 3.0,
+      "right": 3.0,
+      "up": 3.2,
+      "down": 0.8,
+      "kind": "passage",
+      "label": "Upper Specimen Route",
+      "zone": "corridor",
+      "tags": [
+        "formation zone"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "ROE",
+      "x": 95.0,
+      "y": 6.0,
+      "z": -32.61,
+      "left": 1.6,
+      "right": 1.6,
+      "up": 1.8,
+      "down": 0.5,
+      "kind": "passage",
+      "label": "Roe's Misery",
+      "zone": "squeeze",
+      "tags": [
+        "squeeze"
+      ],
+      "module": "squeeze"
+    },
+    {
+      "id": "POST",
+      "x": 150.0,
+      "y": 28.0,
+      "z": -37.19,
+      "left": 3.2,
+      "right": 3.2,
+      "up": 3.0,
+      "down": 0.8,
+      "kind": "chamber",
+      "label": "Post Office",
+      "zone": "corridor",
+      "tags": [
+        "formation zone"
+      ],
+      "module": "junction"
+    },
+    {
+      "id": "USR2",
+      "x": 210.0,
+      "y": 12.0,
+      "z": -41.76,
+      "left": 2.8,
+      "right": 2.8,
+      "up": 3.0,
+      "down": 0.8,
+      "kind": "passage",
+      "zone": "corridor",
+      "module": "tunnel"
+    },
+    {
+      "id": "DEVIL",
+      "x": 270.0,
+      "y": 8.0,
+      "z": -46.02,
+      "left": 3.0,
+      "right": 3.2,
+      "up": 3.4,
+      "down": 0.8,
+      "kind": "chamber",
+      "label": "Devil's Lookout",
+      "zone": "corridor",
+      "module": "tunnel"
+    },
+    {
+      "id": "METH",
+      "x": 330.0,
+      "y": 22.0,
+      "z": -52.43,
+      "left": 4.5,
+      "right": 4.5,
+      "up": 4.0,
+      "down": 1.0,
+      "kind": "chamber",
+      "label": "Methodist Church",
+      "zone": "hall",
+      "tags": [
+        "hall"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "MODEL",
+      "x": 385.0,
+      "y": 28.0,
+      "z": -58.52,
+      "left": 3.0,
+      "right": 3.0,
+      "up": 3.2,
+      "down": 0.8,
+      "kind": "passage",
+      "label": "Model Room",
+      "zone": "corridor",
+      "module": "tunnel"
+    },
+    {
+      "id": "XROAD",
+      "x": 430.0,
+      "y": 32.0,
+      "z": -60.05,
+      "left": 3.5,
+      "right": 3.5,
+      "up": 3.4,
+      "down": 0.8,
+      "kind": "passage",
+      "label": "Crossroads",
+      "zone": "corridor",
+      "module": "junction"
+    },
+    {
+      "id": "ASM",
+      "x": 470.0,
+      "y": 14.0,
+      "z": -66.75,
+      "left": 5.5,
+      "right": 5.5,
+      "up": 5.0,
+      "down": 1.0,
+      "kind": "chamber",
+      "label": "Assembly Room",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "formation zone"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "ELV",
+      "x": 500.0,
+      "y": 28.0,
+      "z": -66.75,
+      "left": 4.0,
+      "right": 4.0,
+      "up": 4.0,
+      "down": 1.0,
+      "kind": "exit",
+      "label": "Elevator",
+      "zone": "entrance",
+      "tags": [
+        "entrance"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "GOE",
+      "x": 545.0,
+      "y": 55.0,
+      "z": -8.23,
+      "left": 4.0,
+      "right": 4.5,
+      "up": 3.5,
+      "down": 0.8,
+      "kind": "chamber",
+      "label": "Garden of Eden",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "formation zone"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "ROME",
+      "x": 560.0,
+      "y": 10.0,
+      "z": -12.8,
+      "left": 3.0,
+      "right": 3.0,
+      "up": 3.0,
+      "down": 0.8,
+      "kind": "passage",
+      "label": "Rome",
+      "zone": "corridor",
+      "tags": [
+        "formation zone"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "MUD",
+      "x": 575.0,
+      "y": -25.0,
+      "z": -15.85,
+      "left": 3.2,
+      "right": 3.2,
+      "up": 2.8,
+      "down": 0.8,
+      "kind": "chamber",
+      "label": "Muddle Room",
+      "zone": "corridor",
+      "module": "tunnel"
+    },
+    {
+      "id": "GOE2",
+      "x": 530.0,
+      "y": 5.0,
+      "z": -24.99,
+      "left": 2.6,
+      "right": 2.6,
+      "up": 2.8,
+      "down": 0.7,
+      "kind": "passage",
+      "label": "Garden of Eden Tour",
+      "zone": "corridor",
+      "module": "tunnel"
+    },
+    {
+      "id": "ELK",
+      "x": 445.0,
+      "y": 70.0,
+      "z": -52.12,
+      "left": 4.0,
+      "right": 4.0,
+      "up": 3.8,
+      "down": 0.8,
+      "kind": "chamber",
+      "label": "Elks Room",
+      "zone": "corridor",
+      "tags": [
+        "formation zone"
+      ],
+      "module": "junction"
+    },
+    {
+      "id": "MONTE",
+      "x": 455.0,
+      "y": 95.0,
+      "z": -61.57,
+      "left": 3.5,
+      "right": 3.5,
+      "up": 3.5,
+      "down": 0.8,
+      "kind": "chamber",
+      "label": "Monte Cristo's Palace",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "formation zone"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "THREE",
+      "x": 420.0,
+      "y": 100.0,
+      "z": -66.14,
+      "left": 2.4,
+      "right": 2.4,
+      "up": 4.5,
+      "down": 0.8,
+      "kind": "passage",
+      "label": "Three-way Stair",
+      "zone": "corridor",
+      "module": "tunnel"
+    },
+    {
+      "id": "BLUE",
+      "x": 360.0,
+      "y": 105.0,
+      "z": -75.29,
+      "left": 3.5,
+      "right": 3.5,
+      "up": 4.0,
+      "down": 0.8,
+      "kind": "chamber",
+      "label": "Blue Grotto",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "formation zone"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "FAIR",
+      "x": 305.0,
+      "y": 115.0,
+      "z": -35.05,
+      "left": 6.0,
+      "right": 6.0,
+      "up": 5.5,
+      "down": 1.0,
+      "kind": "cavern",
+      "label": "Fairgrounds",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "formation zone"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "CHERT",
+      "x": 340.0,
+      "y": 80.0,
+      "z": -49.38,
+      "left": 2.8,
+      "right": 2.8,
+      "up": 3.0,
+      "down": 0.8,
+      "kind": "passage",
+      "label": "Chert Room",
+      "zone": "corridor",
+      "module": "tunnel"
+    },
+    {
+      "id": "TEMP",
+      "x": 370.0,
+      "y": 58.0,
+      "z": -55.47,
+      "left": 3.0,
+      "right": 3.0,
+      "up": 3.2,
+      "down": 0.8,
+      "kind": "passage",
+      "label": "Temple Room",
+      "zone": "corridor",
+      "tags": [
+        "formation zone"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "BACH",
+      "x": 470.0,
+      "y": 135.0,
+      "z": -49.38,
+      "left": 3.2,
+      "right": 3.2,
+      "up": 3.0,
+      "down": 0.8,
+      "kind": "chamber",
+      "label": "Bachelor's Quarters",
+      "zone": "corridor",
+      "module": "tunnel"
+    },
+    {
+      "id": "ATTIC",
+      "x": 280.0,
+      "y": 155.0,
+      "z": -28.04,
+      "left": 3.0,
+      "right": 3.0,
+      "up": 2.6,
+      "down": 0.7,
+      "kind": "passage",
+      "label": "The Attic",
+      "zone": "corridor",
+      "module": "tunnel"
+    },
+    {
+      "id": "PEARL",
+      "x": 215.0,
+      "y": 140.0,
+      "z": -32.61,
+      "left": 2.2,
+      "right": 2.2,
+      "up": 2.4,
+      "down": 0.6,
+      "kind": "passage",
+      "label": "Pearly Gates",
+      "zone": "corridor",
+      "tags": [
+        "formation zone"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "STAND",
+      "x": 200.0,
+      "y": 95.0,
+      "z": -37.19,
+      "left": 3.5,
+      "right": 3.5,
+      "up": 4.0,
+      "down": 0.8,
+      "kind": "chamber",
+      "label": "Standing Rock Chamber",
+      "zone": "hall",
+      "tags": [
+        "hall"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "AMPH",
+      "x": 185.0,
+      "y": 70.0,
+      "z": -40.23,
+      "left": 4.0,
+      "right": 4.0,
+      "up": 4.5,
+      "down": 0.9,
+      "kind": "chamber",
+      "label": "The Amphitheater",
+      "zone": "hall",
+      "tags": [
+        "hall"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "BOX1",
+      "x": 150.0,
+      "y": 60.0,
+      "z": -38.71,
+      "left": 1.2,
+      "right": 1.2,
+      "up": 1.6,
+      "down": 0.4,
+      "kind": "passage",
+      "label": "Boxwork spur",
+      "zone": "squeeze",
+      "tags": [
+        "squeeze",
+        "formation zone"
+      ],
+      "module": "squeeze"
+    },
+    {
+      "id": "BOX2",
+      "x": 165.0,
+      "y": 85.0,
+      "z": -43.28,
+      "left": 1.0,
+      "right": 1.0,
+      "up": 1.4,
+      "down": 0.35,
+      "kind": "passage",
+      "zone": "squeeze",
+      "tags": [
+        "squeeze",
+        "formation zone"
+      ],
+      "module": "squeeze"
+    },
+    {
+      "id": "BOX3",
+      "x": 130.0,
+      "y": 90.0,
+      "z": -46.33,
+      "left": 0.9,
+      "right": 0.9,
+      "up": 1.2,
+      "down": 0.3,
+      "kind": "passage",
+      "zone": "squeeze",
+      "tags": [
+        "squeeze"
+      ],
+      "module": "squeeze"
+    },
+    {
+      "id": "SNOW",
+      "x": 90.0,
+      "y": 70.0,
+      "z": -35.66,
+      "left": 2.0,
+      "right": 2.0,
+      "up": 2.2,
+      "down": 0.6,
+      "kind": "passage",
+      "label": "Toward Snowdrift Avenue",
+      "zone": "corridor",
+      "module": "tunnel"
+    }
+  ],
+  "legs": [
+    {
+      "from": "ENT",
+      "to": "USR1"
+    },
+    {
+      "from": "USR1",
+      "to": "ROE"
+    },
+    {
+      "from": "ROE",
+      "to": "POST"
+    },
+    {
+      "from": "POST",
+      "to": "USR2"
+    },
+    {
+      "from": "USR2",
+      "to": "DEVIL"
+    },
+    {
+      "from": "DEVIL",
+      "to": "METH"
+    },
+    {
+      "from": "METH",
+      "to": "MODEL"
+    },
+    {
+      "from": "MODEL",
+      "to": "XROAD"
+    },
+    {
+      "from": "XROAD",
+      "to": "ASM"
+    },
+    {
+      "from": "ASM",
+      "to": "ELV"
+    },
+    {
+      "from": "ENT",
+      "to": "GUIDE"
+    },
+    {
+      "from": "ENT",
+      "to": "NORTH"
+    },
+    {
+      "from": "NORTH",
+      "to": "FAIRY"
+    },
+    {
+      "from": "ELV",
+      "to": "GOE"
+    },
+    {
+      "from": "GOE",
+      "to": "ROME"
+    },
+    {
+      "from": "ROME",
+      "to": "MUD"
+    },
+    {
+      "from": "MUD",
+      "to": "GOE2"
+    },
+    {
+      "from": "GOE2",
+      "to": "ASM"
+    },
+    {
+      "from": "XROAD",
+      "to": "ELK"
+    },
+    {
+      "from": "ELK",
+      "to": "MONTE"
+    },
+    {
+      "from": "MONTE",
+      "to": "THREE"
+    },
+    {
+      "from": "THREE",
+      "to": "BLUE"
+    },
+    {
+      "from": "BLUE",
+      "to": "FAIR"
+    },
+    {
+      "from": "FAIR",
+      "to": "CHERT"
+    },
+    {
+      "from": "CHERT",
+      "to": "TEMP"
+    },
+    {
+      "from": "TEMP",
+      "to": "ELK"
+    },
+    {
+      "from": "MONTE",
+      "to": "BACH"
+    },
+    {
+      "from": "FAIR",
+      "to": "ATTIC"
+    },
+    {
+      "from": "ATTIC",
+      "to": "PEARL"
+    },
+    {
+      "from": "PEARL",
+      "to": "STAND"
+    },
+    {
+      "from": "STAND",
+      "to": "AMPH"
+    },
+    {
+      "from": "AMPH",
+      "to": "POST"
+    },
+    {
+      "from": "POST",
+      "to": "BOX1"
+    },
+    {
+      "from": "BOX1",
+      "to": "BOX2"
+    },
+    {
+      "from": "BOX2",
+      "to": "BOX3"
+    },
+    {
+      "from": "BOX1",
+      "to": "SNOW"
+    },
+    {
+      "from": "SNOW",
+      "to": "NORTH"
+    }
+  ],
+  "features": [
+    {
+      "type": "boxwork",
+      "near": "ASM",
+      "dx": 0,
+      "dy": 0,
+      "h": 3,
+      "r": 4,
+      "label": "Boxwork"
+    },
+    {
+      "type": "frostwork",
+      "near": "GOE",
+      "dx": 2,
+      "dy": 1,
+      "h": 1.5,
+      "r": 2,
+      "label": "Frostwork"
+    }
+  ],
+  "pools": []
+}

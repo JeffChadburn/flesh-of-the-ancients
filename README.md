@@ -238,6 +238,21 @@ Draw calls go up slightly because each cell is its own mesh. The triangle count 
   - at most 108 chunks; about 65–110k triangles drawn and about 100 draw calls
   - worst streaming frame 4.8 ms
 
+## Real caves and map credits
+
+Every cave is modeled on a real cave (Round 27). The playable layouts in `data/real-caves/` are original approximations built from published room names, tour order and dimensions. They are **not** traced surveys. The research record and licensing notes are in [`docs/real-caves/README.md`](docs/real-caves/README.md).
+
+| In game | Real cave | Sources used | Licence of the sources |
+|---|---|---|---|
+| Lascaux (also the story's Waterfall Hollow) | Lascaux, France | Room order and published sizes (French Ministry of Culture site; fr.wikipedia dimensions) | Facts only; the Leroi-Gourhan / Ministry plans are copyrighted and were **not traced** (inspiration only) |
+| Carlsbad Cavern | Carlsbad Caverns, New Mexico, USA | NPS maps and brochures (`tools/make_carlsbad.py`) | US government works, public domain |
+| Mammoth Cave | Mammoth Cave, Kentucky, USA | NPS descriptions; 1908 Max Kämper map (trunk direction) | Public domain; the modern Schlecht tour map was **not traced** |
+| Wind Cave (also the story's breathing cave) | Wind Cave, South Dakota, USA | NPS tour-route map and whole-cave lineplot (Wikimedia Commons) | US government works, public domain |
+| Lehman Caves | Lehman Caves, Great Basin NP, Nevada, USA | NPS dimensions page, tour pages and historic brochure plan (data credited by NPS to the Southern Nevada Grotto, NSS) | US government works; the CC BY-SA 4.0 photo of the NPS sign (Famartin) was **not traced** |
+| Timpanogos Cave | Timpanogos Cave, Utah, USA | NPS tour pages and the NPS trail map cave section | US government works; the 2003 Timpanogos Cave Atlas (Horrocks / Kowallis) was **not traced** |
+
+When you go in, the cave says which real cave it is "Inspired by" (under the cave name and in a toast).
+
 ## Changelog
 
 - **Round 21: glowing mushrooms and spirit visions.**
@@ -300,6 +315,42 @@ Draw calls go up slightly because each cell is its own mesh. The triangle count 
     - The boot-check box in `index.html` reports anything else.
     - `?failhigh=1` simulates a High failure, for testing.
   - URL: `?play=tutorial&ch=N` (N = 0–4) opens the tutorial at a chapter.
+- **Round 27: real caves, rebuilt from modular pieces.**
+  - *Every cave is a real cave.* The six layouts in `data/real-caves/` (Lascaux, Carlsbad, Mammoth, Wind Cave, Lehman, Timpanogos) drive all caves. Each world entrance maps to one of them by a seeded choice: the Waterfall Hollow is Lascaux (the painted cave), the story's "Throat of Ash" cave is Wind Cave (the breathing cave), the Carlsbad entrance stays Carlsbad, and the other entrances get a seeded shuffle of the rest. Each visit adds a little seeded variation (1–3 side passages, jitter, which squeeze is a crawl, hall shapes and lobes), so repeat caves differ. Number seeds (New cave / Go) pick a real cave too; `?cave=lehman&seed=5` loads one directly. A line under the cave name and a toast say "Inspired by …". See *Real caves and map credits* above.
+  - *Modular pieces* (`js/cave/modules.js`, `js/cave/realcaves.js`):
+    - **Tunnel:** sections of 5–9 m with a gentle meander.
+    - **Junction:** flared, and branches fanned out to at least 38° so there are no knife-edge splits.
+    - **Hall:** irregular, not a dome. Lopsided sides, a bulging plan, an uneven roof and 0–2 side lobes.
+    - **Hall mouth:** a portal station just outside the hall wall, so passages meet halls with a clean opening.
+    - **Hall to hall:** two halls with room between them get mouth + passage + mouth. Near misses pull both mouths in, staying clear of the bulged walls, when the floors are within 5 m. This fixed a sealed Grand Palace → Talus Room wall in Lehman.
+    - **Squeeze:** one crouch or crawl neck per squeeze chain, eased on both sides.
+    - **Pit / drop:** steeper than 0.62 becomes switchbacks, or a spiral ramp for short deep drops, never steeper than 0.5.
+    - **Stream:** water along stream-tagged passages.
+    - **Side passages:** floor-matched, starting beyond the parent wall.
+    - A static check (no steep legs, no narrow junctions, nothing too tight) passes for every layout on every seed tested.
+  - *Clean joins* (`js/mesh.js`):
+    - Where one piece's wall runs into another, the cut now follows the other surface (inside vertices slide onto it) instead of dropping whole triangles. This removes the saw-tooth of fins and notches at junctions and hall mouths.
+    - Hall cuts account for the hall's large-scale wall noise, which was also turned down (macro bulge 1.1 → 0.75).
+    - A hall's mouth is a plain passage tube through the hall wall.
+    - Hall spheres are coarser (60×34, or 40×24 for small halls; was 76×42).
+  - *High ceilings:* a subtle warm torch bounce lights the roof of tall rooms, scaled by ceiling height and following the torch's flicker. It is always in the scene (0 when not needed), so the light count never changes. Caves stay torch-lit.
+  - *Kept:* mesh collision with the rescue net, crouch / crawl squeezes, formations, the Hollow stream and waterfall, the minimap and big map, monsters and hunting, torches, chunk streaming, multiplayer seed sync (cave choice is deterministic), save / load. The Hollow story (hunter, glyphs) runs on the Lascaux layout.
+  - *Tests* (`/home/box/cgtests`):
+    - `walk.mjs`: walks the real player through every leg of all six caves, with streamed-mesh collision.
+    - `pp.sh` / `probe.mjs`: mesh probe for floor holes, see-through seams and intrusions.
+    - `build.mjs`: static module checks.
+    - `story27.mjs`: story cave mapping.
+    - Also run: `reg.mjs`, `mp2.mjs`, `stress.mjs`.
+  - *Results:*
+    - walk.mjs on seeds 3 and 7: all six caves pass, 0 falls and 0 rescues. Wind Cave has one snag that is passed by a sidestep.
+    - reg, story27, stress, mp2 and the touch test: all pass.
+    - Mesh probe hole rate: Lascaux 0.2% and Timpanogos 0.3%; Wind Cave, Lehman and Mammoth 0.5–1.6% (was 2.4% for the old generator).
+  - *Known gaps:*
+    - Seed 11 has 3 stuck spots in wide passages: Lehman LOD→Insurance and Lost River, and Mammoth Gothic Avenue. Players can steer round them.
+    - Thin slivers remain along some cut edges.
+    - Big Mammoth halls cost more GPU fill on software rendering.
+  - New test hooks: `loadReal`, `walkCave`, `meshProbe`, `lookAt`, `realFor`, `caveReport`, `caveData`, `revealN`, `callsBy`, `hideByName`.
+- **Hotfix (after Round 26): phone steering.** With one-finger steering, the stick now walks Kra where the camera looks after a look-drag (his heading turns to the camera as soon as you push forward), and the stick always lets go: release, touchcancel, pointercancel, lost pointer capture, a touchend with no finger left on the stick, the app going to the background or losing focus all zero it, so he never keeps running on his own (also when the stick and a look drag overlap).
 - **Round 26: light realism pass (sky, light and fog only).**
   - *Physical daylight sky:* the dome uses the same Rayleigh + Mie (Preetham) scattering model as three's Sky addon and the approved `realism-sample.html`. Turbidity rises with haze and cloud. The bright noon sky is scaled down more than the low-sun sky, like a camera's auto-exposure. Night and deep twilight keep the hand-tuned gradient, moon, stars and clouds.
   - *One sky drives everything:* by day the fog colour is the sky's horizon, the hemisphere light's sky colour is the sky's zenith colour, and the sun is tinted by the air it shines through. Distant land, haze and sky now agree at every hour, and the bottom of the sky melts into the fog without a seam.

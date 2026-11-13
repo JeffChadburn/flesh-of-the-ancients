@@ -8,6 +8,8 @@ import { Minimap } from "./minimap.js";
 import { hashSeed } from "./rng.js";
 import { addFormations } from "./formations.js";
 import { addWater } from "./water.js";
+import { walkCave, meshProbe } from "./cave/cavetest.js";
+import { REAL_CAVES, REAL_IDS, realCaveFor, buildRealCave, loadLayout, layoutSync, preloadLayouts, realFromSeed } from "./cave/realcaves.js";
 import { CaveFauna } from "./cavefauna.js";
 import { Archery } from "./archery.js";
 import { CaveAudio } from "./audio.js";
@@ -146,6 +148,11 @@ scene.add(moonLight);
 scene.add(moonLight.target);
 const skyFill = new THREE.HemisphereLight(0x34446a, 0x0c0a08, 0);
 scene.add(skyFill);
+// Round 27: torch bounce under high ceilings. A torch-lit floor throws a little warm light back up,
+// so a 15-25 m hall roof reads as faint rock instead of pitch black. Always in the scene (0 when
+// unused) so the light count never changes; follows the torch's flicker, so caves stay torch-lit.
+const ceilBounce = new THREE.PointLight(0xffb27a, 0, 30, 1.25);
+scene.add(ceilBounce);
 
 const URLP = new URLSearchParams(location.search);
 // Round 24: the tutorial plays in its own sandbox. Before it starts, the few shared keys it can touch are
@@ -329,6 +336,7 @@ function loadCave(nextCave, { fromEntrance = null } = {}) {
   window.__CAVE__.mode = "cave";
   window.__CAVE__.info = {
     name: cave.name,
+    real: cave.real ? cave.real.id : null,
     stations: cave.stations.length,
     legs: cave.legs.length,
     length: Math.round(length * 10) / 10,
@@ -396,12 +404,43 @@ let carlsbadData = null;
 async function loadCarlsbad(opts = {}) {
   try {
     if (!carlsbadData) carlsbadData = await (await fetch("data/carlsbad.json")).json();
-    loadCave(parseJSONSurvey(carlsbadData), opts);
+    const c = parseJSONSurvey(carlsbadData);
+    const M = REAL_CAVES.carlsbad;
+    c.real = { id: "carlsbad", name: M.name, full: M.full, credit: M.credit };
+    loadCave(c, opts);
     if (!opts.fromEntrance) history.replaceState(null, "", "?cave=carlsbad");
   } catch (err) {
     errors.push("carlsbad: " + err);
   }
 }
+
+// Round 27: every cave is a real cave (data/real-caves, assembled by js/cave/modules.js).
+preloadLayouts();
+function realCave(id, seed, opts = {}) {
+  const L = layoutSync(id);
+  if (!L) return null;
+  const c = buildRealCave(L, id, seed >>> 0, opts);
+  if (opts.name) c.name = opts.name;
+  return c;
+}
+async function loadRealCave(id, seed, opts = {}) {
+  if (id === "carlsbad") return loadCarlsbad(opts);
+  try {
+    await loadLayout(id);
+    const c = realCave(id, seed, opts);
+    loadCave(c, opts);
+    if (!opts.fromEntrance) history.replaceState(null, "", `?cave=${id}&seed=${seed >>> 0}`);
+    return c;
+  } catch (err) { errors.push("real cave " + id + ": " + err); return null; }
+}
+function announceReal() {
+  const r = cave?.real;
+  if (!r) return;
+  try { storyUI.toast(`Inspired by ${r.name}`); } catch {}
+  const sub = document.getElementById("cave-real");
+  if (sub) { sub.textContent = `Inspired by ${r.full}`; sub.classList.remove("hidden"); }
+}
+function storyCaveId() { return world.places?.cave?.id ?? null; }
 
 // ---------------- Overworld ----------------
 const fadeEl = document.getElementById("fade");
@@ -795,6 +834,7 @@ function enterOverworld(entrance = null, opts = {}) {
   unloadCaveContent();
   world.mode = "overworld";
   camFill.intensity = 0;
+  ceilBounce.intensity = 0;
   world.entrance = null;
   cave = null;
   ensureWorld();
@@ -829,6 +869,7 @@ function enterOverworld(entrance = null, opts = {}) {
   world.atmo.update(0, { eye: camera.position, elevation: t.height(x, z), lights: { sun: moonLight, hemi: skyFill, ambient }, fog: scene.fog, renderer });
   chunks.prime(streamCtx(), 12);
   if (nameEl) nameEl.textContent = "The Hills";
+  document.getElementById("cave-real")?.classList.add("hidden");
   seedValueEl.textContent = "world " + t.seed;
   foundEl.classList.add("hidden");
   placeShown = "";
@@ -843,10 +884,12 @@ function enterEntrance(e, instant = false) {
   if (game.horse) toggleMount(true); // leave the horse at the mouth
   world.transitions.push({ t: +game.time.toFixed(1), e: "enter", id: e.id, cave: e.cave });
   return transition(async () => {
+    const id = realCaveFor(e, world.terrain.entrances, storyCaveId());
     if (e.cave === "carlsbad") await loadCarlsbad({ fromEntrance: e });
-    else if (e.cave === "hollow") loadCave(hollowCave(), { fromEntrance: e });
-    else loadCave(generateCave(e.cave), { fromEntrance: e });
+    else if (e.cave === "hollow") { await loadLayout("lascaux"); loadCave(hollowCave(), { fromEntrance: e }); }
+    else await loadRealCave(id, Number(e.cave) >>> 0, { fromEntrance: e, name: e.name });
     if (nameEl) nameEl.textContent = e.name;
+    announceReal();
   }, instant);
 }
 
@@ -859,7 +902,8 @@ function returnToOverworld(instant = false) {
 const HOLLOW_SEED = 70261111;
 function hollowCave() {
   // Waterfall Hollow: a short, dark first cave (few legs, no squeezes) with a stream.
-  const c = generateCave(HOLLOW_SEED, { targetLegs: 26, squeezeProbability: 0.0, chamberProbability: 0.22 });
+  // Round 27: modeled on Lascaux (the painted cave: Hall of the Bulls, Axial Gallery, Nave, the Shaft).
+  const c = realCave("lascaux", HOLLOW_SEED, { story: "hollow" }) || generateCave(HOLLOW_SEED, { targetLegs: 26, squeezeProbability: 0.0, chamberProbability: 0.22 });
   c.kind = "hollow"; c.name = "Waterfall Hollow";
   return c;
 }
@@ -887,7 +931,10 @@ function stepWorld(dt) {
 function newCave(seed) {
   if (String(seed ?? "").trim().toLowerCase() === "carlsbad") { loadCarlsbad(); return "carlsbad"; }
   const s = seed == null ? randomSeed() : parseSeed(seed);
-  loadCave(generateCave(s));
+  // Round 27: seeds pick one of the real caves ("lehman:5" picks Lehman with seed 5)
+  const R = realFromSeed(seed, s), c = realCave(R.id, R.seed);
+  if (c) { loadCave(c); announceReal(); return R.seed; }
+  loadCave(generateCave(s)); // layouts not fetched yet (first instant after boot)
   return s;
 }
 
@@ -2274,6 +2321,16 @@ function tickBody(now) {
       ambient.intensity = 1.5 + 1.0 * hf;
     }
     if (!game.fogLock) scene.fog.density += (fogWant - scene.fog.density) * Math.min(1, dt * 0.8);
+    {
+      // ceiling bounce: only where the roof is high (> ~5 m), scaled by height, tied to the torch
+      const f = q && q.floor != null ? q.floor : cp.y - 1.6;
+      const hgt = Math.max(0, roomH - 5);
+      const torchK = caveman.baseIntensity ? Math.min(1.3, caveman.light.intensity / caveman.baseIntensity) : 0;
+      const want = Math.min(20, hgt * 1.6) * torchK;
+      ceilBounce.intensity += (want - ceilBounce.intensity) * Math.min(1, dt * 1.5);
+      ceilBounce.position.set(cp.x, f + Math.min(roomH * 0.6, 3 + roomH * 0.45), cp.z);
+      ceilBounce.distance = 8 + roomH * 1.5;
+    }
     const m = game.monster;
     if (audio.started) {
       let zone = near && near.zone;
@@ -3327,6 +3384,15 @@ window.__CAVE__ = {
   },
   stats: () => sceneStats(),
   joyState: () => player && { active: player.joy.active, mag: +player.joy.mag.toFixed(2), yaw: +player.yaw.toFixed(3), camOff: +(player.camOff || 0).toFixed(3), speed: +(player.speedNow || 0).toFixed(2), look: !!player.lookTouch, oneFinger: player.oneFinger, pos: [+camera.position.x.toFixed(2), +camera.position.z.toFixed(2)] }, // hotfix test hook
+  revealN: (n = 1e9) => { const ids = cave ? cave.stations.map((s) => s.id).slice(0, n) : []; for (const id of ids) explored.add(id); return explored.size; },
+  hideByName: (re, hide = true) => { const R = new RegExp(re); let n = 0; scene.traverse((o) => { if ((o.isMesh || o.isPoints || o.isLight) && R.test(o.name || o.type)) { o.visible = !hide; n++; } }); return n; },
+  // round 27: visible meshes in the view frustum by name (draw-call breakdown)
+  callsBy: () => {
+    const fr = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(viewCam.projectionMatrix, viewCam.matrixWorldInverse));
+    const out = {};
+    scene.traverseVisible((o) => { if (!o.isMesh && !o.isPoints && !o.isSprite) return; if (o.frustumCulled && o.geometry && !(o.geometry.boundingSphere || o.geometry.computeBoundingSphere(), fr.intersectsObject(o))) return; const k = o.name || o.parent?.name?.split(" ")[0] || o.type; out[k] = (out[k] || 0) + 1; });
+    return Object.fromEntries(Object.entries(out).sort((a, b) => b[1] - a[1]).slice(0, 25));
+  },
   chunkStats: () => ({ ...chunks.summary(), phaseMax: world.caveLayer?.phaseMax }),
   resetChunkStats: () => chunks.resetStats(),
   setDebug: (on) => setDebug(on),
@@ -3374,6 +3440,29 @@ window.__CAVE__ = {
   seed: null,
   info: null,
   generate: (s) => newCave(s),
+  loadReal: async (id, seed = 1, opts = {}) => { const c = await loadRealCave(id, seed, opts); announceReal(); return !!c; }, // round 27
+  // prime: stream in the rock around the player after every placement / every few metres, so the
+  // walk collides with the real rendered mesh (BVH), not just the analytic volume
+  walkCave: (o = {}) => walkCave({ cave, player, camera, substeps: substepsFor, prime: () => { if (STREAM && world.caveLayer) { chunks.prime(streamCtx(), 25); wallMeshCache.t = -1e9; } }, ...o }),
+  meshProbe: (o = {}) => meshProbe(cave, o),
+  // debug view: stand on a leg sample (from->to at t) facing yaw (deg, 0 = along the leg, +90 = right)
+  lookAt: (from, to, t = 0.5, yawDeg = 0, pitchDeg = 0) => {
+    const sm = new Map(cave.stations.map((s) => [s.id, s])), a = sm.get(from), b = sm.get(to);
+    if (!a || !b) return null;
+    const pa = stationWorld(a), pb = stationWorld(b);
+    const x = pa.x + (pb.x - pa.x) * t, z = pa.z + (pb.z - pa.z) * t, y = pa.y + (pb.y - pa.y) * t - (a.down + (b.down - a.down) * t);
+    const qv = player.volume ? queryVolume(player.volume, x, y + 1, z, 0.05, 0.3) : null;
+    const fy = qv && qv.inside ? qv.floor : y;
+    player.setStance("stand"); player.placeWorld(x, fy + 0.05, z);
+    const base = Math.atan2(-(pb.x - pa.x), -(pb.z - pa.z));
+    player.yaw = base - (yawDeg * Math.PI) / 180; player.pitch = (pitchDeg * Math.PI) / 180; player.applyLook?.();
+    if (STREAM && world.caveLayer) chunks.prime(streamCtx(), 25);
+    return { x, y, z };
+  },
+  meshProbeGen: (seed, o = {}) => { const g = generateCave(seed >>> 0); addWaterSystem(g); return meshProbe(g, o); }, // baseline: the old procedural caves
+  realFor: () => world.terrain?.entrances.map((e) => ({ id: e.id, name: e.name, real: realCaveFor(e, world.terrain.entrances, storyCaveId()) })),
+  caveReport: () => cave && { real: cave.real?.id || null, name: cave.name, kind: cave.kind || null, modules: cave.modules || null, check: cave.check || null, stations: cave.stations.length, legs: cave.legs.length, water: !!cave.water?.legs?.length },
+  caveData: () => cave && { stations: cave.stations.map((s) => ({ id: s.id, x: s.x, y: s.y, z: s.z, left: s.left, right: s.right, up: s.up, down: s.down, kind: s.kind, clearance: s.clearance, module: s.module || null })), legs: cave.legs, entranceId: cave.entranceId, mainPath },
   place: (t) => player?.placeAlongMainPath(Number(t), mainPath),
   setLook: (yaw, pitch) => {
     if (!player) return;
@@ -3589,7 +3678,7 @@ window.__CAVE__ = {
   aim: (yaw, pitch) => { if (yaw != null) player.yaw = yaw; if (pitch != null) player.pitch = pitch; player.applyLook(); },
   look: () => ({ view: (() => { const d = new THREE.Vector3(); viewCam.getWorldDirection(d); return { pos: viewCam.position.toArray(), dir: d.toArray() }; })(), yaw: player.yaw, pitch: player.pitch, eye: camera.position.toArray().map((v) => +v.toFixed(2)) }),
   animalPos: (kind) => { const n = world.wildlife?.nearest(feetPos(), kind); return n && { x: n.a.pos.x, y: n.a.pos.y, z: n.a.pos.z, d: n.d, id: n.a.id }; },
-  torch: () => ({ intensity: +caveman.light.intensity.toFixed(1), distance: +caveman.light.distance.toFixed(1), decay: caveman.light.decay, fog: +scene.fog.density.toFixed(3), ambient: +ambient.intensity.toFixed(2) }),
+  torch: () => ({ intensity: +caveman.light.intensity.toFixed(1), distance: +caveman.light.distance.toFixed(1), decay: caveman.light.decay, fog: +scene.fog.density.toFixed(3), ambient: +ambient.intensity.toFixed(2), bounce: +ceilBounce.intensity.toFixed(2), bounceY: +ceilBounce.position.y.toFixed(1) }),
   water: () => waterHandle && { path: waterHandle.path?.length || 0, snapped: waterHandle.path?.filter((q) => q.snapped).length || 0, pool: waterHandle.features.pool, first: waterHandle.path?.[Math.floor((waterHandle.path?.length || 0) / 2)], ids: cave?.water?.stationIds },
   faunaObj: () => caveFauna,
   setWalls: (on) => { player.walls = on ? walls : null; },
@@ -3837,8 +3926,10 @@ function startTutorial(ch = 0) {
 const directCave = params.has("seed") || params.has("cave") || params.has("shot") || params.get("start") === "cave" || params.get("demo") === "1";
 if (directCave) {
   showHint(9000, 800);
-  newCave(startSeed);
-  if (params.get("cave") === "carlsbad") loadCarlsbad();
+  const cq = (params.get("cave") || "").toLowerCase();
+  if (cq === "carlsbad") loadCarlsbad();
+  else if (REAL_CAVES[cq]) loadRealCave(cq, startSeed).then(() => announceReal());
+  else preloadLayouts().then(() => newCave(params.has("seed") ? params.get("seed") : startSeed));
 } else {
   // Default: main menu (Continue / New Game / Free Play) over the dawn camp. ?play=new|free|continue skips it.
   const play = MP_ROOM ? "free" : params.get("play"); // round 22: an invite link drops you into free play

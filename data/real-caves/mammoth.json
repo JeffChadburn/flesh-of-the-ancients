@@ -1,0 +1,500 @@
+{
+  "format": "cavern-centerline-v1",
+  "name": "Mammoth Cave (Historic Tour)",
+  "seed": "mammoth",
+  "style": "mammoth",
+  "scale": 0.35,
+  "verticalScale": 0.5,
+  "units": "meters",
+  "source": {
+    "type": "approximate",
+    "note": "Simplified Historic Tour plus Audubon Avenue, Gothic Avenue and a River Styx spur. Horizontal coordinates are 0.35\u00d7 real, vertical 0.5\u00d7, so the 2-mile tour plays near Carlsbad size. Room sizes (Rotunda ~42 m wide, Giant's Coffin, Fat Man's Misery ~30 m of tight passage, Mammoth Dome 192 ft / 58 m) come from NPS and earlier public-domain descriptions. The overall west-to-east trunk follows the 1908 Max K\u00e4mper map (public domain). Not a digitised survey. The modern NPS illustrated tour map by Richard Schlecht is copyrighted and was not traced.",
+    "license": "Layout is an original approximation. Source facts and the 1908 K\u00e4mper map are public domain. Do not trace the modern Schlecht map.",
+    "usable": "approximate",
+    "refs": [
+      "https://commons.wikimedia.org/wiki/File:Max_K%C3%A4mper_1908_Map_of_Mammoth_Cave.jpg",
+      "https://openparksnetwork.org/",
+      "https://www.nps.gov/maca/planyourvisit/mammoth-cave-map-guide.htm",
+      "https://www.nps.gov/places/fat-man-s-misery-beneath-your-feet.htm",
+      "https://www.npshistory.com/publications/maca/hovey/sec2.htm",
+      "https://npshistory.com/publications/geology/state/ky/kgs-sp-7/sec3.htm"
+    ]
+  },
+  "entranceId": "ENT",
+  "exitId": "EXT",
+  "stations": [
+    {
+      "id": "ENT",
+      "x": 0.0,
+      "y": 14.0,
+      "z": 0.0,
+      "left": 16.0,
+      "right": 16.0,
+      "up": 14.0,
+      "down": 2.0,
+      "kind": "entrance",
+      "label": "Historic Entrance",
+      "zone": "entrance",
+      "tags": [
+        "entrance"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "NAR",
+      "x": 14.0,
+      "y": 7.0,
+      "z": -6.0,
+      "left": 3.5,
+      "right": 3.2,
+      "up": 5.0,
+      "down": 1.0,
+      "kind": "passage",
+      "label": "The Narrows",
+      "zone": "squeeze",
+      "tags": [
+        "squeeze"
+      ],
+      "module": "squeeze"
+    },
+    {
+      "id": "ROT",
+      "x": 31.5,
+      "y": 0.0,
+      "z": -14.0,
+      "left": 16.0,
+      "right": 16.0,
+      "up": 10.0,
+      "down": 1.8,
+      "kind": "cavern",
+      "label": "The Rotunda",
+      "zone": "hall",
+      "tags": [
+        "hall"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "AUD1",
+      "x": 28.0,
+      "y": 28.0,
+      "z": -15.0,
+      "left": 8.0,
+      "right": 8.0,
+      "up": 8.0,
+      "down": 1.4,
+      "kind": "chamber",
+      "label": "Audubon Avenue",
+      "zone": "corridor",
+      "tags": [
+        "hall"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "AUD2",
+      "x": 21.0,
+      "y": 52.5,
+      "z": -16.0,
+      "left": 6.0,
+      "right": 6.0,
+      "up": 7.0,
+      "down": 1.2,
+      "kind": "chamber",
+      "label": "Audubon Avenue (north)",
+      "zone": "corridor",
+      "module": "hall"
+    },
+    {
+      "id": "BR1",
+      "x": 56.0,
+      "y": -7.0,
+      "z": -16.0,
+      "left": 12.0,
+      "right": 11.0,
+      "up": 10.0,
+      "down": 1.6,
+      "kind": "cavern",
+      "label": "Broadway",
+      "zone": "corridor",
+      "tags": [
+        "hall"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "MTH",
+      "x": 91.0,
+      "y": -14.0,
+      "z": -18.0,
+      "left": 10.0,
+      "right": 10.0,
+      "up": 11.0,
+      "down": 1.6,
+      "kind": "chamber",
+      "label": "Methodist Church",
+      "zone": "hall",
+      "tags": [
+        "hall"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "GTH1",
+      "x": 87.5,
+      "y": 7.0,
+      "z": -9.0,
+      "left": 4.0,
+      "right": 4.0,
+      "up": 4.5,
+      "down": 1.0,
+      "kind": "passage",
+      "label": "Gothic Avenue",
+      "zone": "corridor",
+      "module": "tunnel"
+    },
+    {
+      "id": "GTH2",
+      "x": 73.5,
+      "y": 17.5,
+      "z": -8.0,
+      "left": 3.5,
+      "right": 3.5,
+      "up": 4.0,
+      "down": 1.0,
+      "kind": "chamber",
+      "label": "Gothic Avenue names",
+      "zone": "corridor",
+      "tags": [
+        "art wall"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "COF",
+      "x": 126.0,
+      "y": -19.25,
+      "z": -20.0,
+      "left": 10.0,
+      "right": 11.0,
+      "up": 9.0,
+      "down": 1.6,
+      "kind": "chamber",
+      "label": "Giant's Coffin",
+      "zone": "hall",
+      "tags": [
+        "hall"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "BR2",
+      "x": 150.5,
+      "y": -24.5,
+      "z": -22.0,
+      "left": 9.0,
+      "right": 9.0,
+      "up": 9.0,
+      "down": 1.4,
+      "kind": "chamber",
+      "label": "Main Cave",
+      "zone": "corridor",
+      "tags": [
+        "hall"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "PIT",
+      "x": 171.5,
+      "y": -17.5,
+      "z": -24.0,
+      "left": 6.0,
+      "right": 7.0,
+      "up": 10.0,
+      "down": 1.4,
+      "kind": "chamber",
+      "label": "Bottomless Pit",
+      "zone": "pit",
+      "tags": [
+        "pit"
+      ],
+      "module": "pit"
+    },
+    {
+      "id": "MIS1",
+      "x": 185.5,
+      "y": -28.0,
+      "z": -29.0,
+      "left": 1.1,
+      "right": 1.0,
+      "up": 1.6,
+      "down": 0.4,
+      "kind": "passage",
+      "label": "Fat Man's Misery",
+      "zone": "squeeze",
+      "tags": [
+        "squeeze"
+      ],
+      "module": "squeeze"
+    },
+    {
+      "id": "MIS2",
+      "x": 194.25,
+      "y": -35.0,
+      "z": -32.0,
+      "left": 0.8,
+      "right": 0.9,
+      "up": 1.4,
+      "down": 0.35,
+      "kind": "passage",
+      "zone": "squeeze",
+      "tags": [
+        "squeeze"
+      ],
+      "module": "squeeze"
+    },
+    {
+      "id": "MIS3",
+      "x": 201.25,
+      "y": -29.75,
+      "z": -34.0,
+      "left": 1.2,
+      "right": 1.1,
+      "up": 1.8,
+      "down": 0.4,
+      "kind": "passage",
+      "zone": "squeeze",
+      "tags": [
+        "squeeze"
+      ],
+      "module": "squeeze"
+    },
+    {
+      "id": "RVH",
+      "x": 224.0,
+      "y": -31.5,
+      "z": -40.0,
+      "left": 8.0,
+      "right": 8.0,
+      "up": 7.0,
+      "down": 1.4,
+      "kind": "chamber",
+      "label": "River Hall",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "stream"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "STYX",
+      "x": 231.0,
+      "y": -49.0,
+      "z": -46.0,
+      "left": 5.0,
+      "right": 5.0,
+      "up": 4.0,
+      "down": 1.0,
+      "kind": "passage",
+      "label": "River Styx",
+      "zone": "stream",
+      "tags": [
+        "stream"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "DEAD",
+      "x": 245.0,
+      "y": -59.5,
+      "z": -47.0,
+      "left": 6.0,
+      "right": 7.0,
+      "up": 4.0,
+      "down": 1.0,
+      "kind": "chamber",
+      "label": "Dead Sea",
+      "zone": "stream",
+      "tags": [
+        "stream"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "SPK",
+      "x": 252.0,
+      "y": -24.5,
+      "z": -39.0,
+      "left": 4.5,
+      "right": 4.5,
+      "up": 5.0,
+      "down": 1.2,
+      "kind": "passage",
+      "label": "Sparks Avenue",
+      "zone": "corridor",
+      "module": "tunnel"
+    },
+    {
+      "id": "DOM",
+      "x": 280.0,
+      "y": -14.0,
+      "z": -38.0,
+      "left": 8.0,
+      "right": 8.0,
+      "up": 28.0,
+      "down": 2.0,
+      "kind": "cavern",
+      "label": "Mammoth Dome",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "pit"
+      ],
+      "module": "pit"
+    },
+    {
+      "id": "EXT",
+      "x": 287.0,
+      "y": -7.0,
+      "z": -10.0,
+      "left": 4.0,
+      "right": 4.0,
+      "up": 5.0,
+      "down": 1.2,
+      "kind": "exit",
+      "label": "Carmichael Entrance (exit)",
+      "zone": "entrance",
+      "tags": [
+        "entrance"
+      ],
+      "module": "tunnel"
+    }
+  ],
+  "legs": [
+    {
+      "from": "ENT",
+      "to": "NAR"
+    },
+    {
+      "from": "NAR",
+      "to": "ROT"
+    },
+    {
+      "from": "ROT",
+      "to": "BR1"
+    },
+    {
+      "from": "BR1",
+      "to": "MTH"
+    },
+    {
+      "from": "MTH",
+      "to": "COF"
+    },
+    {
+      "from": "COF",
+      "to": "BR2"
+    },
+    {
+      "from": "BR2",
+      "to": "PIT"
+    },
+    {
+      "from": "PIT",
+      "to": "MIS1"
+    },
+    {
+      "from": "MIS1",
+      "to": "MIS2"
+    },
+    {
+      "from": "MIS2",
+      "to": "MIS3"
+    },
+    {
+      "from": "MIS3",
+      "to": "RVH"
+    },
+    {
+      "from": "RVH",
+      "to": "SPK"
+    },
+    {
+      "from": "SPK",
+      "to": "DOM"
+    },
+    {
+      "from": "DOM",
+      "to": "EXT"
+    },
+    {
+      "from": "ROT",
+      "to": "AUD1"
+    },
+    {
+      "from": "AUD1",
+      "to": "AUD2"
+    },
+    {
+      "from": "MTH",
+      "to": "GTH1"
+    },
+    {
+      "from": "GTH1",
+      "to": "GTH2"
+    },
+    {
+      "from": "RVH",
+      "to": "STYX"
+    },
+    {
+      "from": "STYX",
+      "to": "DEAD"
+    }
+  ],
+  "features": [
+    {
+      "type": "boulder",
+      "near": "COF",
+      "dx": 4,
+      "dy": -2,
+      "h": 8,
+      "r": 5,
+      "label": "Giant's Coffin"
+    },
+    {
+      "type": "pit",
+      "near": "PIT",
+      "dx": 6,
+      "dy": 4,
+      "h": 22,
+      "r": 5,
+      "label": "Bottomless Pit"
+    },
+    {
+      "type": "pit",
+      "near": "DOM",
+      "dx": 0,
+      "dy": 0,
+      "h": 28,
+      "r": 7,
+      "label": "Mammoth Dome shaft"
+    }
+  ],
+  "pools": [
+    {
+      "near": "STYX",
+      "dx": 0,
+      "dy": -4,
+      "r": 4.0
+    },
+    {
+      "near": "DEAD",
+      "dx": 2,
+      "dy": 0,
+      "r": 6.0
+    }
+  ]
+}

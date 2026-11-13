@@ -7,6 +7,22 @@ import { fbm3, mulberry32, randRange, clamp } from "./rng.js";
 const RADIAL = 16;
 const RADIAL_HALL = 30;
 
+/**
+ * Round 27: halls are irregular, not domes. A hall station may carry `irr` (0..1) and `roofPhase`:
+ * the footprint bulges outward (never inward: the walk area stays inside the rock) by azimuth, and
+ * the roof sags in broad lobes and is flatter on top. Both the hall's own rock (hub) and the
+ * "is this point inside the hall?" test use these, so neighbouring pieces cut it consistently.
+ */
+const HALL_MACRO = 0.75; // round 27: was 1.1 (walls up to +55% off the nominal hall: mouths ended up inside rock)
+export function hallBulge(irr, ph, az) {
+  return 1 + irr * 0.32 * (0.5 + 0.5 * Math.sin(3 * az + ph * 1.7)) * (0.6 + 0.4 * Math.sin(az * 5 + ph));
+}
+export function hallRoof(irr, ph, az, rad) {
+  // rad: 0 at the centre .. 1 at the wall. Broad sags (two lobes) deepest part-way out.
+  const sag = (0.5 + 0.5 * Math.sin(2 * az + ph)) * (0.55 + 0.45 * Math.sin(az * 3 - ph * 0.7));
+  return 1 - irr * 0.55 * sag * Math.min(1, 0.35 + rad * 1.2);
+}
+
 // Periodic 2D value noise so the rock texture tiles without seams.
 function phash(ix, iy, period) {
   ix = ((ix % period) + period) % period;
@@ -356,9 +372,13 @@ export function prepareCavePieces(cave) {
     const { a, b } = L;
     // Hold a cavern's full width/height along most of the leg so it reads as a hall, not a bulge.
     let u = t;
-    const aCave = a.kind === "cavern";
-    const bCave = b.kind === "cavern";
-    if (bCave && !aCave) u = smoothstep(0.12, 0.52, t);
+    let aCave = a.kind === "cavern";
+    let bCave = b.kind === "cavern";
+    // Round 27: a modular hall mouth (hall -> portal station) is a plain passage tube that pokes
+    // through the hall wall; the two surfaces cross instead of a hall-sized funnel full of gaps.
+    if (aCave && b.module === "mouth") { aCave = false; u = 1; }
+    else if (bCave && a.module === "mouth") { bCave = false; u = 0; }
+    else if (bCave && !aCave) u = smoothstep(0.12, 0.52, t);
     else if (aCave && !bCave) u = smoothstep(0.48, 0.88, t);
     // Slight flare at multi-way stations so overlapping tubes hide the seam.
     const flare = lerp(degree(a.id) >= 3 ? 1.12 : 1, degree(b.id) >= 3 ? 1.12 : 1, t);
@@ -375,15 +395,31 @@ export function prepareCavePieces(cave) {
   // and small hubs swallowed by a hall don't leave free-standing rock skins in the room.
   const halls = cave.stations.filter((st) => st.kind === "cavern").map((st) => {
     const p = stationWorld(st);
-    return { id: st.id, x: p.x, y: p.y, z: p.z, R: Math.max(st.left, st.right) * 0.98, up: st.up, down: st.down };
+    const hh = Math.min(1, 3 / Math.max(1, Math.max(st.left, st.right, st.up) / 3));
+    return { id: st.id, x: p.x, y: p.y, z: p.z, R: Math.max(st.left, st.right) * 0.98, up: st.up, down: st.down, irr: st.irr || 0, ph: st.roofPhase || 0, hh };
   });
+  // Round 27: the hall hub's big macro-noise (k up to +55%) moved its real wall far from the nominal
+  // ellipsoid insideHall tested, so cuts missed (stubs of tube inside halls) or overshot (holes).
+  // Same noise, sampled at the nominal wall point in that direction.
+  function hallMacro(H, x, y, z) {
+    const az = Math.atan2(z - H.z, x - H.x);
+    const b = H.irr ? hallBulge(H.irr, H.ph, az) : 1;
+    const wx = H.x + Math.cos(az) * H.R * b, wz = H.z + Math.sin(az) * H.R * b;
+    if (y < H.y - H.down * 0.2) return 1;
+    return 1 + Math.max(-0.04, (fbm3(wx * 0.11 * H.hh + 31, y * 0.11 * H.hh, wz * 0.11 * H.hh - 7, 3) - 0.5) * HALL_MACRO);
+  }
   function insideHall(x, y, z, skipId = null, shrink = 0.92) {
     for (const H of halls) {
       if (H.id === skipId) continue;
-      const d = Math.hypot(x - H.x, z - H.z) / (H.R * shrink);
+      const az = Math.atan2(z - H.z, x - H.x);
+      const dr = Math.hypot(x - H.x, z - H.z);
+      if (dr > H.R * 2.2) continue;
+      const mk = hallMacro(H, x, y, z);
+      const d = dr / (H.R * shrink * (H.irr ? hallBulge(H.irr, H.ph, az) : 1) * mk);
       if (d >= 1) continue;
       if (y < H.y - H.down * 0.9 - 0.3) continue;
-      if (y > H.y + H.up * 0.93 * shrink * Math.sqrt(1 - d * d)) continue;
+      const roof = H.irr ? Math.pow(Math.sqrt(1 - d * d), 0.75) * hallRoof(H.irr, H.ph, az, d) : Math.sqrt(1 - d * d);
+      if (y > H.y + H.up * 0.93 * shrink * roof * mk) continue;
       return true;
     }
     return false;
@@ -417,7 +453,9 @@ export function prepareCavePieces(cave) {
           ? Math.max(RADIAL_HALL, Math.min(64, Math.round(dimMax * 1.3)))
           : Math.max(RADIAL, Math.min(40, Math.round(dimMax * 1.6)));
         const rings = [], inOther = [];
+        const legBase = buf.count();
         const pos = new THREE.Vector3();
+        const floorHall = a.kind === "cavern" ? a.id : b.kind === "cavern" ? b.id : null;
         // Legs meeting this one at a station: where this tube's wall runs inside one of them
         // (junction overlap) it would stand across the other passage as a visible, walk-through
         // wall. Those triangles are dropped, like a hub's.
@@ -429,6 +467,12 @@ export function prepareCavePieces(cave) {
           const oR = O.len / 2 + Math.max(O.a.left, O.a.right, O.a.up, O.b.left, O.b.right, O.b.up) * 1.4;
           return Math.hypot((O.va.x + O.vb.x) / 2 - cx0, (O.va.y + O.vb.y) / 2 - cy0, (O.va.z + O.vb.z) / 2 - cz0) < R0 + oR;
         });
+        const legInside = (x, y, z, floorPart) => {
+          // A leg from a hall's own station keeps its floor inside the hall: a rock ramp up to the mouth.
+          if (halls.length && insideHall(x, y, z, floorPart ? floorHall : null)) return true;
+          for (const O of others) if (insideLeg(O, x, y, z, 0.86)) return true; // round 9: was 0.99 -> seam holes; now walls overlap a little
+          return false;
+        };
         for (let i = 0; i <= segs; i++) {
           const t = i / segs;
           pos.copy(va).lerp(vb, t);
@@ -444,24 +488,20 @@ export function prepareCavePieces(cave) {
             ring.push(buf.vertex(x, y, z, k / radial, t, vertColor(x, y, z, kind)));
             // A leg from a hall's own station keeps its floor inside the hall: a rock ramp up to the mouth.
             const floorPart = Math.sin(ang) < -0.3;
-            let io = halls.length ? insideHall(x, y, z, floorPart ? (a.kind === "cavern" ? a.id : b.kind === "cavern" ? b.id : null) : null) : false;
-            if (!io && others.length) for (const O of others) if (insideLeg(O, x, y, z, 0.86)) { io = true; break; } // round 9: was 0.99 -> seam holes; now walls overlap a little
-            inOther.push(io);
+            inOther.push(legInside(x, y, z, floorPart));
           }
           rings.push(ring);
           if ((i + 1) % Math.max(1, Math.floor(700 / radial)) === 0) yield;
         }
+        const tris = [];
         for (let i = 0; i < segs; i++) {
-          const r0 = rings[i];
-          const r1 = rings[i + 1];
+          const o0 = i * radial, o1 = (i + 1) * radial;
           for (let k = 0; k < radial; k++) {
             const k2 = (k + 1) % radial;
-            const o0 = i * radial, o1 = (i + 1) * radial;
-            const a0 = inOther[o0 + k], a1 = inOther[o1 + k], a2 = inOther[o1 + k2], a3 = inOther[o0 + k2];
-            if (a0 + a1 + a2 < 2) buf.indices.push(r0[k], r1[k], r1[k2]);
-            if (a0 + a2 + a3 < 2) buf.indices.push(r0[k], r1[k2], r0[k2]);
+            tris.push([o0 + k, o1 + k, o1 + k2], [o0 + k, o1 + k2, o0 + k2]);
           }
         }
+        snapCut(buf, legBase, inOther, tris, (li, x, y, z) => legInside(x, y, z, Math.sin(((li % radial) / radial) * Math.PI * 2) < -0.3));
       },
     });
   }
@@ -524,48 +564,99 @@ export function prepareCavePieces(cave) {
         if (Ls.length === 1) R = Math.min(R, Ls[0].len * 0.85);
         const hfs = 1 / Math.max(1, Math.max(st.left, st.right, st.up) / 3);
         const hh = Math.min(1, hfs * 3);
-        const sph = new THREE.SphereGeometry(1, cavern ? 76 : 26, cavern ? 42 : 16);
+        const sph = new THREE.SphereGeometry(1, cavern ? (R > 9 ? 60 : 40) : 26, cavern ? (R > 9 ? 34 : 24) : 16) // round 27: was 76x42 for every hall (phone tris);
         const sp = sph.attributes.position;
         const base = buf.count();
         const outside = [];
-        for (let i = 0; i < sp.count; i++) {
-          const dx = sp.getX(i), dy = sp.getY(i), dz = sp.getZ(i);
-          let y = dy >= 0 ? dy * st.up * 0.96 : -(st.down + 0.1) * Math.min(1, -dy * 2.4);
-          let hx = dx * R, hz = dz * R;
-          const wx = p.x + hx, wy = p.y + y, wz = p.z + hz;
-          let k = 1 + ((fbm3(wx * 0.45 * hfs, wy * 0.45 * hfs, wz * 0.45 * hfs, 4) - 0.5) * 0.34 + (fbm3(wx * 1.6 * hfs + 9, wy * 1.6 * hfs, wz * 1.6 * hfs, 3) - 0.5) * 0.12) * 0.6 + 0.1;
-          if (cavern && dy > -0.2) k += Math.max(-0.04, (fbm3(wx * 0.11 * hh + 31, wy * 0.11 * hh, wz * 0.11 * hh - 7, 3) - 0.5) * 1.1);
-          if (dy < -0.3) k = 1 + (k - 1) * 0.25;
-          hx *= k; hz *= k;
-          if (dy > 0) y *= k;
-          const X = p.x + hx, Y = p.y + y, Z = p.z + hz;
-          let inAny = false;
+        const hubInside = (X, Y, Z, dy) => {
           // Round 10: a hall's ceiling is only dropped where it is well inside a tube (no generous
           // hall-bulge allowance): the bulge test cut ceiling the tube never covered -> red/void holes.
+          if (cavern && dy < -0.25) return false; // a hall's floor is always solid rock
           const roof = cavern && dy > 0.15;
           for (const L of (roof ? Ls : near)) {
             // A tube between two halls is swallowed by them (its own wall is dropped), so it must not cut
             // their domes either; the overlap of the two halls is handled by insideHall below.
             if (roof && L.a.kind === "cavern" && L.b.kind === "cavern") continue;
-            if (insideLeg(L, X, Y, Z, roof ? 0.82 : 0.9, roof)) { inAny = true; break; }
+            const hh2 = cavern && L.a.kind === "cavern" && L.b.kind === "cavern"; // round 27: hall<->hall tubes cut walls tightly
+            if (insideLeg(L, X, Y, Z, roof ? 0.82 : hh2 ? 0.86 : 0.9, roof || hh2)) return true;
           }
-          if (!inAny && halls.length && insideHall(X, Y, Z, st.id, roof ? 0.78 : 0.92)) inAny = true; // round 10: overlapping halls keep a margin of rock (no jagged ceiling holes)
-          if (cavern && dy < -0.25) inAny = false; // a hall's floor is always solid rock
-          outside.push(!inAny);
+          // round 10: overlapping halls keep a margin of rock (no jagged ceiling holes)
+          return !!(halls.length && insideHall(X, Y, Z, st.id, roof ? 0.78 : cavern ? 0.8 : 0.92));
+        };
+        for (let i = 0; i < sp.count; i++) {
+          const dx = sp.getX(i), dy = sp.getY(i), dz = sp.getZ(i);
+          const irr = cavern ? st.irr || 0 : 0;
+          const az = Math.atan2(dz, dx), rad = Math.hypot(dx, dz);
+          let y = dy >= 0 ? (irr ? Math.pow(dy, 0.75) * hallRoof(irr, st.roofPhase || 0, az, rad) : dy) * st.up * 0.96 : -(st.down + 0.1) * Math.min(1, -dy * 2.4);
+          const bulge = irr ? hallBulge(irr, st.roofPhase || 0, az) : 1;
+          let hx = dx * R * bulge, hz = dz * R * bulge;
+          const wx = p.x + hx, wy = p.y + y, wz = p.z + hz;
+          let k = 1 + ((fbm3(wx * 0.45 * hfs, wy * 0.45 * hfs, wz * 0.45 * hfs, 4) - 0.5) * 0.34 + (fbm3(wx * 1.6 * hfs + 9, wy * 1.6 * hfs, wz * 1.6 * hfs, 3) - 0.5) * 0.12) * 0.6 + 0.1;
+          if (cavern && dy > -0.2) k += Math.max(-0.04, (fbm3(wx * 0.11 * hh + 31, wy * 0.11 * hh, wz * 0.11 * hh - 7, 3) - 0.5) * HALL_MACRO);
+          if (dy < -0.3) k = 1 + (k - 1) * 0.25;
+          hx *= k; hz *= k;
+          if (dy > 0) y *= k;
+          const X = p.x + hx, Y = p.y + y, Z = p.z + hz;
+          outside.push(!hubInside(X, Y, Z, dy));
           buf.vertex(X, Y, Z, 0, 0, vertColor(X, Y, Z, st.kind));
           if ((i + 1) % 350 === 0) yield;
         }
         const si = sph.index.array;
-        for (let i = 0; i < si.length; i += 3) {
-          const i0 = si[i], i1 = si[i + 1], i2 = si[i + 2];
-          if (!outside[i0] && !outside[i1] && !outside[i2]) continue;
-          buf.indices.push(base + i0, base + i2, base + i1); // inside faces the player
-        }
+        const tris = [];
+        for (let i = 0; i < si.length; i += 3) tris.push([si[i], si[i + 2], si[i + 1]]); // inside faces the player
+        const dys = sp.array;
+        snapCut(buf, base, outside.map((o) => !o), tris, (li, x, y, z) => hubInside(x, y, z, dys[li * 3 + 1]));
         sph.dispose();
       },
     });
   }
   return { pieces, legInfos };
+}
+
+/**
+ * Round 27: clean cut edges. Where one piece's wall runs inside another, triangles used to be
+ * dropped whole (2-of-3 vertices inside), leaving a saw-tooth of fins and notches along every
+ * junction and hall mouth. Instead, each inside vertex next to a kept (outside) vertex is slid
+ * along that edge onto the other piece's surface (bisection on the same inside test); then only
+ * triangles with no vertex left inside are kept, so the cut follows the other surface smoothly.
+ * `tris` are [i0, i1, i2] local vertex ids (0..n-1) at buffer offset `base`.
+ */
+function snapCut(buf, base, inside, tris, pred, iters = 7) {
+  const n = inside.length;
+  let anyIn = false;
+  for (let i = 0; i < n; i++) if (inside[i]) { anyIn = true; break; }
+  if (!anyIn) { for (const t of tris) buf.indices.push(base + t[0], base + t[1], base + t[2]); return; }
+  // one outside neighbour per inside vertex (the nearest)
+  const P = buf.positions;
+  const best = new Int32Array(n).fill(-1), bestD = new Float64Array(n).fill(Infinity);
+  const consider = (i, j) => {
+    if (!inside[i] || inside[j]) return;
+    const a = (base + i) * 3, b = (base + j) * 3;
+    const d = (P[a] - P[b]) ** 2 + (P[a + 1] - P[b + 1]) ** 2 + (P[a + 2] - P[b + 2]) ** 2;
+    if (d < bestD[i]) { bestD[i] = d; best[i] = j; }
+  };
+  for (const t of tris) { consider(t[0], t[1]); consider(t[0], t[2]); consider(t[1], t[0]); consider(t[1], t[2]); consider(t[2], t[0]); consider(t[2], t[1]); }
+  const snapped = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const j = best[i];
+    if (j < 0) continue;
+    const a = (base + i) * 3, b = (base + j) * 3;
+    const ix = P[a], iy = P[a + 1], iz = P[a + 2], ox = P[b], oy = P[b + 1], oz = P[b + 2];
+    let lo = 0, hi = 1; // t=0 outside vertex, t=1 inside vertex
+    for (let it = 0; it < iters; it++) {
+      const m = (lo + hi) / 2;
+      if (pred(i, ox + (ix - ox) * m, oy + (iy - oy) * m, oz + (iz - oz) * m)) hi = m; else lo = m;
+    }
+    P[a] = ox + (ix - ox) * lo; P[a + 1] = oy + (iy - oy) * lo; P[a + 2] = oz + (iz - oz) * lo;
+    snapped[i] = 1;
+  }
+  for (const t of tris) {
+    const in0 = inside[t[0]] && !snapped[t[0]], in1 = inside[t[1]] && !snapped[t[1]], in2 = inside[t[2]] && !snapped[t[2]];
+    if (in0 || in1 || in2) continue;
+    // all three were inside and got snapped: a sliver lying on the other surface - drop it
+    if (inside[t[0]] && inside[t[1]] && inside[t[2]]) continue;
+    buf.indices.push(base + t[0], base + t[1], base + t[2]);
+  }
 }
 
 /** Growable vertex buffer that pieces emit into. */

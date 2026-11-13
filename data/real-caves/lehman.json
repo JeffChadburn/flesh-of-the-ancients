@@ -1,0 +1,427 @@
+{
+  "format": "cavern-centerline-v1",
+  "name": "Lehman Caves",
+  "seed": "lehman",
+  "style": "lehman",
+  "scale": 1.0,
+  "units": "meters",
+  "source": {
+    "type": "approximate",
+    "note": "Approximate 1:1 layout of the tour rooms plus the off-tour Talus Room and Gypsum Annex. Depths and the Talus Room / Music Room sizes are from the NPS dimensions page (data credited to the Southern Nevada Grotto, NSS). Room arrangement follows the NPS visitor-center tour-route plan. A photograph of that sign is on Wikimedia Commons (CC BY-SA 4.0, Famartin); the sign itself is a US government work. This JSON approximates the published plan structure and is not a tracing of the photograph, nor survey data.",
+    "license": "Facts and the underlying NPS plan are US government works (public domain in the US). The Commons photograph of the sign is CC BY-SA 4.0 (Famartin) and was not traced.",
+    "usable": "approximate-from-pd-plan",
+    "refs": [
+      "https://www.nps.gov/grba/learn/nature/lehman-caves-dimensions.htm",
+      "https://www.nps.gov/grba/planyourvisit/lehman-caves-tours.htm",
+      "https://npshistory.com/publications/grba/brochures/caves.pdf",
+      "https://commons.wikimedia.org/wiki/File:2015-01-14_13_02_47_Map_of_the_Lehman_Caves_Tour_Route_at_the_Lehman_Caves_Visitor_Center_in_Great_Basin_National_Park,_Nevada.JPG"
+    ]
+  },
+  "entranceId": "ENT",
+  "exitId": "EXT",
+  "stations": [
+    {
+      "id": "ENT",
+      "x": 95.0,
+      "y": 0.0,
+      "z": 0.0,
+      "left": 3.0,
+      "right": 3.0,
+      "up": 3.2,
+      "down": 0.8,
+      "kind": "entrance",
+      "label": "Entrance tunnel",
+      "zone": "entrance",
+      "tags": [
+        "entrance"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "GOT",
+      "x": 45.0,
+      "y": 8.0,
+      "z": -28.5,
+      "left": 7.0,
+      "right": 7.0,
+      "up": 8.0,
+      "down": 1.2,
+      "kind": "chamber",
+      "label": "Gothic Palace",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "formation zone"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "NAT",
+      "x": 62.0,
+      "y": 28.0,
+      "z": -18.3,
+      "left": 4.0,
+      "right": 4.0,
+      "up": 4.0,
+      "down": 1.0,
+      "kind": "chamber",
+      "label": "Natural Entrance (covered)",
+      "zone": "entrance",
+      "tags": [
+        "entrance"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "LOST",
+      "x": 85.0,
+      "y": 72.0,
+      "z": -33.5,
+      "left": 2.4,
+      "right": 2.4,
+      "up": 2.6,
+      "down": 0.7,
+      "kind": "passage",
+      "label": "Lost River Passage",
+      "zone": "stream",
+      "tags": [
+        "stream"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "MUS",
+      "x": 22.0,
+      "y": -2.0,
+      "z": -38.1,
+      "left": 5.0,
+      "right": 5.0,
+      "up": 15.5,
+      "down": 1.2,
+      "kind": "chamber",
+      "label": "Music Room",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "formation zone"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "LOD",
+      "x": 8.0,
+      "y": -22.0,
+      "z": -46.0,
+      "left": 6.0,
+      "right": 6.0,
+      "up": 6.0,
+      "down": 1.2,
+      "kind": "chamber",
+      "label": "Lodge Room",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "stream",
+        "formation zone"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "EXT1",
+      "x": 40.0,
+      "y": -28.0,
+      "z": -24.4,
+      "left": 2.6,
+      "right": 2.6,
+      "up": 3.0,
+      "down": 0.8,
+      "kind": "passage",
+      "label": "Exit tunnel",
+      "zone": "corridor",
+      "module": "tunnel"
+    },
+    {
+      "id": "EXT",
+      "x": 95.0,
+      "y": -28.0,
+      "z": -2.0,
+      "left": 3.0,
+      "right": 3.0,
+      "up": 3.2,
+      "down": 0.8,
+      "kind": "exit",
+      "label": "Exit",
+      "zone": "entrance",
+      "tags": [
+        "entrance"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "INS",
+      "x": -42.0,
+      "y": -12.0,
+      "z": -59.1,
+      "left": 4.5,
+      "right": 4.5,
+      "up": 4.0,
+      "down": 1.0,
+      "kind": "chamber",
+      "label": "Inscription Room",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "art wall"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "WEST",
+      "x": -85.0,
+      "y": 8.0,
+      "z": -51.8,
+      "left": 4.0,
+      "right": 4.0,
+      "up": 4.0,
+      "down": 1.0,
+      "kind": "chamber",
+      "label": "West Room",
+      "zone": "corridor",
+      "tags": [
+        "formation zone"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "CYP",
+      "x": 2.0,
+      "y": 28.0,
+      "z": -50.9,
+      "left": 5.0,
+      "right": 5.0,
+      "up": 5.0,
+      "down": 1.0,
+      "kind": "chamber",
+      "label": "Cypress Swamp",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "stream",
+        "formation zone"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "GRD",
+      "x": -4.0,
+      "y": 58.0,
+      "z": -50.9,
+      "left": 8.0,
+      "right": 8.0,
+      "up": 8.0,
+      "down": 1.2,
+      "kind": "chamber",
+      "label": "Grand Palace",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "formation zone"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "TAL1",
+      "x": 2.0,
+      "y": 95.0,
+      "z": -45.7,
+      "left": 12.0,
+      "right": 12.0,
+      "up": 20.0,
+      "down": 1.6,
+      "kind": "cavern",
+      "label": "Talus Room",
+      "zone": "hall",
+      "tags": [
+        "hall"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "TAL2",
+      "x": 0.0,
+      "y": 150.0,
+      "z": -44.2,
+      "left": 13.0,
+      "right": 13.0,
+      "up": 28.0,
+      "down": 1.8,
+      "kind": "cavern",
+      "label": "Talus Room (north)",
+      "zone": "hall",
+      "tags": [
+        "hall"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "GYP1",
+      "x": -40.0,
+      "y": 175.0,
+      "z": -42.7,
+      "left": 3.5,
+      "right": 3.5,
+      "up": 4.0,
+      "down": 0.8,
+      "kind": "passage",
+      "label": "Gypsum Annex",
+      "zone": "corridor",
+      "tags": [
+        "formation zone"
+      ],
+      "module": "junction"
+    },
+    {
+      "id": "GYP2",
+      "x": -70.0,
+      "y": 200.0,
+      "z": -41.1,
+      "left": 3.0,
+      "right": 3.0,
+      "up": 3.5,
+      "down": 0.8,
+      "kind": "chamber",
+      "label": "Gypsum Annex (west)",
+      "zone": "corridor",
+      "tags": [
+        "formation zone"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "GYP3",
+      "x": -20.0,
+      "y": 220.0,
+      "z": -40.2,
+      "left": 2.8,
+      "right": 2.8,
+      "up": 3.2,
+      "down": 0.8,
+      "kind": "chamber",
+      "zone": "corridor",
+      "tags": [
+        "formation zone"
+      ],
+      "module": "tunnel"
+    }
+  ],
+  "legs": [
+    {
+      "from": "ENT",
+      "to": "GOT"
+    },
+    {
+      "from": "GOT",
+      "to": "MUS"
+    },
+    {
+      "from": "MUS",
+      "to": "LOD"
+    },
+    {
+      "from": "LOD",
+      "to": "INS"
+    },
+    {
+      "from": "INS",
+      "to": "WEST"
+    },
+    {
+      "from": "GOT",
+      "to": "NAT"
+    },
+    {
+      "from": "NAT",
+      "to": "LOST"
+    },
+    {
+      "from": "LOD",
+      "to": "EXT1"
+    },
+    {
+      "from": "EXT1",
+      "to": "EXT"
+    },
+    {
+      "from": "LOD",
+      "to": "CYP"
+    },
+    {
+      "from": "CYP",
+      "to": "GRD"
+    },
+    {
+      "from": "GRD",
+      "to": "TAL1"
+    },
+    {
+      "from": "TAL1",
+      "to": "TAL2"
+    },
+    {
+      "from": "TAL2",
+      "to": "GYP1"
+    },
+    {
+      "from": "GYP1",
+      "to": "GYP2"
+    },
+    {
+      "from": "GYP1",
+      "to": "GYP3"
+    },
+    {
+      "from": "INS",
+      "to": "CYP"
+    }
+  ],
+  "features": [
+    {
+      "type": "shield",
+      "near": "GRD",
+      "dx": 3,
+      "dy": 2,
+      "h": 4,
+      "r": 2.5,
+      "label": "Parachute Shield"
+    },
+    {
+      "type": "drapes",
+      "near": "MUS",
+      "dx": 0,
+      "dy": 0,
+      "h": 8,
+      "r": 2.0,
+      "label": "Music Room draperies"
+    }
+  ],
+  "pools": [
+    {
+      "near": "LOD",
+      "dx": 2,
+      "dy": -2,
+      "r": 3.0
+    },
+    {
+      "near": "CYP",
+      "dx": 1,
+      "dy": 1,
+      "r": 2.5
+    },
+    {
+      "near": "LOST",
+      "dx": 0,
+      "dy": 4,
+      "r": 1.5
+    }
+  ]
+}

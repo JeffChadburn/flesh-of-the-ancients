@@ -949,3 +949,8 @@ button:hover, .file-btn:hover { border-color: var(--accent); color: #fff; }
 #controls-sheet .cs-1f { align-self: flex-start; text-transform: none; letter-spacing: 0; font-size: 14px; padding: 9px 14px; }
 #controls-sheet .cs-1f.on { border-color: #8fd17a; color: #eaffdc; background: rgba(40, 80, 40, 0.6); }
 #controls-sheet .cs-opt small { font: 12px/1.4 ui-sans-serif, system-ui, sans-serif; opacity: 0.8; }
+
+/* round 27: "Inspired by …" under the cave name */
+#cave-real { font-size: 12px; opacity: 0.78; font-style: italic; margin: -2px 0 4px; letter-spacing: 0.02em; }
+#cave-real.hidden { display: none; }
+@media (max-width: 520px) { #cave-real { font-size: 10.5px; margin: -1px 0 2px; } }

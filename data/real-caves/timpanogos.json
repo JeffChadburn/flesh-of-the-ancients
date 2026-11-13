@@ -1,0 +1,355 @@
+{
+  "format": "cavern-centerline-v1",
+  "name": "Timpanogos Cave System",
+  "seed": "timpanogos",
+  "style": "timpanogos",
+  "scale": 1.0,
+  "units": "meters",
+  "source": {
+    "type": "approximate",
+    "note": "Approximate 1:1 layout of the regular tour through Hansen, Middle and Timpanogos caves. The three-cave order, the two man-made tunnels, and named rooms (Hansen Cave Lake, Father Time's Jewel Box, Hidden Lake, Great Heart, Chimes Chamber) come from NPS tour and history pages. The public-domain NPS trail map provides the east-to-west cliff section (entrance at Hansen Cave, exit at Timpanogos Cave, elevation 6,730 ft). The 2003 Timpanogos Cave Atlas (survey by Rodney D. Horrocks, map by Brandon K. Kowallis) is copyrighted and was not traced.",
+    "license": "Layout is an original approximation from NPS public-domain descriptions and the NPS trail-map section. Do not trace the Kowallis atlas.",
+    "usable": "approximate",
+    "refs": [
+      "https://www.nps.gov/tica/planyourvisit/cavetours.htm",
+      "https://www.nps.gov/tica/learn/historyculture/heart-of-the-mountain.htm",
+      "https://commons.wikimedia.org/wiki/File:NPS_timpanogos-cave-trail-map.jpg",
+      "https://npshistory.com/publications/tica/nss-v36n1-5.pdf",
+      "http://www.jonjasper.com/MapGallery/TimpCaveAtlasWeb.pdf"
+    ]
+  },
+  "entranceId": "ENT",
+  "exitId": "EXT",
+  "stations": [
+    {
+      "id": "ENT",
+      "x": 220.0,
+      "y": 0.0,
+      "z": 0.0,
+      "left": 3.5,
+      "right": 3.5,
+      "up": 3.5,
+      "down": 0.8,
+      "kind": "entrance",
+      "label": "Hansen Cave entrance",
+      "zone": "entrance",
+      "tags": [
+        "entrance"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "HAN1",
+      "x": 205.0,
+      "y": 8.0,
+      "z": -2.0,
+      "left": 3.0,
+      "right": 3.0,
+      "up": 3.2,
+      "down": 0.8,
+      "kind": "chamber",
+      "label": "Hansen Cave",
+      "zone": "corridor",
+      "tags": [
+        "formation zone"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "HLAKE",
+      "x": 188.0,
+      "y": 18.0,
+      "z": -3.5,
+      "left": 4.0,
+      "right": 4.0,
+      "up": 3.0,
+      "down": 0.8,
+      "kind": "chamber",
+      "label": "Hansen Cave Lake",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "stream"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "HAN2",
+      "x": 172.0,
+      "y": 4.0,
+      "z": -5.0,
+      "left": 2.8,
+      "right": 2.8,
+      "up": 3.0,
+      "down": 0.7,
+      "kind": "passage",
+      "zone": "corridor",
+      "tags": [
+        "formation zone"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "TUN1",
+      "x": 152.0,
+      "y": 0.0,
+      "z": -6.0,
+      "left": 1.8,
+      "right": 1.8,
+      "up": 2.4,
+      "down": 0.6,
+      "kind": "passage",
+      "label": "Tunnel to Middle Cave",
+      "zone": "corridor",
+      "module": "tunnel"
+    },
+    {
+      "id": "MID1",
+      "x": 132.0,
+      "y": 14.0,
+      "z": -7.0,
+      "left": 3.2,
+      "right": 3.2,
+      "up": 3.0,
+      "down": 0.8,
+      "kind": "chamber",
+      "label": "Middle Cave",
+      "zone": "corridor",
+      "tags": [
+        "formation zone"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "MID2",
+      "x": 114.0,
+      "y": -12.0,
+      "z": -8.0,
+      "left": 2.6,
+      "right": 2.6,
+      "up": 2.8,
+      "down": 0.7,
+      "kind": "passage",
+      "label": "Middle Cave passage",
+      "zone": "corridor",
+      "module": "tunnel"
+    },
+    {
+      "id": "TUN2",
+      "x": 94.0,
+      "y": 0.0,
+      "z": -9.0,
+      "left": 1.8,
+      "right": 1.8,
+      "up": 2.4,
+      "down": 0.6,
+      "kind": "passage",
+      "label": "Tunnel to Timpanogos Cave",
+      "zone": "corridor",
+      "module": "tunnel"
+    },
+    {
+      "id": "JEWEL",
+      "x": 74.0,
+      "y": 16.0,
+      "z": -10.0,
+      "left": 2.4,
+      "right": 2.4,
+      "up": 2.6,
+      "down": 0.6,
+      "kind": "chamber",
+      "label": "Father Time's Jewel Box",
+      "zone": "corridor",
+      "tags": [
+        "formation zone"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "HIDE",
+      "x": 56.0,
+      "y": -4.0,
+      "z": -11.0,
+      "left": 3.5,
+      "right": 3.5,
+      "up": 3.0,
+      "down": 0.8,
+      "kind": "chamber",
+      "label": "Hidden Lake",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "stream",
+        "formation zone"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "HEART",
+      "x": 38.0,
+      "y": 18.0,
+      "z": -12.0,
+      "left": 3.0,
+      "right": 3.0,
+      "up": 4.0,
+      "down": 0.8,
+      "kind": "chamber",
+      "label": "Great Heart of Timpanogos",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "formation zone"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "CHIME",
+      "x": 20.0,
+      "y": 2.0,
+      "z": -13.0,
+      "left": 3.2,
+      "right": 3.2,
+      "up": 3.4,
+      "down": 0.8,
+      "kind": "chamber",
+      "label": "Chimes Chamber",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "formation zone"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "LOW",
+      "x": 10.0,
+      "y": -14.0,
+      "z": -12.0,
+      "left": 1.6,
+      "right": 1.6,
+      "up": 2.0,
+      "down": 0.5,
+      "kind": "passage",
+      "label": "Lower Passage",
+      "zone": "squeeze",
+      "tags": [
+        "squeeze"
+      ],
+      "module": "squeeze"
+    },
+    {
+      "id": "EXT",
+      "x": 0.0,
+      "y": 0.0,
+      "z": -8.0,
+      "left": 3.0,
+      "right": 3.0,
+      "up": 3.0,
+      "down": 0.8,
+      "kind": "exit",
+      "label": "Timpanogos Cave exit",
+      "zone": "entrance",
+      "tags": [
+        "entrance"
+      ],
+      "module": "tunnel"
+    }
+  ],
+  "legs": [
+    {
+      "from": "ENT",
+      "to": "HAN1"
+    },
+    {
+      "from": "HAN1",
+      "to": "HLAKE"
+    },
+    {
+      "from": "HLAKE",
+      "to": "HAN2"
+    },
+    {
+      "from": "HAN2",
+      "to": "TUN1"
+    },
+    {
+      "from": "TUN1",
+      "to": "MID1"
+    },
+    {
+      "from": "MID1",
+      "to": "MID2"
+    },
+    {
+      "from": "MID2",
+      "to": "TUN2"
+    },
+    {
+      "from": "TUN2",
+      "to": "JEWEL"
+    },
+    {
+      "from": "JEWEL",
+      "to": "HIDE"
+    },
+    {
+      "from": "HIDE",
+      "to": "HEART"
+    },
+    {
+      "from": "HEART",
+      "to": "CHIME"
+    },
+    {
+      "from": "CHIME",
+      "to": "LOW"
+    },
+    {
+      "from": "LOW",
+      "to": "EXT"
+    }
+  ],
+  "features": [
+    {
+      "type": "heart",
+      "near": "HEART",
+      "dx": 0,
+      "dy": 1,
+      "h": 3.5,
+      "r": 1.6,
+      "label": "Great Heart of Timpanogos"
+    },
+    {
+      "type": "helictites",
+      "near": "CHIME",
+      "dx": 0,
+      "dy": 0,
+      "h": 2.0,
+      "r": 2.0,
+      "label": "Helictites"
+    },
+    {
+      "type": "stalactite",
+      "near": "JEWEL",
+      "dx": 0,
+      "dy": 0,
+      "h": 2.2,
+      "r": 0.6,
+      "label": "Father Time's Jewel Box"
+    }
+  ],
+  "pools": [
+    {
+      "near": "HLAKE",
+      "dx": 0,
+      "dy": 2,
+      "r": 2.5
+    },
+    {
+      "near": "HIDE",
+      "dx": 1,
+      "dy": 0,
+      "r": 2.0
+    }
+  ]
+}

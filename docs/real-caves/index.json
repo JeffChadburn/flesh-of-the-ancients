@@ -1,0 +1,74 @@
+[
+  {
+    "seed": "lascaux",
+    "name": "Lascaux",
+    "json": "data/real-caves/lascaux.json",
+    "preview": "docs/real-caves/lascaux.png",
+    "stations": 19,
+    "legs": 18,
+    "scale": 1.0,
+    "usable": "approximate",
+    "entranceId": "ENT",
+    "exitId": "FEL3"
+  },
+  {
+    "seed": "carlsbad",
+    "name": "Carlsbad Cavern",
+    "json": "data/real-caves/carlsbad.json",
+    "preview": "docs/real-caves/carlsbad.png",
+    "stations": 51,
+    "legs": 53,
+    "scale": 1.0,
+    "usable": "approximate-traced-from-pd",
+    "entranceId": "NE0",
+    "exitId": "ELV"
+  },
+  {
+    "seed": "mammoth",
+    "name": "Mammoth Cave (Historic Tour)",
+    "json": "data/real-caves/mammoth.json",
+    "preview": "docs/real-caves/mammoth.png",
+    "stations": 21,
+    "legs": 20,
+    "scale": 0.35,
+    "usable": "approximate",
+    "entranceId": "ENT",
+    "exitId": "EXT"
+  },
+  {
+    "seed": "wind-cave",
+    "name": "Wind Cave (tour routes)",
+    "json": "data/real-caves/wind-cave.json",
+    "preview": "docs/real-caves/wind-cave.png",
+    "stations": 34,
+    "legs": 37,
+    "scale": 1.0,
+    "usable": "approximate-from-pd-plan",
+    "entranceId": "ENT",
+    "exitId": "ELV"
+  },
+  {
+    "seed": "lehman",
+    "name": "Lehman Caves",
+    "json": "data/real-caves/lehman.json",
+    "preview": "docs/real-caves/lehman.png",
+    "stations": 17,
+    "legs": 17,
+    "scale": 1.0,
+    "usable": "approximate-from-pd-plan",
+    "entranceId": "ENT",
+    "exitId": "EXT"
+  },
+  {
+    "seed": "timpanogos",
+    "name": "Timpanogos Cave System",
+    "json": "data/real-caves/timpanogos.json",
+    "preview": "docs/real-caves/timpanogos.png",
+    "stations": 14,
+    "legs": 13,
+    "scale": 1.0,
+    "usable": "approximate",
+    "entranceId": "ENT",
+    "exitId": "EXT"
+  }
+]

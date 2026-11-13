@@ -1,0 +1,443 @@
+{
+  "format": "cavern-centerline-v1",
+  "name": "Lascaux",
+  "seed": "lascaux",
+  "style": "painted",
+  "scale": 1.0,
+  "units": "meters",
+  "source": {
+    "type": "approximate",
+    "note": "Approximate playable layout at 1:1 metres, built from widely published room sequence and dimensions (Hall of the Bulls, Axial Gallery, Passageway, Nave, Chamber of the Felines, Apse, Shaft). Not a survey and not a tracing of any published plan. A Wikimedia plan (File:Lascaux plan-ru.JPG) exists under CC BY-SA 3.0 / GFDL, but it is a redraw of A. Leroi-Gourhan 1984 (L'art des cavernes, Minist\u00e8re de la culture) and is treated here as inspiration only.",
+    "license": "Layout is an original approximation from published measurements. Do not treat it as survey data. Do not trace the 1984 atlas or its derivatives.",
+    "usable": "approximate",
+    "refs": [
+      "https://archeologie.culture.gouv.fr/lascaux/en/lascaux-cave",
+      "https://archeologie.culture.gouv.fr/lascaux/en/plan-site",
+      "https://commons.wikimedia.org/wiki/File:Lascaux_plan-ru.JPG",
+      "https://fr.wikipedia.org/wiki/Grotte_de_Lascaux"
+    ]
+  },
+  "entranceId": "ENT",
+  "exitId": "FEL3",
+  "stations": [
+    {
+      "id": "ENT",
+      "x": 10.0,
+      "y": -2.0,
+      "z": 0.0,
+      "left": 2.4,
+      "right": 2.4,
+      "up": 2.2,
+      "down": 0.5,
+      "kind": "entrance",
+      "label": "Original entrance",
+      "zone": "entrance",
+      "tags": [
+        "entrance"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "VEST",
+      "x": 4.0,
+      "y": -1.0,
+      "z": -1.2,
+      "left": 2.2,
+      "right": 2.0,
+      "up": 2.4,
+      "down": 0.5,
+      "kind": "passage",
+      "label": "Vestibule",
+      "zone": "entrance",
+      "tags": [
+        "entrance"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "HB1",
+      "x": 0.0,
+      "y": 0.0,
+      "z": -2.0,
+      "left": 3.0,
+      "right": 3.2,
+      "up": 6.5,
+      "down": 0.6,
+      "kind": "chamber",
+      "label": "Hall of the Bulls (east)",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "art wall"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "HB2",
+      "x": -10.0,
+      "y": 3.5,
+      "z": -2.4,
+      "left": 3.5,
+      "right": 3.8,
+      "up": 7.0,
+      "down": 0.6,
+      "kind": "chamber",
+      "label": "Hall of the Bulls",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "art wall"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "HB3",
+      "x": -19.0,
+      "y": 6.0,
+      "z": -2.8,
+      "left": 2.8,
+      "right": 3.0,
+      "up": 6.2,
+      "down": 0.6,
+      "kind": "chamber",
+      "label": "Hall of the Bulls (west)",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "art wall"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "AG1",
+      "x": -28.0,
+      "y": 4.5,
+      "z": -3.2,
+      "left": 1.8,
+      "right": 1.6,
+      "up": 4.5,
+      "down": 0.5,
+      "kind": "passage",
+      "label": "Axial Gallery",
+      "zone": "art",
+      "tags": [
+        "art wall"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "AG2",
+      "x": -36.0,
+      "y": 2.5,
+      "z": -3.6,
+      "left": 1.4,
+      "right": 1.5,
+      "up": 3.8,
+      "down": 0.5,
+      "kind": "passage",
+      "zone": "art",
+      "tags": [
+        "art wall"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "AG3",
+      "x": -40.0,
+      "y": -3.0,
+      "z": -4.0,
+      "left": 1.1,
+      "right": 1.0,
+      "up": 2.4,
+      "down": 0.4,
+      "kind": "passage",
+      "label": "Axial Gallery end",
+      "zone": "squeeze",
+      "tags": [
+        "squeeze",
+        "art wall"
+      ],
+      "module": "squeeze"
+    },
+    {
+      "id": "AG4",
+      "x": -38.0,
+      "y": -8.0,
+      "z": -4.2,
+      "left": 0.9,
+      "right": 0.9,
+      "up": 1.8,
+      "down": 0.35,
+      "kind": "passage",
+      "label": "Diverticule",
+      "zone": "squeeze",
+      "tags": [
+        "squeeze",
+        "art wall"
+      ],
+      "module": "squeeze"
+    },
+    {
+      "id": "PAS1",
+      "x": -16.0,
+      "y": 12.0,
+      "z": -3.2,
+      "left": 2.0,
+      "right": 2.0,
+      "up": 1.5,
+      "down": 0.4,
+      "kind": "passage",
+      "label": "The Passageway",
+      "zone": "squeeze",
+      "tags": [
+        "squeeze",
+        "art wall"
+      ],
+      "module": "squeeze"
+    },
+    {
+      "id": "PAS2",
+      "x": -14.0,
+      "y": 20.0,
+      "z": -3.6,
+      "left": 2.0,
+      "right": 1.8,
+      "up": 1.3,
+      "down": 0.4,
+      "kind": "passage",
+      "zone": "squeeze",
+      "tags": [
+        "squeeze",
+        "art wall"
+      ],
+      "module": "squeeze"
+    },
+    {
+      "id": "APS",
+      "x": -6.0,
+      "y": 23.0,
+      "z": -3.8,
+      "left": 2.3,
+      "right": 2.2,
+      "up": 2.4,
+      "down": 0.5,
+      "kind": "chamber",
+      "label": "The Apse",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "art wall"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "SFT",
+      "x": 2.0,
+      "y": 26.0,
+      "z": -4.2,
+      "left": 1.4,
+      "right": 1.4,
+      "up": 2.0,
+      "down": 0.5,
+      "kind": "passage",
+      "label": "The Shaft (lip)",
+      "zone": "pit",
+      "tags": [
+        "pit"
+      ],
+      "module": "pit"
+    },
+    {
+      "id": "SFTB",
+      "x": 5.0,
+      "y": 28.0,
+      "z": -10.2,
+      "left": 2.0,
+      "right": 2.2,
+      "up": 2.8,
+      "down": 0.5,
+      "kind": "chamber",
+      "label": "Shaft chamber",
+      "zone": "pit",
+      "tags": [
+        "pit",
+        "art wall"
+      ],
+      "module": "pit"
+    },
+    {
+      "id": "NAV1",
+      "x": -16.0,
+      "y": 30.0,
+      "z": -4.0,
+      "left": 3.0,
+      "right": 3.0,
+      "up": 5.5,
+      "down": 0.5,
+      "kind": "chamber",
+      "label": "The Nave",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "art wall"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "NAV2",
+      "x": -19.0,
+      "y": 42.0,
+      "z": -4.4,
+      "left": 3.2,
+      "right": 2.8,
+      "up": 7.5,
+      "down": 0.5,
+      "kind": "chamber",
+      "label": "Nave (crossed bison)",
+      "zone": "hall",
+      "tags": [
+        "hall",
+        "art wall"
+      ],
+      "module": "hall"
+    },
+    {
+      "id": "FEL1",
+      "x": -24.0,
+      "y": 52.0,
+      "z": -4.8,
+      "left": 1.4,
+      "right": 1.3,
+      "up": 2.2,
+      "down": 0.4,
+      "kind": "passage",
+      "label": "Chamber of the Felines",
+      "zone": "art",
+      "tags": [
+        "art wall"
+      ],
+      "module": "tunnel"
+    },
+    {
+      "id": "FEL2",
+      "x": -18.0,
+      "y": 62.0,
+      "z": -5.2,
+      "left": 1.1,
+      "right": 1.2,
+      "up": 1.8,
+      "down": 0.35,
+      "kind": "passage",
+      "zone": "squeeze",
+      "tags": [
+        "squeeze",
+        "art wall"
+      ],
+      "module": "squeeze"
+    },
+    {
+      "id": "FEL3",
+      "x": -22.0,
+      "y": 72.0,
+      "z": -5.6,
+      "left": 0.8,
+      "right": 0.8,
+      "up": 1.4,
+      "down": 0.3,
+      "kind": "passage",
+      "label": "Felines end",
+      "zone": "squeeze",
+      "tags": [
+        "squeeze",
+        "art wall"
+      ],
+      "module": "squeeze"
+    }
+  ],
+  "legs": [
+    {
+      "from": "ENT",
+      "to": "VEST"
+    },
+    {
+      "from": "VEST",
+      "to": "HB1"
+    },
+    {
+      "from": "HB1",
+      "to": "HB2"
+    },
+    {
+      "from": "HB2",
+      "to": "HB3"
+    },
+    {
+      "from": "HB3",
+      "to": "AG1"
+    },
+    {
+      "from": "AG1",
+      "to": "AG2"
+    },
+    {
+      "from": "AG2",
+      "to": "AG3"
+    },
+    {
+      "from": "AG3",
+      "to": "AG4"
+    },
+    {
+      "from": "HB3",
+      "to": "PAS1"
+    },
+    {
+      "from": "PAS1",
+      "to": "PAS2"
+    },
+    {
+      "from": "PAS2",
+      "to": "NAV1"
+    },
+    {
+      "from": "NAV1",
+      "to": "NAV2"
+    },
+    {
+      "from": "NAV2",
+      "to": "FEL1"
+    },
+    {
+      "from": "FEL1",
+      "to": "FEL2"
+    },
+    {
+      "from": "FEL2",
+      "to": "FEL3"
+    },
+    {
+      "from": "PAS2",
+      "to": "APS"
+    },
+    {
+      "from": "APS",
+      "to": "SFT"
+    },
+    {
+      "from": "SFT",
+      "to": "SFTB"
+    }
+  ],
+  "features": [
+    {
+      "type": "pit",
+      "near": "SFT",
+      "dx": 2,
+      "dy": 1,
+      "h": 6.0,
+      "r": 1.2,
+      "label": "The Shaft"
+    }
+  ],
+  "pools": []
+}
