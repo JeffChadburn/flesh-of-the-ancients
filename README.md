@@ -55,6 +55,7 @@ The story foundation is in `docs/STORY.md`. Act I takes about 20–40 minutes:
 
 The overworld has continuous time (22 real minutes per day by default). Caves stay dark.
 - The sun and moon follow arcs across the sky, with sunrise and sunset gradients, stars at night, and drifting procedural clouds. The sun, sky light, ambient light and fog colours all follow the time of day.
+- Daylight uses a physical (Rayleigh + Mie) sky. Its horizon sets the fog colour, its zenith sets the sky-light colour, and the tone-mapping exposure follows the time of day (Round 26).
 - Weather blends smoothly between clear, overcast, fog, rain, snow and storm. Above about 70 m, rain falls as snow.
 - Storms bring lightning flashes and distance-delayed thunder.
 - The ambience follows the time and weather: birdsong at dawn, crickets and owls at night, and rain hiss.
@@ -299,6 +300,14 @@ Draw calls go up slightly because each cell is its own mesh. The triangle count 
     - The boot-check box in `index.html` reports anything else.
     - `?failhigh=1` simulates a High failure, for testing.
   - URL: `?play=tutorial&ch=N` (N = 0–4) opens the tutorial at a chapter.
+- **Round 26: light realism pass (sky, light and fog only).**
+  - *Physical daylight sky:* the dome uses the same Rayleigh + Mie (Preetham) scattering model as three's Sky addon and the approved `realism-sample.html`. Turbidity rises with haze and cloud. The bright noon sky is scaled down more than the low-sun sky, like a camera's auto-exposure. Night and deep twilight keep the hand-tuned gradient, moon, stars and clouds.
+  - *One sky drives everything:* by day the fog colour is the sky's horizon, the hemisphere light's sky colour is the sky's zenith colour, and the sun is tinted by the air it shines through. Distant land, haze and sky now agree at every hour, and the bottom of the sky melts into the fog without a seam.
+  - *Light balance:* a firmer, warmer sun (3.5 at noon) and less flat ambient light. The ground bounce is warmer and brighter, so shaded sides read as lit by the sky, not grey.
+  - *Tone mapping:* still ACES Filmic. Outdoors the exposure eases from 1.0 at noon to 1.3 at night (a little eye adaptation, a touch higher in heavy weather). Caves and menus stay at 1.2.
+  - *Caves are unchanged:* torch-only and dark (the before/after screenshots match).
+  - *Quality:* per-pixel scattering runs on **High** only (the desktop default). On **Low** (the phone default), the sky is the same physical colours evaluated on the CPU at zenith and horizon and drawn as the old cheap gradient, so phone frame rate is unchanged. No post-processing, new models or shadows were added.
+  - Removed the `window.__AUDIO__` test hook.
 - **Round 25: iPhone fixes, a natural sound mix, one-finger steering.**
   - *Fixes:* Old Lume speaks with one voice; round action buttons show an icon + one short word (no more "THE"; "Kneel" is now Talk / Tend); desktop uses the ☰ dropdown; the player marker is a notched arrow.
   - *Speech:* while a story voice speaks, effects are silenced and music / ambience dip to ~18%, restored over ~0.5 s. A watchdog, a per-line time cap and visibility / pagehide hooks mean the dip can never stick (Round 25b fix for "lost all sound" on iPhone).

@@ -112,7 +112,8 @@ renderer.setPixelRatio(dprNow);
 renderer.setClearColor(0x050308, 1);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.2;
+const EXPOSURE = 1.2; // caves and menus; the overworld eases this with the time of day (round 26)
+renderer.toneMappingExposure = EXPOSURE;
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x050308, 0.03);
@@ -171,7 +172,6 @@ const material = rockMaterial();
 const formMat = formationMaterial();
 const minimap = new Minimap(minimapCanvas);
 const audio = new CaveAudio();
-window.__AUDIO__ = audio; // round 25d: mix tests
 /** Round 25e: One-finger steering (phones; on by default, ☰ → Controls to switch). */
 function oneFingerOn() { try { return localStorage.getItem("fota-onefinger") !== "0"; } catch { return true; } }
 function setOneFinger(v) {
@@ -240,6 +240,7 @@ function setCaveLighting() {
   storyUI.setClock("Underground");
   scene.fog.color.set(0x000000);
   scene.background.set(CAVE_BG);
+  renderer.toneMappingExposure = EXPOSURE;
   renderer.setClearColor(CAVE_BG, 1);
   viewCam.near = 0.06; viewCam.far = 160; viewCam.updateProjectionMatrix();
   audio.setOutdoor?.(false);
@@ -292,6 +293,7 @@ function loadCave(nextCave, { fromEntrance = null } = {}) {
   // Torch-lit darkness everywhere: black, dense fog (useful light ~8-12 m).
   scene.fog.color.set(0x000000);
   scene.background.set(CAVE_BG);
+  renderer.toneMappingExposure = EXPOSURE;
   renderer.setClearColor(CAVE_BG, 1);
   camera.updateProjectionMatrix();
   labeled = cave.stations.filter((st) => st.label);
@@ -2574,6 +2576,7 @@ function tickOverworld(dt, info, now) {
   const st = game.timeFrozen ? A.update(0, { eye: viewCam.position, elevation: elev, lights: { sun: moonLight, hemi: skyFill, ambient }, fog: scene.fog, renderer })
     : A.update(dt, { eye: viewCam.position, elevation: elev, lights: { sun: moonLight, hemi: skyFill, ambient }, fog: scene.fog, renderer });
   scene.background.copy(A.fogColor);
+  renderer.toneMappingExposure = st.exposure || EXPOSURE; // round 26: daylight exposure (caves reset to EXPOSURE)
   regionTick(dt, p, t);
   world.over.tick(now / 1000, p, A);
   caveman.baseIntensity = TORCH_BASE * st.torch;

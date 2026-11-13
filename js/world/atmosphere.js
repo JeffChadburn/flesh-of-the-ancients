@@ -7,6 +7,7 @@
  */
 import * as THREE from "three";
 import { mulberry32 } from "../rng.js";
+import { gfxQuality } from "../realism.js";
 
 export const WEATHERS = ["clear", "overcast", "fog", "rain", "snow", "storm"];
 // cover: cloud cover; light: sun/moon multiplier; fog: fog density multiplier; rain/snow: precipitation;
@@ -30,14 +31,15 @@ const K = {
   sun: hex([0x8fa4d0, 0x8fa4d0, 0xff7a40, 0xffa060, 0xffdcb0, 0xfff4e4]),
   fog: hex([0x0b0f1a, 0x1c1c2e, 0x5a4450, 0xc39a84, 0xb7bab6, 0xa9bccc]),
   hemiS: hex([0x34446a, 0x434a6c, 0x9a7a8a, 0xc0a090, 0xa0b8d8, 0x9ec4ff]),
-  hemiG: hex([0x0c0a08, 0x1a140f, 0x44322a, 0x55432e, 0x4a4030, 0x4c4232]),
+  hemiG: hex([0x0c0a08, 0x1a140f, 0x44322a, 0x5a4630, 0x56492f, 0x5a4c34]), // round 26: warmer, brighter ground bounce
   cLit: hex([0x1c2232, 0x3a3048, 0xe08a6a, 0xffc090, 0xfff0e0, 0xffffff]),
   cDark: hex([0x080a10, 0x15131f, 0x5a3a48, 0x8a6a70, 0x9ea6b6, 0xa6aebb]),
 };
 const KN = {
-  light: [1.5, 0.8, 0.8, 1.8, 2.7, 3.1],
-  hemi: [1.15, 1.15, 1.5, 1.5, 1.4, 1.4],
-  amb: [0.42, 0.4, 0.42, 0.36, 0.3, 0.28],
+  light: [1.5, 0.8, 0.8, 2.0, 3.0, 3.5], // round 26: firmer sun, less flat ambient
+  hemi: [1.15, 1.15, 1.5, 1.5, 1.5, 1.55],
+  amb: [0.42, 0.4, 0.42, 0.3, 0.22, 0.18],
+  exp: [1.3, 1.26, 1.2, 1.12, 1.04, 1.0], // round 26: tone-mapping exposure (a little eye adaptation)
   fogD: [0.0095, 0.008, 0.006, 0.0045, 0.0034, 0.003],
 };
 function keyIndex(e) {
@@ -49,11 +51,58 @@ const lerpC = (arr, i, f, out) => out.copy(arr[i]).lerp(arr[i + 1], f);
 const lerpN = (arr, i, f) => arr[i] + (arr[i + 1] - arr[i]) * f;
 const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
+// Round 26: physical daylight sky. The same Preetham / Rayleigh + Mie model as three's Sky addon
+// (and the approved realism sample), evaluated in the dome shader and, at a few directions, on the
+// CPU so the fog, hemisphere sky colour and sun colour all come from the same sky.
+const PHYS = { ray: 1.9, mie: 0.005, g: 0.8 };
+const TOTAL_R = [5.804542996261093e-6, 1.3562911419845635e-5, 3.0265902468824876e-5];
+const MIE_C = [1.8399918514433978e14, 2.7798023919660528e14, 4.0790479543861094e14];
+function sunEnergy(cosZ) { cosZ = Math.max(-1, Math.min(1, cosZ)); return 1000 * Math.max(0, 1 - Math.exp(-((1.6110731556870734 - Math.acos(cosZ)) / 1.5))); }
+function betas(turb, ray, mie) {
+  const c = 0.2 * turb * 1e-17;
+  return { r: TOTAL_R.map((v) => v * ray), m: MIE_C.map((v) => 0.434 * c * v * mie) };
+}
+/** Sky radiance (display-ready, before tone mapping) for direction d (unit) and sun s (unit). */
+function physSky(d, s, B, E, out, fexOnly = false) {
+  const zen = Math.acos(Math.max(0, d.y));
+  const inv = 1 / (Math.cos(zen) + 0.15 * Math.pow(Math.max(1e-3, 93.885 - (zen * 180) / Math.PI), -1.253));
+  const sR = 8400 * inv, sM = 1250 * inv, cosT = d.x * s.x + d.y * s.y + d.z * s.z;
+  const rPh = 0.05968310365946075 * (1 + Math.pow(cosT * 0.5 + 0.5, 2));
+  const g2 = PHYS.g * PHYS.g, mPh = 0.07957747154594767 * (1 - g2) / Math.pow(1 - 2 * PHYS.g * cosT + g2, 1.5);
+  const k = Math.min(1, Math.max(0, Math.pow(1 - s.y, 5))), o = [0, 0, 0];
+  for (let i = 0; i < 3; i++) {
+    const fex = Math.exp(-(B.r[i] * sR + B.m[i] * sM));
+    if (fexOnly) { o[i] = fex; continue; }
+    const ratio = (B.r[i] * rPh + B.m[i] * mPh) / (B.r[i] + B.m[i]);
+    let lin = Math.pow(E * ratio * (1 - fex), 1.5);
+    lin *= 1 + (Math.pow(E * ratio * fex, 0.5) - 1) * k;
+    const tex = (lin + 0.1 * fex) * 0.04 + [0, 0.0003, 0.00075][i];
+    o[i] = Math.pow(tex, 1 / 2.4);
+  }
+  return out.setRGB(o[0], o[1], o[2]);
+}
+
 const SKY_VS = "varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }";
 const SKY_FS = `varying vec3 vDir;
 uniform vec3 uSun, uMoon, uZen, uHor, uSunCol, uFog, uCLit, uCDark;
 uniform float uCover, uTime, uFogMix, uFlash, uDay, uMoonLit;
 uniform vec2 uWind;
+uniform vec3 uBR, uBM; uniform float uSunE, uMieG, uPhys, uSkyGain, uGrey, uDim;
+// Round 26: Preetham daylight (three's Sky addon model, sun disc left to the code below)
+vec3 physSky(vec3 d, vec3 s){
+  float zen = acos(max(0.0, d.y));
+  float inv = 1.0 / (cos(zen) + 0.15 * pow(max(93.885 - zen * 57.29578, 1e-3), -1.253));
+  vec3 Fex = exp(-(uBR * 8400.0 * inv + uBM * 1250.0 * inv));
+  float ct = dot(d, s);
+  float rPh = 0.0596831 * (1.0 + pow(ct * 0.5 + 0.5, 2.0));
+  float g2 = uMieG * uMieG;
+  float mPh = 0.0795775 * (1.0 - g2) / pow(1.0 - 2.0 * uMieG * ct + g2, 1.5);
+  vec3 ratio = (uBR * rPh + uBM * mPh) / (uBR + uBM);
+  vec3 Lin = pow(uSunE * ratio * (1.0 - Fex), vec3(1.5));
+  Lin *= mix(vec3(1.0), pow(uSunE * ratio * Fex, vec3(0.5)), clamp(pow(1.0 - s.y, 5.0), 0.0, 1.0));
+  vec3 t = (Lin + 0.1 * Fex) * 0.04 + vec3(0.0, 0.0003, 0.00075);
+  return pow(t, vec3(1.0 / 2.4));
+}
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
   return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y); }
@@ -62,12 +111,21 @@ void main(){
   vec3 d = normalize(vDir);
   float h = clamp(d.y, -1.0, 1.0);
   vec3 c = mix(uHor, uZen, pow(max(h, 0.0), 0.5));
+#if PHYS_PX
+  if (uPhys > 0.001) {
+    vec3 p = physSky(vec3(d.x, max(d.y, 0.0), d.z), uSun) * uSkyGain;
+    float l = dot(p, vec3(0.3, 0.55, 0.15));
+    p = mix(p, vec3(l, l, l * 1.04), uGrey) * uDim;
+    c = mix(c, p, uPhys);
+  }
+#endif
+  float glowK = 1.0 - 0.75 * uPhys; // the physical model already has its own sun glow
   // sunrise / sunset glow around the sun's azimuth, low in the sky
   float sd = max(dot(d, uSun), 0.0);
   float az = max(dot(normalize(vec3(d.x, 0.0, d.z)), normalize(vec3(uSun.x, 0.0, uSun.z) + 1e-4)), 0.0);
   float low = 1.0 - smoothstep(-0.25, 0.35, uSun.y);
-  c += uSunCol * pow(az, 5.0) * exp(-max(h, 0.0) * 5.0) * 0.45 * low * smoothstep(-0.3, -0.02, uSun.y);
-  c += uSunCol * pow(sd, 8.0) * 0.25 * smoothstep(-0.1, 0.05, uSun.y);
+  c += uSunCol * pow(az, 5.0) * exp(-max(h, 0.0) * 5.0) * 0.45 * glowK * low * smoothstep(-0.3, -0.02, uSun.y);
+  c += uSunCol * pow(sd, 8.0) * 0.25 * glowK * smoothstep(-0.1, 0.05, uSun.y);
   float disc = smoothstep(0.99955, 0.99975, sd) * smoothstep(-0.04, 0.02, uSun.y);
   float md = max(dot(d, uMoon), 0.0);
   float mdisc = smoothstep(0.99935, 0.99955, md) * smoothstep(-0.02, 0.05, uMoon.y);
@@ -88,6 +146,8 @@ void main(){
   c += vec3(0.85, 0.88, 0.95) * mdisc * (1.0 - cov) * (0.9 - uDay * 0.5) + vec3(0.6, 0.7, 0.9) * mglow * (1.0 - cov);
   c = mix(c, cc, cov);
   c += vec3(0.55, 0.6, 0.78) * uFlash * (0.35 + cov);
+  // distant land fades into the fog colour, so the bottom of the sky meets it without a seam
+  c = mix(c, uFog, (1.0 - smoothstep(0.0, 0.09, h)) * 0.55 * uPhys * (1.0 - cov));
   if (h < 0.0) c = mix(uHor, uFog, 0.65) * (1.0 - min(-h * 2.0, 0.5));
   c = mix(c, uFog, clamp(uFogMix * (1.0 - smoothstep(-0.05, 0.45, h)) + uFogMix * uFogMix * 0.4, 0.0, 1.0));
   gl_FragColor = vec4(c, 1.0);
@@ -148,9 +208,13 @@ export class Atmosphere {
         uSunCol: { value: new THREE.Color() }, uFog: { value: new THREE.Color() }, uCLit: { value: new THREE.Color() }, uCDark: { value: new THREE.Color() },
         uCover: { value: 0.2 }, uTime: { value: 0 }, uFogMix: { value: 0 }, uFlash: { value: 0 }, uDay: { value: 0 }, uMoonLit: { value: 1 },
         uWind: { value: new THREE.Vector2(0.012, 0.004) },
+        uBR: { value: new THREE.Vector3() }, uBM: { value: new THREE.Vector3() }, uSunE: { value: 0 }, uMieG: { value: PHYS.g },
+        uPhys: { value: 0 }, uSkyGain: { value: 0.3 }, uGrey: { value: 0 }, uDim: { value: 1 },
       },
       vertexShader: SKY_VS, fragmentShader: SKY_FS,
+      defines: { PHYS_PX: 0 },
     });
+    this._hi = null;
     this.dome = new THREE.Mesh(new THREE.SphereGeometry(800, 32, 18), this.skyMat);
     this.dome.renderOrder = -10; this.dome.frustumCulled = false;
     this.group.add(this.dome);
@@ -241,6 +305,29 @@ export class Atmosphere {
     const C = (name) => lerpC(K[name], i, f, new THREE.Color());
     const zen = C("zen"), hor = C("hor"), sunCol = C("sun"), fog = C("fog"), hs = C("hemiS"), hg = C("hemiG"), cl = C("cLit"), cd = C("cDark");
     let light = lerpN(KN.light, i, f), hemi = lerpN(KN.hemi, i, f), amb = lerpN(KN.amb, i, f), fogD = lerpN(KN.fogD, i, f);
+    // Round 26: by day the physical sky sets the fog (its horizon), the hemisphere's sky colour (its
+    // zenith) and tints the sun (its transmittance), so land, haze and sky agree at every hour.
+    const phys = smooth(-0.07, 0.1, e);
+    const turb = 3.2 + W.haze * 4 + W.cover * 2.5;
+    const B = betas(turb, PHYS.ray, PHYS.mie), E = sunEnergy(this.sunDir.y);
+    let gain = 0.3;
+    if (phys > 0.001) {
+      const s = this.sunDir, v = this._v || (this._v = new THREE.Vector3()), tc = new THREE.Color(), acc = new THREE.Color();
+      // a camera's auto-exposure: the bright noon sky is scaled down more than the low-sun sky
+      physSky(v.set(0, 1, 0), s, B, E, tc);
+      gain = Math.min(0.45, 0.22 * Math.pow(Math.max(0.05, tc.r * 0.3 + tc.g * 0.55 + tc.b * 0.15), -0.7));
+      zen.lerp(tc.multiplyScalar(gain), phys); // Low quality draws the sky as this zenith-to-horizon gradient
+      for (let a = 0; a < 6; a++) { const ang = (a / 6) * Math.PI * 2 + 0.3; v.set(Math.cos(ang), 0.06, Math.sin(ang)).normalize(); acc.add(physSky(v, s, B, E, tc)); }
+      acc.multiplyScalar(gain / 6);
+      hor.lerp(acc, phys);
+      fog.lerp(acc.clone().multiplyScalar(0.94), phys);
+      const lum = (c) => c.r * 0.3 + c.g * 0.55 + c.b * 0.15;
+      v.set(0.3, 0.75, 0.3).normalize();
+      const z = physSky(v, s, B, E, new THREE.Color()).multiplyScalar(gain);
+      if (lum(z) > 1e-4) hs.lerp(z.multiplyScalar(lum(hs) / lum(z)), 0.6 * phys);
+      const fx = physSky(s, s, B, E, new THREE.Color(), true), mx = Math.max(fx.r, fx.g, fx.b, 1e-4);
+      sunCol.lerp(fx.multiplyScalar(1 / mx).lerp(new THREE.Color(1, 1, 1), 0.25), 0.5 * phys);
+    }
     // weather: desaturate / darken toward grey, thicken fog
     const grey = (c, amt, lum = 1) => { const l = (c.r * 0.3 + c.g * 0.55 + c.b * 0.15) * lum; c.lerp(new THREE.Color(l, l, l * 1.04), amt); return c; };
     grey(zen, W.cover * 0.75, 0.9); grey(hor, W.cover * 0.6); grey(sunCol, W.cover * 0.5);
@@ -270,6 +357,12 @@ export class Atmosphere {
     u.uCLit.value.copy(cl); u.uCDark.value.copy(cd);
     u.uCover.value = W.cover; u.uTime.value = this.t; u.uFlash.value = this.flash; u.uDay.value = day; u.uMoonLit.value = night;
     u.uFogMix.value = Math.min(1, (W.fog - 1) / 6.5);
+    const hi = gfxQuality() === "high";
+    if (hi !== this._hi) { this._hi = hi; this.skyMat.defines.PHYS_PX = hi ? 1 : 0; this.skyMat.needsUpdate = true; }
+    u.uPhys.value = hi ? phys : 0; u.uSunE.value = E; // per-pixel scattering on High only u.uSkyGain.value = gain;
+    u.uBR.value.fromArray(B.r); u.uBM.value.fromArray(B.m);
+    u.uGrey.value = Math.max(0, W.cover - 0.3) * 1.05;
+    u.uDim.value = (W.cover > 0.5 ? 1 - (W.cover - 0.5) * 0.6 : 1) * (0.75 + 0.25 * W.light);
     u.uWind.value.set(0.006 + W.wind * 0.02, 0.002 + W.wind * 0.006);
     this.starMat.opacity = 0.85 * night * (1 - W.cover * 0.95) * (1 - u.uFogMix.value);
     this.stars.visible = this.starMat.opacity > 0.01;
@@ -314,7 +407,8 @@ export class Atmosphere {
     this.state = {
       hours: +this.hours.toFixed(2), weather: this.weather, sunY: +e.toFixed(3), day: +day.toFixed(2), night: +night.toFixed(2), dawn: +dawnF.toFixed(2),
       rain: +rainA.toFixed(2), snow: +snowA.toFixed(2), storm: +W.storm.toFixed(2), wind: +W.wind.toFixed(2), cover: +W.cover.toFixed(2), flash: this.flash,
-      light: +light.toFixed(2), fogD: +fogD.toFixed(4),
+      light: +light.toFixed(2), fogD: +fogD.toFixed(4), phys: +phys.toFixed(2),
+      exposure: +(lerpN(KN.exp, i, f) * (1 + (1 - W.light) * 0.12)).toFixed(3),
       // torch matters more at night (and in storms); in daylight it is a small warm accent
       torch: +Math.max(0.3, 1 - day * 0.7 * W.light).toFixed(2),
       light01: Math.min(1, light / 3 + hemi / 6),
