@@ -3326,6 +3326,7 @@ window.__CAVE__ = {
     audio: () => ({ zone: audio.music?.zone, laments: audio.music?.lamentCount || 0, amb: audio.amb }),
   },
   stats: () => sceneStats(),
+  joyState: () => player && { active: player.joy.active, mag: +player.joy.mag.toFixed(2), yaw: +player.yaw.toFixed(3), camOff: +(player.camOff || 0).toFixed(3), speed: +(player.speedNow || 0).toFixed(2), look: !!player.lookTouch, oneFinger: player.oneFinger, pos: [+camera.position.x.toFixed(2), +camera.position.z.toFixed(2)] }, // hotfix test hook
   chunkStats: () => ({ ...chunks.summary(), phaseMax: world.caveLayer?.phaseMax }),
   resetChunkStats: () => chunks.resetStats(),
   setDebug: (on) => setDebug(on),

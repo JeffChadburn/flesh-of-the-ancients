@@ -355,6 +355,15 @@ export class Player {
       const rate = (this.mounted ? 1.9 : 2.4) * Math.pow(ax, 1.4) * Math.sign(dx);
       this.yaw -= rate * dt; this.applyLook();
       const fwd = -dy;
+      // Hotfix: after a free-look drag, pushing forward walks where the camera looks. Kra turns to the
+      // camera heading quickly (~0.1 s) while the camera stays put (camOff folds into yaw), and keeps
+      // following a look drag made while walking.
+      if (fwd > 0.2 && this.camOff) {
+        const k = Math.abs(this.camOff) < 0.01 ? 1 : Math.min(1, dt * 14);
+        const d = this.camOff * k;
+        this.yaw += d; this.camOff -= d; if (Math.abs(this.camOff) < 1e-4) this.camOff = 0;
+        this.applyLook();
+      }
       if (Math.abs(fwd) > 0.2) {
         wish.set(0, 0, -Math.sign(fwd));
         target = Player.joySpeed(Math.min(1.2, m * Math.min(1, Math.abs(fwd) * 1.25)), st);
@@ -695,18 +704,55 @@ export class Player {
       this._joyFromEvent(e);
     };
     const end = (e) => {
-      if (e.pointerId !== this.joy.pointerId) return;
-      this.joy.active = false;
-      this.joy.dx = 0;
-      this.joy.dy = 0;
-      this.joy.mag = 0;
-      if (this.joyEl) this.joyEl.classList.remove("run");
-      if (knob) knob.style.transform = "translate(-50%, -50%)";
+      if (e && e.pointerId !== this.joy.pointerId) return;
+      this.resetJoy();
     };
     root.addEventListener("pointerdown", start);
     root.addEventListener("pointermove", move);
     root.addEventListener("pointerup", end);
     root.addEventListener("pointercancel", end);
+    // Hotfix (stuck auto-run on iPhone): the stick must let go however the finger leaves, even when
+    // the up event goes to another element, capture is lost, ids get mixed up with a look drag, or
+    // the page is backgrounded.
+    root.addEventListener("lostpointercapture", end);
+    JOY.owner = this; JOY.root = root;
+    if (!JOY.bound) {
+      // bound once (players are re-created per world / cave); they act on the current stick owner
+      JOY.bound = true;
+      const P = () => JOY.owner;
+      const up = (e) => { const p = P(); if (p && p.joy.active && e.pointerId === p.joy.pointerId) p.resetJoy(); };
+      window.addEventListener("pointerup", up, true);
+      window.addEventListener("pointercancel", up, true);
+      const inStick = (t) => { const r = JOY.root.getBoundingClientRect(), pad = r.width * 0.9; return t.clientX > r.left - pad && t.clientX < r.right + pad && t.clientY > r.top - pad && t.clientY < r.bottom + pad; };
+      const touchCheck = (e) => {
+        const p = P(); if (!p) return;
+        const ts = e.touches;
+        if (!ts || ts.length === 0) { p.resetJoy(); p.lookTouch = null; return; }
+        // none of the remaining fingers is near the stick: the stick finger has gone
+        if (p.joy.active && ![...ts].some(inStick)) p.resetJoy();
+      };
+      window.addEventListener("touchend", touchCheck, true);
+      window.addEventListener("touchcancel", touchCheck, true);
+      // and while other fingers move / land: a stick whose finger is no longer on the glass lets go
+      const stale = (e) => { const p = P(); if (p && p.joy.active && e.touches && ![...e.touches].some(inStick)) p.resetJoy(); };
+      window.addEventListener("touchmove", stale, { capture: true, passive: true });
+      window.addEventListener("touchstart", stale, { capture: true, passive: true });
+      const all = () => { const p = P(); if (p) { p.resetJoy(); p.lookTouch = null; } };
+      document.addEventListener("visibilitychange", () => { if (document.hidden) all(); });
+      window.addEventListener("blur", all);
+      window.addEventListener("pagehide", all);
+    }
+  }
+
+  /** Stick back to centre: no movement until it is touched again. */
+  resetJoy() {
+    this.joy.active = false;
+    this.joy.dx = 0;
+    this.joy.dy = 0;
+    this.joy.mag = 0;
+    this.joy.pointerId = null;
+    if (this.joyEl) { this.joyEl.classList.remove("run"); this.joyEl.classList.remove("jog"); }
+    if (this.knobEl) this.knobEl.style.transform = "translate(-50%, -50%)";
   }
 
   _joyFromEvent(e) {
@@ -736,6 +782,7 @@ export class Player {
     if (!this.isTouch) return;
     if (e.target.closest && e.target.closest("#joystick, #toolbar, button, input, #about, #about-btn, #found, #stance-bar, #low-hint")) return;
     if (e.clientX < window.innerWidth * 0.36) return; // left side is movement / joystick
+    if (this.joy.active && e.pointerId === this.joy.pointerId) return; // never let one finger be both
     this.lookTouch = { id: e.pointerId, x: e.clientX, y: e.clientY };
   }
 
@@ -773,6 +820,9 @@ export class Player {
     if (this.lookTouch && e.pointerId === this.lookTouch.id) this.lookTouch = null;
   }
 }
+
+/** Hotfix: the one live joystick owner for the page-wide release handlers. */
+const JOY = { owner: null, root: null, bound: false };
 
 function isTouchDevice() {
   return window.matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0;
