@@ -1116,8 +1116,26 @@ const explored = new Set();
 
 // ---------------- Act 1 story (Flesh of the Ancients) ----------------
 const storyUI = new StoryUI(gameEl, { touch: IS_TOUCH });
-storyUI.voice.onDuck = (on) => { audio.duckMusic(on); audio.setSpeech(on); }; // round 25: one voice, nothing else over it
-storyUI.voice.onBroken = () => syncVoice();
+// round 25: one voice, nothing else over it. Round 25b: the duck is capped per line (text length) and
+// a watchdog below lifts it whenever no speech is really playing, so sound can never stay muted.
+storyUI.voice.onDuck = (on, text = "") => { audio.duckMusic(on); audio.setSpeech(on, 2500 + String(text).length * 110); };
+storyUI.voice.onBroken = () => { audio.noSpeechDuck = true; audio.setSpeech(false); audio.duckMusic(false); syncVoice(); };
+{
+  let idleSince = 0;
+  setInterval(() => {
+    if (!audio.speech) { idleSince = 0; return; }
+    let busy = !!storyUI.voice.speaking;
+    try { const ss = window.speechSynthesis; if (ss && !ss.speaking && !ss.pending) busy = false; } catch {}
+    if (busy) { idleSince = 0; return; }
+    if (!idleSince) idleSince = performance.now();
+    else if (performance.now() - idleSince > 1000) { idleSince = 0; audio.setSpeech(false); audio.duckMusic(false); }
+  }, 250);
+  const lift = () => { audio.setSpeech(false); audio.duckMusic(false); audio.unlock(); };
+  document.addEventListener("visibilitychange", lift);
+  addEventListener("pagehide", lift); addEventListener("pageshow", lift); addEventListener("focus", lift);
+  // any tap / key re-unlocks the context on iOS (capture phase: buttons stop propagation)
+  for (const ev of ["pointerdown", "touchend", "keydown"]) document.addEventListener(ev, () => audio.unlock(), { capture: true, passive: true });
+}
 syncVoice();
 window.__VOICE__ = storyUI.voice;
 storyUI.voice.getVolume = () => audio.speechVol; // round 23: speech follows the Voices slider

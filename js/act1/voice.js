@@ -109,7 +109,7 @@ export class StoryVoice {
     const safety = () => { if (token !== this._token) return; if (this.synth.speaking && extra++ < 2) { this._safety = setTimeout(safety, ms * 0.5); return; } finish("timeout"); };
     this._safety = setTimeout(safety, ms);
     this._cur = u; this._finish = finish;
-    this.speaking = true; this.onDuck?.(true);
+    this.speaking = true; this.onDuck?.(true, text);
     this.log.push({ e: "speak", who, voice: v?.name || null, text: text.slice(0, 24) });
     // Round 25: iOS Safari can keep the cancelled line playing if speak() follows cancel() in the
     // same tick, so two voices overlap. Let the cancel settle first, and only speak if this line is

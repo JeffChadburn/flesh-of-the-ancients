@@ -38,7 +38,18 @@ export class CaveAudio {
   /** Round 25: while any story voice speaks, effects go silent (and none start), music and ambience
    *  dip to ~18%; everything comes back over ~0.5 s when the line ends, is cancelled or fails. */
   duckMusic(on) { this.music?.duckVoice?.(on); }
-  setSpeech(on) { on = !!on; if (on === this.speech) return; this.speech = on; this.applyVol(on ? 0.06 : 0.15); }
+  /** Round 25b: hardened. Never ducks unless the AudioContext is actually running, never longer than
+   *  maxMs (default 20 s), and `noSpeechDuck` turns it off for good (speech failed on this device). */
+  setSpeech(on, maxMs = 20000) {
+    on = !!on && !this.noSpeechDuck && this.ctx?.state === "running";
+    clearTimeout(this._speechMax);
+    if (on) { this._speechAt = performance.now(); this._speechMax = setTimeout(() => this.setSpeech(false), Math.max(1500, Math.min(60000, maxMs))); }
+    if (on === this.speech) return;
+    this.speech = on; this.applyVol(on ? 0.06 : 0.15);
+    if (!on) this.unlock();
+  }
+  /** Round 25b: iOS can leave the context "suspended" / "interrupted" (e.g. after speech): resume it. */
+  unlock() { try { if (this.ctx && this.ctx.state !== "running" && this.ctx.state !== "closed") this.ctx.resume().catch(() => {}); } catch {} }
 
   /** Round 24b: null | "friendly" | "hostile": crossfade the town theme in / out over the score. */
   setTown(mode) {
@@ -106,7 +117,7 @@ export class CaveAudio {
   get voiceGain() { return (this.vol.voices / 100) * BASE.voices; }
   applyVol(tau = 0.03) {
     if (!this.ctx) return;
-    const t = this.ctx.currentTime, set = (n, v, k = 0.03) => { if (!n) return; n.gain.cancelScheduledValues(t); n.gain.setValueAtTime(n.gain.value, t); n.gain.setTargetAtTime(v, t, k); };
+    const t = this.ctx.currentTime, set = (n, v, k = 0.03) => { if (n) n.gain.setTargetAtTime(v, t, k); }; // round 25b: plain targets (no cancel / value snapshots: Safari reads stale values)
     const sp = this.speech ? 0.18 : 1; // round 25: speech ducking
     set(this.out, this.muted ? 0 : this.vol.master / 100);
     set(this.master, (this.vol.effects / 100) * BASE.effects * this.duck * (this.speech ? 0 : 1), tau);
@@ -123,7 +134,7 @@ export class CaveAudio {
 
   async resume() {
     if (this.started) {
-      if (this.ctx && this.ctx.state === "suspended") await this.ctx.resume();
+      if (this.ctx && this.ctx.state !== "running" && this.ctx.state !== "closed") await this.ctx.resume().catch(() => {}); // round 25b: iOS "interrupted" too
       return;
     }
     const AC = window.AudioContext || window.webkitAudioContext;
