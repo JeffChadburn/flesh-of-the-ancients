@@ -11,6 +11,21 @@ const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls)
 const ITEM_COLORS = { berries: "#7a1f3a", roots: "#8a6a3a", meat: "#9a3a34", cooked: "#8a5a2a", organ: "#6a1018", pelt: "#8a7a64", hide: "#7a5636", feather: "#4a4a54", skin: "#6a4a3c", blood: "#5a0808", morgan: "#3a0a2a",
   bone: "#cfc3a6", sinew: "#9a6a52", flint: "#6a7484", ochre: "#a8401c", herbs: "#4a7a3a", salve: "#8a7a4a", logs: "#7a5a3a", copper: "#3a8a6a", shroom: "#e040d0", tin: "#a8acb0", iron: "#8a4a2a", coal: "#2a2a2c" };
 
+/** Round 25: the round phone action button shows an icon and one short verb. Prompts that don't
+ *  start with a verb ("The dead lie...", "A copper vein...", "Neka glares...") become "Look". */
+const ACT_WORDS = { search: ["🔎", "Search"], gather: ["🪵", "Gather"], pick: ["✋", "Pick"], talk: ["💬", "Talk"], harvest: ["🔪", "Harvest"], drink: ["💧", "Drink"],
+  study: ["👁", "Study"], tend: ["🙏", "Tend"], kneel: ["💬", "Talk"], strike: ["🔥", "Light"], use: ["🔥", "Use"], look: ["👁", "Look"], dig: ["⛏", "Dig"], remove: ["✋", "Take"],
+  take: ["✋", "Take"], collect: ["🩸", "Collect"], mine: ["⛏", "Mine"], paint: ["🖐", "Paint"], cook: ["🍖", "Cook"], rest: ["💤", "Rest"], eat: ["🍖", "Eat"],
+  open: ["✋", "Open"], enter: ["➜", "Enter"], board: ["🛶", "Board"], mount: ["🐎", "Ride"], ride: ["🐎", "Ride"], trade: ["💬", "Trade"], read: ["👁", "Read"],
+  build: ["🔨", "Build"], fish: ["🎣", "Fish"], climb: ["⬆", "Climb"], leave: ["✋", "Leave"], light: ["🔥", "Light"], sleep: ["💤", "Sleep"], fill: ["💧", "Fill"],
+  carry: ["✋", "Carry"], lift: ["✋", "Lift"], place: ["✋", "Place"], plant: ["🌱", "Plant"], feed: ["🍖", "Feed"], pet: ["✋", "Pet"], wake: ["✋", "Wake"], hide: ["✋", "Hide"] };
+function actLabel(text) {
+  const w = String(text).replace(/<[^>]+>/g, "").trim().split(/\s+/)[0] || "";
+  const k = w.toLowerCase().replace(/[^a-z]/g, "");
+  if (ACT_WORDS[k]) return ACT_WORDS[k];
+  return ["👁", "Look"];
+}
+
 export class StoryUI {
   constructor(root, { touch = false } = {}) {
     this.voice = new StoryVoice(); // round 13: spoken dialogue (Web Speech), subtitles optional
@@ -119,7 +134,9 @@ export class StoryUI {
     if (text !== this._prompt) {
       this._prompt = text;
       this.prompt.innerHTML = this.touch ? text : `<kbd>E</kbd> ${text}`;
-      this.actBtn.textContent = big || text.split(" ")[0];
+      if (big) this.actBtn.textContent = big;
+      else { const [ic, w] = actLabel(text); this.actBtn.innerHTML = `<i>${ic}</i><span>${w}</span>`; } // round 25: icon + one short word that fits the circle
+      this.actBtn.setAttribute("aria-label", big || text.replace(/<[^>]+>/g, ""));
       this.actBtn.classList.toggle("big", !!big); // round 17: story beats get a big, glowing button
       this.prompt.classList.toggle("big", !!big);
     }

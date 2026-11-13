@@ -33,23 +33,27 @@ setTimeout(function(){if(!document.getElementById("boot-err"))shown=true;},20000
     <div id="compass" class="hidden" aria-live="off"><span class="arr"></span><span class="n"></span><span class="d"></span></div>
     <button id="menu-btn" type="button" aria-label="Menu">&#9776;</button>
     <button id="about-btn" type="button">About</button>
-    <div id="toolbar">
+    <div id="toolbar" role="menu" aria-label="Menu">
+      <div class="tb-h">Game</div>
       <button id="menu-main-btn" type="button" title="Continue / New Game / Free Play">Main menu</button>
+      <button id="pack-btn" type="button" title="Inventory, crafting, skills (I / Tab / K)">Pack</button>
       <button id="tut-btn" type="button" title="Learn to play, step by step">Tutorial</button>
       <button id="controls-btn" type="button" title="Every control for your device">Controls</button>
       <button id="mp-btn" type="button" title="Play with friends: rooms, chat, voice">Multiplayer</button>
-      <button id="pack-btn" type="button" title="Inventory, crafting, skills (I / Tab / K)">Pack</button>
-      <button id="hills-btn" class="proto" type="button" title="Back outside to the hills">Hills</button>
-      <button id="new-cave" class="proto" type="button">New cave</button>
-      <button id="carlsbad-btn" class="proto" type="button" title="Real layout traced from NPS maps">Carlsbad</button>
-      <label class="proto">Seed <input id="seed-input" inputmode="numeric" autocomplete="off" spellcheck="false" /></label>
-      <button id="go-seed" class="proto" type="button">Load</button>
+      <div class="tb-h">Sound</div>
       <button id="audio-btn" type="button" title="Volume: master, music, effects, voices, ambience">Audio</button>
       <button id="mute-btn" type="button">Sound on</button>
       <button id="music-btn" type="button" title="Creepy music">Music on</button>
       <button id="voice-btn" type="button" title="Spoken story voices">Voices on</button>
       <button id="subs-btn" type="button" title="Story subtitles">Subtitles on</button>
+      <div class="tb-h">Display</div>
       <button id="gfx-btn" type="button" title="Graphics quality (High adds surface relief and sharper resolution)">Graphics: Low</button>
+      <div class="tb-h proto">Tools</div>
+      <button id="hills-btn" class="proto" type="button" title="Back outside to the hills">Hills</button>
+      <button id="new-cave" class="proto" type="button">New cave</button>
+      <button id="carlsbad-btn" class="proto" type="button" title="Real layout traced from NPS maps">Carlsbad</button>
+      <label class="proto">Seed <input id="seed-input" inputmode="numeric" autocomplete="off" spellcheck="false" /></label>
+      <button id="go-seed" class="proto" type="button">Load</button>
       <button id="reset-tally" class="proto" type="button" title="Reset kills and deaths">Reset tally</button>
       <button id="debug-btn" class="proto" type="button" title="Chunk / memory overlay (G)">Debug</button>
       <label class="file-btn proto">Open survey<input id="survey-file" type="file" accept=".json,.csv,application/json,text/csv" hidden /></label>

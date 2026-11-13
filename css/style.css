@@ -912,3 +912,32 @@ button:hover, .file-btn:hover { border-color: var(--accent); color: #fff; }
 /* every overlay's own close button is a real 44 px target */
 .fd-x, .mf-x, .mp-x, .cs-close, #colony-panel .cp-head button[data-a="close"], .inspect [aria-label="Close"], .panel .close { min-width: 44px; min-height: 44px; font-size: 20px; }
 .wmap .wm-btns button, .wm-ctl button { touch-action: manipulation; }
+
+/* ---- Round 25: round phone buttons keep their text inside the circle ---- */
+.act-btn:not(.big) { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 0; overflow: hidden; line-height: 1; }
+.act-btn:not(.big) i { font-style: normal; font-size: 22px; line-height: 1; }
+.act-btn:not(.big) span { display: block; max-width: 86%; font: 700 11px/1.1 ui-sans-serif, system-ui, sans-serif; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#attack-btn { overflow: hidden; padding: 0; white-space: nowrap; text-overflow: ellipsis; }
+@media (max-width: 700px) {
+  .act-btn:not(.big) i { font-size: 20px; }
+  .act-btn:not(.big) span { font-size: 10px; }
+  #stance-bar #btn-jump { overflow: hidden; white-space: nowrap; }
+  #stance-bar #btn-jump kbd { display: none; }
+  #attack-btn { font-size: 15px; }
+}
+
+/* ---- Round 25: desktop uses the same ☰ dropdown as phones (no button row along the bottom) ---- */
+#toolbar .tb-h { font: 700 10px ui-sans-serif, system-ui, sans-serif; letter-spacing: 0.12em; text-transform: uppercase; color: #c9a86a; opacity: 0.85; padding: 6px 4px 0; }
+#toolbar .tb-h:first-child { padding-top: 0; }
+@media (min-width: 701px) and (pointer: fine) {
+  #menu-btn { display: block; position: absolute; top: 16px; right: 192px; z-index: 8; width: 44px; height: 38px; padding: 0; font-size: 20px; letter-spacing: 0; }
+  #about-btn { display: none; }
+  #game.menu-open #about-btn { display: block; position: absolute; top: 16px; right: 244px; z-index: 8; }
+  #toolbar { display: none !important; }
+  #game.menu-open #toolbar { display: flex !important; flex-direction: column; flex-wrap: nowrap; align-items: stretch; position: absolute; top: 62px; right: 192px; left: auto; bottom: auto;
+    width: 220px; max-width: none; max-height: calc(100% - 80px); overflow-y: auto; gap: 5px; padding: 10px; background: rgba(12, 10, 8, 0.94);
+    border: 1px solid rgba(224, 181, 106, 0.3); border-radius: 12px; z-index: 8; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); }
+  #game.menu-open #toolbar button, #game.menu-open #toolbar .file-btn { text-align: left; padding: 8px 12px; }
+  #game.menu-open #toolbar label input { width: 100%; }
+  #hint { bottom: 14px; font-size: 12px; padding: 5px 12px; white-space: nowrap; max-width: 92vw; overflow: hidden; text-overflow: ellipsis; opacity: 0.85; }
+}

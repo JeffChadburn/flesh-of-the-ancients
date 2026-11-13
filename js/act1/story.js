@@ -319,7 +319,7 @@ export class Story {
         if (h && Math.abs(h.along) < 5 && Math.abs(h.lat) > 1.7 && Math.abs(h.lat) < 3.6) return { label: "Study the wall painting", act: () => this.studyPainting() };
       }
       if (!camp) return null;
-      if (!fl.lumeDead && d2(camp.lume) < 2.8) return { label: "Kneel by Old Lume", act: () => this.talkLume() };
+      if (!fl.lumeDead && d2(camp.lume) < 2.8) return { label: "Talk to Old Lume (he is dying)", act: () => this.talkLume() };
       const fireP = { x: camp.site.camp.x, z: camp.site.camp.z };
       if (d2(fireP) < 2.6) {
         if (!camp.fireLit && fl.lumeDead) return { label: "Strike flint and relight the fire", act: () => this.lightFire() };
@@ -327,7 +327,7 @@ export class Story {
       }
       const carc = env.wildlife()?.nearestCarcass(f, 2.6);
       if (carc) return s.tools.knife ? { label: `Harvest the ${carc.kind} with your knife`, act: () => this.harvest(carc) } : { label: "You need a knife to cut it", act: () => env.ui.toast("You need a knife") };
-      if (!camp.tor.skinned && d2(camp.tor) < 2.4 && fl.lumeDead) return { label: "Kneel by Tor", act: () => this.torChoice() };
+      if (!camp.tor.skinned && d2(camp.tor) < 2.4 && fl.lumeDead) return { label: "Tend to Tor's body (take his skin or leave him)", act: () => this.torChoice() };
       if (camp.tor.skinned && d2(camp.tor) < 2.4) return { label: "Look at Tor", act: () => this._say([{ who: "", text: "You took Tor's skin for the pack. The face Lume spoke of is another: a hunter who crawled into Waterfall Hollow and never came out. He lies deep inside." }]) };
       for (const b of camp.bushes) if (b.ready && d2(b) < 2.2) return { label: b.kind === "berries" ? "Pick berries" : "Dig up roots", act: () => this.gather(b) };
       if (t.streamDist(f.x, f.z) < 2.1) return { label: "Drink from the stream", act: () => this.drinkWater() };
@@ -408,7 +408,12 @@ export class Story {
       env.ui.toast("Received: stone knife, half-finished bone spear", "good");
       env.ui.toast("Skill learned: Stone Tools", "skill");
       this._log({ e: "lumeDied" });
-    }, (i, line) => { if (line.who) env.audio.murmur?.(1.2 + line.text.length * 0.045); });
+    }, (i, line) => {
+      // Round 25: the breathy murmur stands in for Lume's voice only when the line is NOT spoken;
+      // played together with the speech it sounded like a second voice talking over him.
+      this._murmurStop?.(); this._murmurStop = null;
+      if (line.who && !env.ui.voice?.speaking) this._murmurStop = env.audio.murmur?.(1.2 + line.text.length * 0.045);
+    });
   }
 
   lumeDies() {
@@ -599,7 +604,7 @@ export class Story {
       if (this.active && env.caveKind() === "hollow") {
         const m = env.monster();
         if (!fl.ratKilled) { const sp = env.caveSpot(0.55); return T(sp?.x ?? f.x, sp?.z ?? f.z, "The scraping", "Something scrapes deeper in. Follow the main passage down and keep your spear ready."); }
-        if (!fl.ratHarvested && m) return T(m.pos.x, m.pos.z, "The creature's body", "The creature lies where it fell. Kneel by it and collect its blood.");
+        if (!fl.ratHarvested && m) return T(m.pos.x, m.pos.z, "The creature's body", "The creature lies where it fell. Go to it and collect its blood.");
         if (!this.glyphs.length) return T(f.x, f.z, "Any wall", "Stand facing a cave wall with the blood and press Paint.");
         if (!fl.faceTaken && this.hunter) return T(this.hunter.x, this.hunter.z, "The dead hunter", "The dead hunter lies deeper in, curled against the wall. Look for the pale glow, then remove his face.");
         if (!fl.memory) return T(f.x, f.z, "Your pack", "Open your Pack and eat the creature's organ. Your blood will remember.");
@@ -610,7 +615,7 @@ export class Story {
     const st = this.currentStep();
     if (st && !fl.actDone) {
       const t = st.title;
-      if (t.startsWith("Find who")) return T(camp.lume.x, camp.lume.z, "Old Lume", "Someone is still breathing by the fire. Kneel by Old Lume.");
+      if (t.startsWith("Find who")) return T(camp.lume.x, camp.lume.z, "Old Lume", "Someone is still breathing by the fire. Talk to Old Lume.");
       if (t === "Survive") {
         if (!this.surv.stats.ate) { const b = camp.bushes.filter((x) => x.ready).sort((a, b2) => Math.hypot(a.x - f.x, a.z - f.z) - Math.hypot(b2.x - f.x, b2.z - f.z))[0]; if (b) return T(b.x, b.z, "Berry bush", "Pick berries or dig roots near the camp, then eat them from your Pack."); }
         const q = site.stream[Math.floor(site.stream.length * 0.6)]; return T(q.x, q.z, "The stream", "Drink from the stream below the camp.");

@@ -600,3 +600,8 @@ Plain HTML, CSS, and JavaScript with [Three.js](https://threejs.org/) r170 (MIT)
 ## Licence
 
 Game code in this folder is © 2026 Jeff Chadburn, released under the MIT License (see [LICENSE](LICENSE)). Third-party code: three.js r170 (MIT, © 2010-2024 three.js authors) and three-mesh-bvh 0.8.3 (MIT, © 2018 Garrett Johnson). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the full licence texts in `licenses/`. Textures, sound and music are procedural and original to this game; the Carlsbad layout is traced approximately from public NPS maps (sources in `data/carlsbad.json`), reference only, not affiliated with the NPS.
+
+## Round 25: iPhone fixes
+- Old Lume no longer sounds like two voices: his synthetic "murmur" only plays when the line is not spoken, and iOS gets a short pause between `cancel()` and `speak()`.
+- Round phone action buttons show an icon plus one short word that fits the circle ("The dead lie…" is now 👁 Look; "Kneel" became 💬 Talk for Old Lume and 🙏 Tend for Tor).
+- Desktop uses the same ☰ dropdown as phones (grouped: Game, Sound, Display, Tools), with Esc / ✕ to close; the keyboard hint is one small line.

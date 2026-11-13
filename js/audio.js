@@ -341,6 +341,7 @@ export class CaveAudio {
     }
     g.gain.setTargetAtTime(0, t, 0.1);
     src.start(t0); noise.start(t0); src.stop(t + 0.5); noise.stop(t + 0.5);
+    return () => { try { const n = ctx.currentTime; g.gain.cancelScheduledValues(n); g.gain.setTargetAtTime(0, n, 0.05); src.stop(n + 0.3); noise.stop(n + 0.3); } catch {} };
   }
 
   splash() {

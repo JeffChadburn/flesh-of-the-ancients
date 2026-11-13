@@ -102,14 +102,23 @@ export class StoryVoice {
     u.onend = () => finish("end");
     u.onerror = (e) => finish("error:" + (e.error || "?"));
     // some engines never fire onend: allow ~ the line's length at this rate, then move on
+    // Round 25: don't move on while the engine is still talking (slow iOS voices), or the next
+    // line would start on top of this one; give it up to two extra windows.
     const ms = 1500 + (text.length * 75) / prof.rate;
-    this._safety = setTimeout(() => finish("timeout"), ms);
+    let extra = 0;
+    const safety = () => { if (token !== this._token) return; if (this.synth.speaking && extra++ < 2) { this._safety = setTimeout(safety, ms * 0.5); return; } finish("timeout"); };
+    this._safety = setTimeout(safety, ms);
     this._cur = u; this._finish = finish;
     this.speaking = true; this.onDuck?.(true);
     this.log.push({ e: "speak", who, voice: v?.name || null, text: text.slice(0, 24) });
-    try { this.synth.speak(u); } catch { finish("throw"); return false; }
+    // Round 25: iOS Safari can keep the cancelled line playing if speak() follows cancel() in the
+    // same tick, so two voices overlap. Let the cancel settle first, and only speak if this line is
+    // still the current one.
+    const go = () => { if (token !== this._token) return; try { this.synth.cancel(); } catch {} try { this.synth.speak(u); } catch { finish("throw"); } };
+    if (this._busy()) setTimeout(go, 120); else { try { this.synth.speak(u); } catch { finish("throw"); return false; } }
     return true;
   }
+  _busy() { try { return !!(this.synth.speaking || this.synth.pending || performance.now() - (this._cancelAt || 0) < 120); } catch { return false; } }
   /** Stop the current line (fires its onEnd with "stop" unless silent). */
   stop(notify = true) {
     if (!this.synth) return;
@@ -118,6 +127,6 @@ export class StoryVoice {
       if (notify) f("stop");
       else { this._token++; clearTimeout(this._safety); this.speaking = false; this.onDuck?.(false); this._cur = null; }
     }
-    try { this.synth.cancel(); } catch {}
+    try { this.synth.cancel(); this._cancelAt = performance.now(); } catch {}
   }
 }

@@ -901,7 +901,7 @@ if (isTouchDevice()) {
   touchRoot.classList.remove("hidden");
   hintEl.textContent = "Drag right to look · pad to move (edge = run) · Stab to fight";
 } else {
-  hintEl.textContent = "Click to look · WASD walk · Shift run · click/R stab · F find · E use · I pack · Tab craft · K skills · M map · T/Y time/weather";
+  hintEl.textContent = "Click to look · WASD walk · Shift run · click stab · E use · I pack · M map · ☰ Menu → Controls for all keys";
 }
 
 const musicBtn = document.getElementById("music-btn");
