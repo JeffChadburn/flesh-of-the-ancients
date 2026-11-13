@@ -299,6 +299,16 @@ Draw calls go up slightly because each cell is its own mesh. The triangle count 
     - The boot-check box in `index.html` reports anything else.
     - `?failhigh=1` simulates a High failure, for testing.
   - URL: `?play=tutorial&ch=N` (N = 0–4) opens the tutorial at a chapter.
+- **Round 25: iPhone fixes, a natural sound mix, one-finger steering.**
+  - *Fixes:* Old Lume speaks with one voice; round action buttons show an icon + one short word (no more "THE"; "Kneel" is now Talk / Tend); desktop uses the ☰ dropdown; the player marker is a notched arrow.
+  - *Speech:* while a story voice speaks, effects are silenced and music / ambience dip to ~18%, restored over ~0.5 s. A watchdog, a per-line time cap and visibility / pagehide hooks mean the dip can never stick (Round 25b fix for "lost all sound" on iPhone).
+  - *Sound mix* (`js/audio.js`, `js/townmusic.js`):
+    - Music now sits under the ambience and effects (it used to be about 4x the ambience level).
+    - Towns crossfade in by distance (from ~26 m outside the yard to just inside, smoothed over ~2.5 s): the world score fades out as the town theme fades in, so only one plays; wind / birds / insects dip to ~35%.
+    - Towns have their own soundscape under the theme: crowd murmur, fire crackle, goats / dogs / hens, wood and stone work. Hostile towns: a lower, tenser murmur, a growling dog, blades on whetstones, and a darker theme a little louder than a friendly one.
+    - Fight sounds are positional (fade with distance, panned left / right); repeated effects vary slightly in pitch and level; thunder, the war horn and strikes are capped, and a gentle compressor on the effects bus keeps stacked one-shots in check.
+    - The Master / Music / Effects / Voices / Ambience sliders still apply on top.
+  - *One-finger steering* (phones, on by default; ☰ → Controls to switch): the stick's up / down walks (further = faster), left / right turns Kra and the camera together, at a rate that grows with the push. A drag anywhere else looks around without turning Kra; after ~1.5 s of walking the view eases back behind him. Works on foot, on horseback, in boats and in caves; in first person, left / right and drags turn the view. Two-finger mode is still there.
 - **Round 24c: a way out of every screen.** (`js/overlays.js`)
   - Whenever anything is open (big map, map filters or its tap menu, Find, Pack / Crafting / Skills / Journal, inspect, settlement panel, build mode, conversation, choice, Audio, Controls, Multiplayer, chat, quest log, ☰ menu, the tutorial's chapter list, a cutscene), a large **✕** (48 px) sits in the top-right corner of the screen, inside the iPhone safe area and above everything. It closes the topmost one. A small **Close all** below it shuts everything at once.
   - **Esc** closes the topmost overlay, and so does the browser's / iPhone's **back** gesture. Tapping the dimmed backdrop closes Find, Audio, Multiplayer, the settlement panel, inspect and Controls.
@@ -606,3 +616,5 @@ Game code in this folder is © 2026 Jeff Chadburn, released under the MIT Licens
 - Round phone action buttons show an icon plus one short word that fits the circle ("The dead lie…" is now 👁 Look; "Kneel" became 💬 Talk for Old Lume and 🙏 Tend for Tor).
 - Desktop uses the same ☰ dropdown as phones (grouped: Game, Sound, Display, Tools), with Esc / ✕ to close; the keyboard hint is one small line.
 - While any story voice speaks (narration, NPCs, visions, cutscenes, tutorial), sound effects are silenced and none start; music and ambience dip to ~18%, then everything returns over ~0.5 s when the line ends, is skipped, or fails.
+- Natural mix: music under ambience and effects, distance-based town crossfades with their own soundscape (crowd, fire, animals, work), positional and varied fight sounds, capped thunder / horn / strikes.
+- One-finger steering on phones (on by default, ☰ → Controls): stick up / down walks, left / right turns Kra and the camera; drag elsewhere to look around.

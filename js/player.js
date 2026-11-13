@@ -29,6 +29,9 @@ export class Player {
     this.bobY = 0;
     this.onStep = null;
     this.lookTouch = null;
+    // Round 25e: one-finger steering (phones): stick left/right turns Kra + camera, forward/back moves;
+    // a drag elsewhere free-looks (camOff) and eases back behind Kra after ~1.5 s of moving.
+    this.oneFinger = false; this.fpView = false; this.camOff = 0; this._lookAt = -99; this._clock = 0;
     this.foundExit = false;
     this.onExit = null;
     this.lastValid = new THREE.Vector3();
@@ -275,7 +278,7 @@ export class Player {
 
   applyLook() {
     this.camera.rotation.order = "YXZ";
-    this.camera.rotation.y = this.yaw;
+    this.camera.rotation.y = this.yaw + (this.camOff || 0);
     this.camera.rotation.x = this.pitch;
     this.camera.rotation.z = 0;
   }
@@ -344,6 +347,19 @@ export class Player {
     if (keyMove) {
       wish.normalize();
       target = sprint ? st.sprint : Player.paceSpeed(this.pace || 1, st);
+    } else if (!wishOverride && this.joy.active && this.joy.mag >= 0.1 && this.oneFinger) {
+      // Round 25e: one-finger steering. Sideways deflection = turn rate (eased curve, scales with the
+      // push), the forward/back part = speed. Pure sideways = turn on the spot.
+      const m = this.joy.mag, dx = this.joy.dx, dy = this.joy.dy, dz = 0.12;
+      const ax = Math.max(0, (Math.abs(dx) - dz) / (1 - dz));
+      const rate = (this.mounted ? 1.9 : 2.4) * Math.pow(ax, 1.4) * Math.sign(dx);
+      this.yaw -= rate * dt; this.applyLook();
+      const fwd = -dy;
+      if (Math.abs(fwd) > 0.2) {
+        wish.set(0, 0, -Math.sign(fwd));
+        target = Player.joySpeed(Math.min(1.2, m * Math.min(1, Math.abs(fwd) * 1.25)), st);
+        if (fwd < 0) target = Math.min(target, st.speed * 0.6); // backing up: a careful walk
+      }
     } else if (!wishOverride && this.joy.active && this.joy.mag >= 0.1) {
       wish.set(this.joy.dx, 0, this.joy.dy).normalize();
       target = Player.joySpeed(this.joy.mag, st);
@@ -729,7 +745,28 @@ export class Player {
     const dy = e.clientY - this.lookTouch.y;
     this.lookTouch.x = e.clientX;
     this.lookTouch.y = e.clientY;
-    this.look(dx * 0.0055, dy * 0.0055);
+    this.dragLook(dx * 0.0055, dy * 0.0055);
+  }
+  /** Touch free-look. One-finger mode, third person: swings the camera only (Kra keeps his heading). */
+  dragLook(dyaw, dpitch) {
+    if (this.oneFinger && !this.fpView) {
+      this.camOff = Math.max(-Math.PI, Math.min(Math.PI, (this.camOff || 0) - dyaw));
+      this._lookAt = this._clock;
+      this.look(0, dpitch);
+    } else this.look(dyaw, dpitch);
+  }
+  /** Round 25e: per frame. Ease the free-look offset back behind Kra once he has moved ~1.5 s since
+   *  the last drag (and straight away in first person / two-finger mode). */
+  easeCam(dt, moving) {
+    this._clock += dt;
+    if (!this.camOff) return;
+    if (!this.oneFinger || this.fpView) { this.yaw += this.camOff; this.camOff = 0; this.applyLook(); return; }
+    if (moving) this._movedFor = (this._movedFor || 0) + dt; else this._movedFor = 0;
+    if (this._movedFor > 1.5 && this._clock - this._lookAt > 1.5 && !this.lookTouch) {
+      this.camOff *= Math.exp(-dt * 2.2);
+      if (Math.abs(this.camOff) < 0.002) this.camOff = 0;
+      this.applyLook();
+    }
   }
 
   _touchEnd(e) {

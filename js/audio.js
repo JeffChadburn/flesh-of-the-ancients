@@ -1,4 +1,4 @@
-import { TownMusic } from "./townmusic.js"; // round 24b
+import { TownMusic, TownAmbience } from "./townmusic.js"; // round 24b (+ 25d ambience)
 import { CinematicScore } from "./music.js";
 /**
  * Procedural cave ambience (drips, flow, echo) plus a generated creepy score:
@@ -12,7 +12,10 @@ import { CinematicScore } from "./music.js";
 const VOL_KEY = "fota-audio-v1";
 export const VOL_DEFAULTS = { master: 150, music: 100, effects: 100, voices: 100, ambience: 100 };
 // overall gains per bus at 100% (music / effects louder than before round 23)
-const BASE = { music: 1.35, effects: 1.4, ambience: 1.15, voices: 1.6 };
+// Round 25d: natural mix. Music now sits under the ambience and effects (was ~4x the ambience RMS).
+const BASE = { music: 0.42, effects: 1.4, ambience: 1.5, voices: 1.6 };
+/** Round 25d: +/- p random variation so repeated sounds are never identical. */
+const vary = (x, p = 0.1) => x * (1 + (Math.random() * 2 - 1) * p);
 
 export class CaveAudio {
   constructor() {
@@ -52,18 +55,32 @@ export class CaveAudio {
   unlock() { try { if (this.ctx && this.ctx.state !== "running" && this.ctx.state !== "closed") this.ctx.resume().catch(() => {}); } catch {} }
 
   /** Round 24b: null | "friendly" | "hostile": crossfade the town theme in / out over the score. */
-  setTown(mode) {
-    this._townWant = mode; this.town = mode;
+  /** Round 25d: tf 0..1 = how far into the town (distance-based, from main). One music track at a
+   *  time: the open-world score fades out as the town theme fades in (and back), wilderness wind /
+   *  birds dip and the town's own ambience (crowd, fire, animals, work) comes up, all over ~2.5 s. */
+  setTown(mode, tf = 1) {
+    tf = mode ? Math.max(0, Math.min(1, tf)) : 0;
+    this._townWant = mode; this._townTf = tf; this.town = mode;
     if (!this.townMusic || !this.ctx) return;
-    this.townMusic.set(mode);
-    this.scoreBus?.gain.setTargetAtTime(mode ? 0.12 : 1, this.ctx.currentTime, mode ? 0.8 : 1.4);
+    if (mode === this._tm && Math.abs(tf - (this._ttf ?? -1)) < 0.03) return;
+    this._tm = mode; this._ttf = tf;
+    const t = this.ctx.currentTime;
+    this.townMusic.set(mode, tf);
+    this.townAmb?.set(mode, tf);
+    this.scoreBus?.gain.setTargetAtTime(Math.max(0, 1 - tf * 1.05) , t, 0.8);
+    this.wildGain?.gain.setTargetAtTime(1 - tf * 0.7, t, 0.8);
   }
   /** Round 24b: war horn (Call to Arms), weapon strike, spear whoosh, town alarm. */
-  fight(kind) {
+  fight(kind, pos = null) {
     if (!this.ctx || this.muted || this.speech) return; // round 25: no new SFX while someone speaks
     const ctx = this.ctx, t = ctx.currentTime;
-    const tone = (type, f0, f1, dur, amp, lp, at = 0) => { const o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter(); o.type = type; o.frequency.setValueAtTime(f0, t + at); o.frequency.linearRampToValueAtTime(f1, t + at + dur * 0.8); f.type = "lowpass"; f.frequency.value = lp; g.gain.setValueAtTime(0.0001, t + at); g.gain.exponentialRampToValueAtTime(amp, t + at + Math.min(0.12, dur * 0.2)); g.gain.setValueAtTime(amp, t + at + dur * 0.75); g.gain.exponentialRampToValueAtTime(0.0001, t + at + dur); o.connect(f); f.connect(g); g.connect(this.master); o.start(t + at); o.stop(t + at + dur + 0.05); };
-    const noise = (dur, f0, amp, type = "bandpass") => { const b = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate), d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length); const s = ctx.createBufferSource(); s.buffer = b; const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = f0; const g = ctx.createGain(); g.gain.value = amp; s.connect(f); f.connect(g); g.connect(this.master); s.start(t); };
+    // round 25d: positional (distance fade + stereo pan from Kra's ears), varied, and capped peaks
+    const sp = this._spatial(pos, 6); if (!sp) return;
+    const out = ctx.createGain(); out.gain.value = sp.gain * ({ horn: 0.55, aggro: 0.6, strike: 0.6, throw: 0.8 }[kind] || 0.7);
+    const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null; if (pan) { pan.pan.value = sp.pan; out.connect(pan); pan.connect(this.master); } else out.connect(this.master);
+    const dest = out, V = vary(1, 0.06), A = vary(1, 0.15);
+    const tone = (type, f0, f1, dur, amp, lp, at = 0) => { const o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter(); o.type = type; o.frequency.setValueAtTime(f0 * V, t + at); o.frequency.linearRampToValueAtTime(f1 * V, t + at + dur * 0.8); amp *= A; f.type = "lowpass"; f.frequency.value = lp; g.gain.setValueAtTime(0.0001, t + at); g.gain.exponentialRampToValueAtTime(amp, t + at + Math.min(0.12, dur * 0.2)); g.gain.setValueAtTime(amp, t + at + dur * 0.75); g.gain.exponentialRampToValueAtTime(0.0001, t + at + dur); o.connect(f); f.connect(g); g.connect(dest); o.start(t + at); o.stop(t + at + dur + 0.05); };
+    const noise = (dur, f0, amp, type = "bandpass") => { const b = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate), d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length); const s = ctx.createBufferSource(); s.buffer = b; const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = f0 * V; const g = ctx.createGain(); g.gain.value = amp * A; s.connect(f); f.connect(g); g.connect(dest); s.start(t); };
     if (kind === "horn") { tone("sawtooth", 98, 110, 1.6, 0.32, 700); tone("sawtooth", 147, 165, 1.3, 0.18, 900, 0.9); tone("sawtooth", 98, 98, 1.8, 0.28, 650, 1.5); }
     else if (kind === "aggro") { tone("sawtooth", 82, 92, 1.0, 0.25, 500); noise(0.6, 600, 0.3); }
     else if (kind === "throw") noise(0.3, 900, 0.25);
@@ -152,7 +169,9 @@ export class CaveAudio {
     lim.threshold.value = -1.5; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.001; lim.release.value = 0.08;
     this.out.connect(comp); comp.connect(makeup); makeup.connect(lim); lim.connect(ctx.destination);
     // buses
-    this.master = ctx.createGain(); this.master.connect(this.pre); // sound effects (kept as "master" for old callers)
+    this.master = ctx.createGain(); // round 25d: SFX glue compressor so stacked / loud one-shots can't swamp the mix
+    this.sfxComp = ctx.createDynamicsCompressor(); this.sfxComp.threshold.value = -20; this.sfxComp.knee.value = 10; this.sfxComp.ratio.value = 3; this.sfxComp.attack.value = 0.003; this.sfxComp.release.value = 0.2;
+    this.master.connect(this.sfxComp); this.sfxComp.connect(this.pre); // sound effects (kept as "master" for old callers)
     this.musicBus = ctx.createGain(); this.musicBus.connect(this.pre);
     this.ambBus = ctx.createGain(); this.ambBus.connect(this.pre);
     this.tripBus = ctx.createGain(); this.tripBus.connect(this.out);
@@ -180,6 +199,7 @@ export class CaveAudio {
     this.outGain = this.ctx.createGain();
     this.outGain.gain.value = this.outdoor ? 1 : 0;
     this.outGain.connect(this.ambBus);
+    this.wildGain = this.ctx.createGain(); this.wildGain.connect(this.outGain); // round 25d: wind / birds / insects (dip inside towns)
     {
       const ctx = this.ctx;
       const buf = ctx.createBuffer(1, ctx.sampleRate * 3, ctx.sampleRate), d = buf.getChannelData(0);
@@ -191,7 +211,7 @@ export class CaveAudio {
       const wg = ctx.createGain(); wg.gain.value = 0.22;
       const amp = ctx.createOscillator(); amp.frequency.value = 0.053;
       const ag = ctx.createGain(); ag.gain.value = 0.12; amp.connect(ag); ag.connect(wg.gain);
-      src.connect(lp); lp.connect(wg); wg.connect(this.outGain);
+      src.connect(lp); lp.connect(wg); wg.connect(this.wildGain);
       src.start(); gust.start(); amp.start();
       this.windGain = wg;
       // rain: a hiss (high band) + a soft roar (low band), level set by setAmbience
@@ -223,7 +243,7 @@ export class CaveAudio {
     // round 24b: the open-world score plays through its own sub-bus so town themes can duck it
     this.scoreBus = this.ctx.createGain(); this.scoreBus.connect(this.musicBus);
     try { this.music = new CinematicScore(this.ctx, this.scoreBus, this.musicOn); } catch (err) { console.warn("music failed", err); }
-    try { this.townMusic = new TownMusic(this.ctx, this.musicBus); this.townMusic.setOn(this.musicOn); if (this._townWant) this.setTown(this._townWant); } catch (err) { console.warn("town music failed", err); }
+    try { this.townMusic = new TownMusic(this.ctx, this.musicBus); this.townMusic.setOn(this.musicOn); this.townAmb = new TownAmbience(this.ctx, this.ambBus); if (this._townWant) this.setTown(this._townWant, this._townTf); } catch (err) { console.warn("town music failed", err); }
   }
 
   _noiseDrone(dest, cutoff, q = 0.4) {
@@ -276,7 +296,7 @@ export class CaveAudio {
     const g = ctx.createGain(); g.gain.value = 0;
     const o = ctx.createOscillator(); o.type = "sine"; o.frequency.value = f;
     o.connect(g);
-    if (pan) { pan.pan.value = Math.random() * 2 - 1; g.connect(pan); pan.connect(this.outGain); } else g.connect(this.outGain);
+    if (pan) { pan.pan.value = Math.random() * 2 - 1; g.connect(pan); pan.connect(this.wildGain); } else g.connect(this.wildGain);
     const a = 0.012 + Math.random() * 0.02;
     for (let i = 0; i < n; i++) { const s = t + i * 0.07; g.gain.setValueAtTime(0, s); g.gain.linearRampToValueAtTime(a, s + 0.012); g.gain.linearRampToValueAtTime(0, s + 0.045); }
     o.start(t); o.stop(t + n * 0.07 + 0.05);
@@ -298,7 +318,7 @@ export class CaveAudio {
     const g = ctx.createGain(); g.gain.value = 0;
     const o = ctx.createOscillator(); o.type = "sine";
     o.connect(g);
-    if (pan) { pan.pan.value = Math.random() * 1.6 - 0.8; g.connect(pan); pan.connect(this.outGain); } else g.connect(this.outGain);
+    if (pan) { pan.pan.value = Math.random() * 1.6 - 0.8; g.connect(pan); pan.connect(this.wildGain); } else g.connect(this.wildGain);
     const base = 2200 + Math.random() * 1800, n = song ? 6 + Math.floor(Math.random() * 6) : 2 + Math.floor(Math.random() * 3);
     const a = 0.02 + Math.random() * 0.025;
     let s = t;
@@ -323,10 +343,12 @@ export class CaveAudio {
     const src = ctx.createBufferSource(); src.buffer = buf;
     const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = dist < 1 ? 900 : 350;
     const g = ctx.createGain(); g.gain.value = 0;
-    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.9 * amp, t + 0.05 + dist * 0.15);
-    for (let k = 1; k < 5; k++) g.gain.setTargetAtTime(0.9 * amp * (0.35 + Math.random() * 0.5) / k, t + k * 0.45, 0.2);
+    amp = vary(amp, 0.2) * 0.42 * (1 - 0.5 * Math.min(1, dist)); // round 25d: was 0.9 (peaked over 1.0): big, but no longer swamps the mix; far = quieter
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(amp, t + 0.05 + dist * 0.15);
+    for (let k = 1; k < 5; k++) g.gain.setTargetAtTime(amp * (0.35 + Math.random() * 0.5) / k, t + k * 0.45, 0.2);
     g.gain.setTargetAtTime(0, t + 2.2, 0.8);
-    src.connect(lp); lp.connect(g); g.connect(this.outGain);
+    const pn = ctx.createStereoPanner ? ctx.createStereoPanner() : null; if (pn) { pn.pan.value = Math.random() * 1.2 - 0.6; g.connect(pn); pn.connect(this.outGain); } else g.connect(this.outGain);
+    src.connect(lp); lp.connect(g);
     src.start(t); src.stop(t + len);
   }
 
@@ -366,8 +388,8 @@ export class CaveAudio {
     const b = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate), d = b.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.12));
     const s = ctx.createBufferSource(); s.buffer = b;
-    const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 1400; f.Q.value = 0.7;
-    const g = ctx.createGain(); g.gain.value = 0.4;
+    const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = vary(1400, 0.15); f.Q.value = 0.7;
+    const g = ctx.createGain(); g.gain.value = vary(0.34, 0.15); s.playbackRate.value = vary(1, 0.08);
     s.connect(f); f.connect(g); g.connect(this.master); s.start(t);
   }
 
@@ -391,14 +413,14 @@ export class CaveAudio {
   bowShot() {
     if (!this.ctx || this.muted || this.speech) return; // round 25: no new SFX while someone speaks
     const ctx = this.ctx, t = ctx.currentTime;
-    const o = ctx.createOscillator(); o.type = "triangle"; o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(90, t + 0.18);
-    const g = ctx.createGain(); g.gain.setValueAtTime(0.35, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    const o = ctx.createOscillator(); o.type = "triangle"; const bf = vary(1, 0.05); o.frequency.setValueAtTime(220 * bf, t); o.frequency.exponentialRampToValueAtTime(90 * bf, t + 0.18);
+    const g = ctx.createGain(); g.gain.setValueAtTime(vary(0.18, 0.12), t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
     o.connect(g); g.connect(this.master); o.start(t); o.stop(t + 0.25);
     const b = ctx.createBuffer(1, ctx.sampleRate * 0.3, ctx.sampleRate), d = b.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.07));
     const s = ctx.createBufferSource(); s.buffer = b;
-    const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 2400; f.Q.value = 0.8;
-    const g2 = ctx.createGain(); g2.gain.value = 0.18;
+    const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = vary(2400, 0.12); f.Q.value = 0.8;
+    const g2 = ctx.createGain(); g2.gain.value = vary(0.12, 0.15);
     s.connect(f); f.connect(g2); g2.connect(this.master); s.start(t);
   }
 
@@ -409,8 +431,8 @@ export class CaveAudio {
     const b = ctx.createBuffer(1, ctx.sampleRate * 0.25, ctx.sampleRate), d = b.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * (flesh ? 0.05 : 0.018)));
     const s = ctx.createBufferSource(); s.buffer = b;
-    const f = ctx.createBiquadFilter(); f.type = flesh ? "lowpass" : "bandpass"; f.frequency.value = flesh ? 500 : 1800; f.Q.value = 0.9;
-    const g = ctx.createGain(); g.gain.value = flesh ? 0.7 : 0.35;
+    const f = ctx.createBiquadFilter(); f.type = flesh ? "lowpass" : "bandpass"; f.frequency.value = vary(flesh ? 500 : 1800, 0.12); f.Q.value = 0.9;
+    const g = ctx.createGain(); g.gain.value = vary(flesh ? 0.45 : 0.28, 0.15); s.playbackRate.value = vary(1, 0.08);
     s.connect(f); f.connect(g); g.connect(this.master); s.start(t);
   }
 
@@ -475,7 +497,7 @@ export class CaveAudio {
     f.frequency.value = (stance === "crawl" ? 500 : 750) + amp * 900 + Math.random() * 200;
     f.Q.value = 0.9;
     const g = ctx.createGain();
-    g.gain.value = (stance === "stand" ? 0.1 : 0.06) + amp * 0.16;
+    g.gain.value = vary((stance === "stand" ? 0.09 : 0.055) + amp * 0.14, 0.18); // round 25d: a touch softer, varied
     src.connect(f); f.connect(g); g.connect(this.master);
     src.start(t);
     src.onended = () => { try { g.disconnect(); } catch (_) {} };
@@ -491,7 +513,7 @@ export class CaveAudio {
       const t = t0 + off + Math.random() * 0.012;
       const o = ctx.createOscillator(), g = ctx.createGain();
       o.type = "sine"; o.frequency.setValueAtTime(95 + Math.random() * 20, t); o.frequency.exponentialRampToValueAtTime(48, t + 0.12);
-      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.16 + amp * 0.22, t + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vary(0.14 + amp * 0.2, 0.15), t + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
       o.connect(g); g.connect(this.master); o.start(t); o.stop(t + 0.18);
       o.onended = () => { try { g.disconnect(); } catch (_) {} };
       if (this._stepBuf) {
@@ -505,8 +527,20 @@ export class CaveAudio {
     }
   }
 
+  /** Round 25d: gain (distance fade, ~1/d past `ref` m, silent past 120 m) and pan (-1..1) for a world
+   *  position relative to Kra's ears; null = too far to hear. pos null = at the player. */
+  _spatial(pos, ref = 6) {
+    if (!pos || !this._ears) return { gain: 1, pan: 0 };
+    const dx = pos.x - this._ears.x, dz = pos.z - this._ears.z, d = Math.hypot(dx, dz);
+    if (d > 120) return null;
+    const gain = d <= ref ? 1 : Math.pow(ref / d, 1.1) * (1 - Math.max(0, d - 80) / 40);
+    const yaw = this._ears.yaw, rx = Math.cos(yaw), rz = -Math.sin(yaw); // listener's right vector
+    const pan = d < 0.5 ? 0 : Math.max(-0.85, Math.min(0.85, (dx * rx + dz * rz) / d));
+    return { gain, pan };
+  }
   /** Listener position + facing for positional sounds (the monster). */
   setEars(pos, yaw) {
+    this._ears = { x: pos.x, z: pos.z, yaw };
     if (!this.started || !this.ctx) return;
     const L = this.ctx.listener, t = this.ctx.currentTime;
     const fx = -Math.sin(yaw), fz = -Math.cos(yaw);

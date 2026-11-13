@@ -35,21 +35,32 @@ export function currentDevice(touch) {
   return touch ? "touch" : "desktop";
 }
 export class ControlsSheet {
-  constructor(root, { touch }) {
-    this.touch = touch;
+  constructor(root, { touch, oneFinger = null, setOneFinger = null }) {
+    this.touch = touch; this.oneFinger = oneFinger; this.setOneFinger = setOneFinger; // round 25e
     const el = (this.el = document.createElement("div")); el.id = "controls-sheet"; el.className = "hidden";
     root.appendChild(el);
     for (const e of ["pointerdown", "touchstart", "mousedown", "wheel"]) el.addEventListener(e, (ev) => ev.stopPropagation(), { passive: true });
-    el.addEventListener("click", (ev) => { ev.stopPropagation(); const t = ev.target.closest("[data-d]"); if (t) this.render(t.dataset.d); if (ev.target.closest(".cs-close") || ev.target === el) this.close(); });
+    el.addEventListener("click", (ev) => { ev.stopPropagation(); const t = ev.target.closest("[data-d]"); if (t) this.render(t.dataset.d); if (ev.target.closest(".cs-1f")) { this.setOneFinger?.(!this.oneFinger?.()); this.render(this.dev); } if (ev.target.closest(".cs-close") || ev.target === el) this.close(); });
   }
   get isOpen() { return !this.el.classList.contains("hidden"); }
   open(dev) { if (document.pointerLockElement) document.exitPointerLock(); this.render(dev || currentDevice(this.touch)); this.el.classList.remove("hidden"); }
   close() { this.el.classList.add("hidden"); }
+  /** Round 25e: the One-finger steering switch (phones). */
+  _oneFingerRow() {
+    const on = !!this.oneFinger();
+    return `<div class="cs-opt"><button type="button" class="cs-1f ${on ? "on" : ""}" aria-pressed="${on}">👆 One-finger steering: <b>${on ? "On" : "Off"}</b></button>
+      <small>${on ? "The stick does it all: up / down walks, left / right turns Kra and the camera. Drag anywhere else to look around; the view swings back behind Kra as you walk." : "Two-finger mode: the stick moves, a second finger on the right side turns the camera."}</small></div>`;
+  }
+  _rows(dev) {
+    if (dev !== "touch" || !this.oneFinger?.()) return CONTROLS[dev];
+    return CONTROLS.touch.map(([a, b]) => a === "Move" ? ["Move & turn", "Joystick: up / down = walk (further = faster), left / right = turn"] : a === "Look" ? ["Look around", "Drag anywhere else (the view eases back behind Kra as you walk)"] : [a, b]);
+  }
   render(dev) {
     this.dev = dev;
     this.el.innerHTML = `<div class="cs-box"><div class="cs-head"><h3>Controls</h3><button type="button" class="cs-close" aria-label="Close">✕</button></div>
       <div class="cs-tabs">${[...Object.keys(CONTROLS), "beasts"].map((d) => `<button type="button" data-d="${d}" class="${d === dev ? "on" : ""}">${NAMES[d]}${d === currentDevice(this.touch) ? " · yours" : ""}</button>`).join("")}</div>
-      ${dev === "beasts" ? beastTable() : `<table>${CONTROLS[dev].map(([a, b]) => `<tr><th>${a}</th><td>${b}</td></tr>`).join("")}</table>`}
+      ${dev === "touch" && this.oneFinger ? this._oneFingerRow() : ""}
+      ${dev === "beasts" ? beastTable() : `<table>${this._rows(dev).map(([a, b]) => `<tr><th>${a}</th><td>${b}</td></tr>`).join("")}</table>`}
       <p class="cs-tip">Want a guided tour? ☰ → Tutorial.</p></div>`;
   }
 }

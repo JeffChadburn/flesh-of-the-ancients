@@ -171,6 +171,14 @@ const material = rockMaterial();
 const formMat = formationMaterial();
 const minimap = new Minimap(minimapCanvas);
 const audio = new CaveAudio();
+window.__AUDIO__ = audio; // round 25d: mix tests
+/** Round 25e: One-finger steering (phones; on by default, ☰ → Controls to switch). */
+function oneFingerOn() { try { return localStorage.getItem("fota-onefinger") !== "0"; } catch { return true; } }
+function setOneFinger(v) {
+  try { localStorage.setItem("fota-onefinger", v ? "1" : "0"); } catch {}
+  if (player) { player.oneFinger = IS_TOUCH && !!v; if (!v && player.camOff) { player.yaw += player.camOff; player.camOff = 0; player.applyLook(); } }
+  storyUI?.toast?.(v ? "👆 One-finger steering on: left / right on the stick turns Kra." : "✌️ Two-finger mode: the stick moves, drag on the right to turn.");
+}
 
 let cave = null;
 let caveGroup = null;
@@ -364,6 +372,7 @@ function showPace(pc) {
 window.addEventListener("gamepadconnected", () => { try { storyUI.toast("🎮 Gamepad: left stick moves (push further = faster), right stick looks."); } catch {} });
 function ensurePlayer(c) {
   player = new Player(camera, c, canvas);
+  player.oneFinger = IS_TOUCH && oneFingerOn(); // round 25e
   player.walls = walls;
   player.onStep = (amp, stance) => (player.mounted ? audio.hoof?.(Math.min(1, (player.speedNow || 0) / 12)) : audio.step(amp, stance));
   player.onExit = () => {
@@ -448,7 +457,7 @@ function ensureWorld() {
   markHostile(world.terrain.settlements || [], world.terrain.act1?.camp || { x: 0, z: 0 });
   world.fighters = new Fighters({ scene: world.settleRoot, terrain: () => world.terrain, people: () => world.people, towns: () => world.terrain.settlements || [],
     colonies: () => world.colony?.list || [], feet: () => (world.mode === "overworld" && player && ready ? feetPos() : null), safe: () => fightSafe(),
-    hurt: (n, src) => damagePlayer(n, src), toast: (m, k) => storyUI.toast(m, k), log: (e) => glog(e), sound: (k) => audio.fight?.(k), lite: IS_TOUCH,
+    hurt: (n, src) => damagePlayer(n, src), toast: (m, k) => storyUI.toast(m, k), log: (e) => glog(e), sound: (k, pos) => audio.fight?.(k, pos), lite: IS_TOUCH,
     key: () => `fota-fallen-v1-${story.tutorial ? "tut" : story.sandbox ? (mpActive ? "mp" : "free") : "story"}-${seed}` });
   world.people.skip = (k) => world.talk.joined(k) || world.fighters.isFallen(k);
   Object.defineProperty(world.wildlife, "noPredators", { get: () => story.tutorial || URLP.has("nopred") });
@@ -899,7 +908,7 @@ resize();
 
 if (isTouchDevice()) {
   touchRoot.classList.remove("hidden");
-  hintEl.textContent = "Drag right to look · pad to move (edge = run) · Stab to fight";
+  hintEl.textContent = oneFingerOn() ? "Stick: up = walk, left / right = turn · drag to look around · Stab to fight" : "Drag right to look · pad to move (edge = run) · Stab to fight";
 } else {
   hintEl.textContent = "Click to look · WASD walk · Shift run · click stab · E use · I pack · M map · ☰ Menu → Controls for all keys";
 }
@@ -2308,6 +2317,7 @@ function tickBody(now) {
     // Hurt feedback.
     const low = !game.dead && game.health === 1 ? 0.28 + 0.12 * Math.sin(game.time * 4) : 0;
     if (vignetteEl) vignetteEl.style.opacity = String(Math.min(1, Math.max(game.vignette, low)));
+    player.fpView = !!game.fp && !player.mounted && !game.boat; player.easeCam?.(dt, (player.speedNow || 0) > 0.3); // round 25e
     updateView(dt);
     if (world.mode === "cave") updateDaylight();
     if (game.camOverride) { const o = game.camOverride; viewCam.position.set(o[0], o[1], o[2]); viewCam.up.set(0, 1, 0); viewCam.lookAt(o[3], o[4], o[5]); }
@@ -2617,6 +2627,13 @@ function tickOverworld(dt, info, now) {
     const fightNear = world.fighters?.inCombat(f20);
     const ownNear = world.colony?.list.some((c) => Math.hypot(c.x - p.x, c.z - p.z) < world.colony.radius(c) + 10);
     game.townMusic = fightNear || town?.hostile ? "hostile" : town || ownNear ? "friendly" : null;
+    // round 25d: how far into the town (0 at ~26 m outside the yard, 1 just inside it), for a smooth crossfade
+    { const ns = world.settle.nearest(p.x, p.z), sm = (x) => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
+      let tf = ns ? sm((ns.s.R + 26 - ns.d) / 30) : 0;
+      for (const c of world.colony?.list || []) tf = Math.max(tf, sm((world.colony.radius(c) + 22 - Math.hypot(c.x - p.x, c.z - p.z)) / 26));
+      if (fightNear) tf = 1;
+      const hostileNear = fightNear || (ns && ns.s.hostile && tf > 0);
+      game.townMusic = tf > 0.01 ? (hostileNear ? "hostile" : "friendly") : null; game.townTf = tf; }
   }
   if (game.horse && !player.mounted) { world.wildlife.dismount(game.horse); game.horse = null; } // teleported / respawned
   if (game.boat && !player.boating) { game.boat.taken = false; game.boat = null; updateBeachBtn(false); }
@@ -2632,7 +2649,7 @@ function tickOverworld(dt, info, now) {
   animSpeed += (Math.min(moved, 25) - animSpeed) * Math.min(1, dt * 10); // was capped 6
   if (audio.started) {
     audio.setEars?.(p, player.yaw);
-    audio.setTown?.(cine?.on ? null : game.townMusic || null); // round 24b
+    audio.setTown?.(cine?.on ? null : game.townMusic || null, game.townTf ?? 1); // round 24b (25d: distance fade)
     const riding = !!player.mounted;
     audio.setAmbience?.({ night: st.night, dawn: st.dawn, day: st.day, rain: st.rain + st.snow * 0.2, wind: st.wind, storm: st.storm, water: Math.max(0, 1 - waterD / 14) });
     const zone = campD < 45 ? (st.dawn > 0.4 ? "dawn" : "camp") : "outdoor";
@@ -3128,6 +3145,13 @@ window.__CAVE__ = {
       hostile: () => (world.terrain?.settlements || []).filter((q) => q.hostile).map((q) => ({ id: q.id, name: q.name, kind: q.kind, age: q.age, x: +q.x.toFixed(1), z: +q.z.toFixed(1), R: q.R, d: +Math.hypot(q.x - feetPos().x, q.z - feetPos().z).toFixed(0) })),
       towns: () => (world.terrain?.settlements || []).map((q) => ({ id: q.id, name: q.name, kind: q.kind, hostile: !!q.hostile, age: q.age, x: +q.x.toFixed(1), z: +q.z.toFixed(1), R: q.R })),
       townRms: () => { const tm = audio.townMusic; if (!tm) return null; if (!tm._an) { tm._an = {}; for (const k in tm.layers) { const an = audio.ctx.createAnalyser(); an.fftSize = 2048; tm.layers[k].g.connect(an); tm._an[k] = an; } } const o = {}; for (const k in tm._an) { const d = new Float32Array(2048); tm._an[k].getFloatTimeDomainData(d); o[k] = +Math.sqrt(d.reduce((s, v) => s + v * v, 0) / d.length).toFixed(4); } return o; },
+      mixRms: () => { // round 25d: RMS of each layer of the mix (after its own gain, before the sliders)
+        const nodes = { score: audio.scoreBus, town: audio.townMusic?.out, townAmb: audio.townAmb?.out, wild: audio.wildGain, worldAmb: audio.outGain, sfx: audio.master, musicBus: audio.musicBus, ambBus: audio.ambBus };
+        audio._an = audio._an || {}; const o = {};
+        for (const k in nodes) { const n = nodes[k]; if (!n) continue; if (!audio._an[k]) { const an = audio.ctx.createAnalyser(); an.fftSize = 4096; n.connect(an); audio._an[k] = an; }
+          const d = new Float32Array(4096); audio._an[k].getFloatTimeDomainData(d); o[k] = +Math.sqrt(d.reduce((s, v) => s + v * v, 0) / d.length).toFixed(4); }
+        return { ...o, tf: +(game.townTf || 0).toFixed(2), mode: game.townMusic || null, gains: { score: +audio.scoreBus?.gain.value.toFixed(3), town: +audio.townMusic?.layers.friendly.g.gain.value.toFixed(3), townH: +audio.townMusic?.layers.hostile.g.gain.value.toFixed(3), townAmb: +audio.townAmb?.out.gain.value.toFixed(3), wild: +audio.wildGain?.gain.value.toFixed(3), sfx: +audio.master?.gain.value.toFixed(3), music: +audio.musicBus?.gain.value.toFixed(3), amb: +audio.ambBus?.gain.value.toFixed(3) } };
+      },
       townMusic: () => ({ want: game.townMusic || null, audio: audio.town ?? null, mode: audio.townMusic?.mode ?? null, started: !!audio.started }),
       spawnPred: (kind, d = 20, n = 1) => { const f = feetPos(), fx = -Math.sin(player.yaw), fz = -Math.cos(player.yaw); return world.wildlife.spawnAt(kind, f.x + fx * d, f.z + fz * d, n).map((a) => a.id); },
       preds: () => world.wildlife.list.filter((a) => a.kind === "wolf" || a.kind === "bear").map((a) => ({ id: a.id, kind: a.kind, state: a.state, alive: a.alive, hp: a.health, x: +a.pos.x.toFixed(2), z: +a.pos.z.toFixed(2), d: +Math.hypot(a.pos.x - feetPos().x, a.pos.z - feetPos().z).toFixed(1) })),
@@ -3841,7 +3865,7 @@ const audioPanel = new AudioPanel(gameEl, audio, { onTestVoice: () => storyUI.vo
 document.getElementById("audio-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); armAudio(); audioPanel.open(); });
 document.getElementById("mp-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); if (story.tutorial) { storyUI.toast("Multiplayer is off in the tutorial."); return; } mp.open(); });
 // Round 24: ☰ → Controls / Tutorial
-const controlsSheet = new ControlsSheet(gameEl, { touch: IS_TOUCH });
+const controlsSheet = new ControlsSheet(gameEl, { touch: IS_TOUCH, oneFinger: IS_TOUCH ? () => oneFingerOn() : null, setOneFinger: (v) => setOneFinger(v) });
 document.getElementById("controls-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); controlsSheet.open(); });
 document.getElementById("tut-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); if (story.tutorial) tut?.menu(true); else openTutorial(); });
 window.__CAVE__.mp = mp;

@@ -79,7 +79,7 @@ export class Fighters {
     for (const p of this.env.people()?.list || []) if (p.s === s) { this._arm(p); p.ext = true; p.ready = true; }
     this.env.toast(`⚔️ ${s.name} takes up arms against you!${why ? " " + why : ""}`, "bad");
     this.env.log?.({ e: "townAggro", id: s.id, why });
-    this.env.sound?.("aggro");
+    this.env.sound?.("aggro", s);
   }
   calm(s) {
     const t = this.townState(s); t.aggro = false; t.calmT = 0; t.warned = false;
@@ -188,7 +188,7 @@ export class Fighters {
   _strike(p, o, dmg) {
     if (o.player) { if (this.env.hurt(dmg, p.fight.st.name.toLowerCase())) this.env.toast(`The ${p.fight.st.name.toLowerCase()} strikes you!`, "bad"); this.c.hits++; }
     else this.damage(o, dmg, p);
-    this.env.sound?.("strike");
+    this.env.sound?.("strike", p); // round 25d: positional
   }
   _throw(p, o, dmg) {
     const T = this.env.terrain(), y0 = (T?.height(p.x, p.z) || 0) + 1.6;
@@ -198,7 +198,7 @@ export class Fighters {
     m.position.set(p.x, y0, p.z); this.env.scene.add(m);
     this.spears.push({ m, from: p, dmg, t: 0, life: time + 3, vel: new THREE.Vector3((tx - p.x) / time, (ty - y0) / time + 4.9 * time, (tz - p.z) / time), stuck: false, team: p.fight.team });
     p.strikeT = 0.45; this.c.throws++;
-    this.env.sound?.("throw");
+    this.env.sound?.("throw", p);
   }
   _spearsUpdate(dt, f, fighting) {
     const T = this.env.terrain();
