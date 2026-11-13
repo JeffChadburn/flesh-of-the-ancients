@@ -32,9 +32,13 @@ export class CaveAudio {
     this.music = null;
     this.moodMove = 0;
     this.moodDepth = 0;
+    this.speech = false;
   }
 
+  /** Round 25: while any story voice speaks, effects go silent (and none start), music and ambience
+   *  dip to ~18%; everything comes back over ~0.5 s when the line ends, is cancelled or fails. */
   duckMusic(on) { this.music?.duckVoice?.(on); }
+  setSpeech(on) { on = !!on; if (on === this.speech) return; this.speech = on; this.applyVol(on ? 0.06 : 0.15); }
 
   /** Round 24b: null | "friendly" | "hostile": crossfade the town theme in / out over the score. */
   setTown(mode) {
@@ -45,7 +49,7 @@ export class CaveAudio {
   }
   /** Round 24b: war horn (Call to Arms), weapon strike, spear whoosh, town alarm. */
   fight(kind) {
-    if (!this.ctx || this.muted) return;
+    if (!this.ctx || this.muted || this.speech) return; // round 25: no new SFX while someone speaks
     const ctx = this.ctx, t = ctx.currentTime;
     const tone = (type, f0, f1, dur, amp, lp, at = 0) => { const o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter(); o.type = type; o.frequency.setValueAtTime(f0, t + at); o.frequency.linearRampToValueAtTime(f1, t + at + dur * 0.8); f.type = "lowpass"; f.frequency.value = lp; g.gain.setValueAtTime(0.0001, t + at); g.gain.exponentialRampToValueAtTime(amp, t + at + Math.min(0.12, dur * 0.2)); g.gain.setValueAtTime(amp, t + at + dur * 0.75); g.gain.exponentialRampToValueAtTime(0.0001, t + at + dur); o.connect(f); f.connect(g); g.connect(this.master); o.start(t + at); o.stop(t + at + dur + 0.05); };
     const noise = (dur, f0, amp, type = "bandpass") => { const b = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate), d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length); const s = ctx.createBufferSource(); s.buffer = b; const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = f0; const g = ctx.createGain(); g.gain.value = amp; s.connect(f); f.connect(g); g.connect(this.master); s.start(t); };
@@ -100,14 +104,15 @@ export class CaveAudio {
   get speechVol() { return this.muted ? 0 : Math.min(1, (this.vol.voices / 100) * Math.min(1, this.vol.master / 100)); }
   /** Gain multiplier for player voice chat (Voices slider). */
   get voiceGain() { return (this.vol.voices / 100) * BASE.voices; }
-  applyVol() {
+  applyVol(tau = 0.03) {
     if (!this.ctx) return;
-    const t = this.ctx.currentTime, set = (n, v) => n && n.gain.setTargetAtTime(v, t, 0.03);
+    const t = this.ctx.currentTime, set = (n, v, k = 0.03) => { if (!n) return; n.gain.cancelScheduledValues(t); n.gain.setValueAtTime(n.gain.value, t); n.gain.setTargetAtTime(v, t, k); };
+    const sp = this.speech ? 0.18 : 1; // round 25: speech ducking
     set(this.out, this.muted ? 0 : this.vol.master / 100);
-    set(this.master, (this.vol.effects / 100) * BASE.effects * this.duck);
-    set(this.musicBus, (this.vol.music / 100) * BASE.music * this.duck);
-    set(this.tripBus, (this.vol.music / 100) * BASE.music);
-    set(this.ambBus, (this.vol.ambience / 100) * BASE.ambience * this.duck);
+    set(this.master, (this.vol.effects / 100) * BASE.effects * this.duck * (this.speech ? 0 : 1), tau);
+    set(this.musicBus, (this.vol.music / 100) * BASE.music * this.duck * sp, tau);
+    set(this.tripBus, (this.vol.music / 100) * BASE.music * sp, tau);
+    set(this.ambBus, (this.vol.ambience / 100) * BASE.ambience * this.duck * sp, tau);
     set(this.voiceBus, this.voiceGain);
   }
 
@@ -298,7 +303,7 @@ export class CaveAudio {
 
   /** Thunder `dist` (0.3 near .. 3 far) seconds of delay-ish; amp 0..1.2. */
   thunder(dist = 1, amp = 1) {
-    if (!this.ctx || this.muted) return;
+    if (!this.ctx || this.muted || this.speech) return; // round 25: no new SFX while someone speaks
     const ctx = this.ctx, t = ctx.currentTime + dist * 1.2;
     const len = 3.5 + Math.random() * 2;
     const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * len), ctx.sampleRate), d = buf.getChannelData(0);
@@ -345,7 +350,7 @@ export class CaveAudio {
   }
 
   splash() {
-    if (!this.ctx || this.muted) return;
+    if (!this.ctx || this.muted || this.speech) return; // round 25: no new SFX while someone speaks
     const ctx = this.ctx, t = ctx.currentTime;
     const b = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate), d = b.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.12));
@@ -357,7 +362,7 @@ export class CaveAudio {
 
   /** Round 19: a paddle stroke: a soft watery swish (stronger at speed). */
   paddle(amp = 0.5) {
-    if (!this.ctx || this.muted || !this.started) return;
+    if (!this.ctx || this.muted || !this.started || this.speech) return; // round 25: no new SFX while someone speaks
     const ctx = this.ctx, t = ctx.currentTime;
     if (!this._padBuf) {
       const n = Math.floor(ctx.sampleRate * 0.35); this._padBuf = ctx.createBuffer(1, n, ctx.sampleRate);
@@ -373,7 +378,7 @@ export class CaveAudio {
 
   /** Bow release: a short plucked twang plus a breathy whoosh. */
   bowShot() {
-    if (!this.ctx || this.muted) return;
+    if (!this.ctx || this.muted || this.speech) return; // round 25: no new SFX while someone speaks
     const ctx = this.ctx, t = ctx.currentTime;
     const o = ctx.createOscillator(); o.type = "triangle"; o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(90, t + 0.18);
     const g = ctx.createGain(); g.gain.setValueAtTime(0.35, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
@@ -388,7 +393,7 @@ export class CaveAudio {
 
   /** Arrow impact: a meaty thud on a creature, a dry crack on rock / ground. */
   arrowHit(flesh = false) {
-    if (!this.ctx || this.muted) return;
+    if (!this.ctx || this.muted || this.speech) return; // round 25: no new SFX while someone speaks
     const ctx = this.ctx, t = ctx.currentTime;
     const b = ctx.createBuffer(1, ctx.sampleRate * 0.25, ctx.sampleRate), d = b.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * (flesh ? 0.05 : 0.018)));
@@ -442,7 +447,7 @@ export class CaveAudio {
 
   /** Cheap footstep: a shared gritty noise buffer through one bandpass; louder/brighter when running. */
   step(amp = 0.5, stance = "stand") {
-    if (!this.started || this.muted || !this.ctx) return;
+    if (!this.started || this.muted || !this.ctx || this.speech) return; // round 25: no new SFX while someone speaks
     const ctx = this.ctx;
     if (!this._stepBuf) {
       const n = Math.floor(ctx.sampleRate * 0.12);
@@ -467,7 +472,7 @@ export class CaveAudio {
 
   /** Round 12: hoofbeat on turf (low thump + a short dull click); a gallop fires these in pairs. */
   hoof(amp = 0.6) {
-    if (!this.started || this.muted || !this.ctx) return;
+    if (!this.started || this.muted || !this.ctx || this.speech) return; // round 25: no new SFX while someone speaks
     const ctx = this.ctx, t0 = ctx.currentTime;
     if (!this._stepBuf) this.step(0, "stand");
     const beats = amp > 0.6 ? [0, 0.07] : [0];

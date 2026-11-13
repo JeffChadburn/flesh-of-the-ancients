@@ -605,3 +605,4 @@ Game code in this folder is © 2026 Jeff Chadburn, released under the MIT Licens
 - Old Lume no longer sounds like two voices: his synthetic "murmur" only plays when the line is not spoken, and iOS gets a short pause between `cancel()` and `speak()`.
 - Round phone action buttons show an icon plus one short word that fits the circle ("The dead lie…" is now 👁 Look; "Kneel" became 💬 Talk for Old Lume and 🙏 Tend for Tor).
 - Desktop uses the same ☰ dropdown as phones (grouped: Game, Sound, Display, Tools), with Esc / ✕ to close; the keyboard hint is one small line.
+- While any story voice speaks (narration, NPCs, visions, cutscenes, tutorial), sound effects are silenced and none start; music and ambience dip to ~18%, then everything returns over ~0.5 s when the line ends, is skipped, or fails.

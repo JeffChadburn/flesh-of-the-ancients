@@ -1116,7 +1116,7 @@ const explored = new Set();
 
 // ---------------- Act 1 story (Flesh of the Ancients) ----------------
 const storyUI = new StoryUI(gameEl, { touch: IS_TOUCH });
-storyUI.voice.onDuck = (on) => audio.duckMusic(on);
+storyUI.voice.onDuck = (on) => { audio.duckMusic(on); audio.setSpeech(on); }; // round 25: one voice, nothing else over it
 storyUI.voice.onBroken = () => syncVoice();
 syncVoice();
 window.__VOICE__ = storyUI.voice;
