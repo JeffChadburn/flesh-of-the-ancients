@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>Flesh of the Ancients · realism sample</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #9fb6c8; touch-action: none; font: 13px ui-sans-serif, system-ui, sans-serif; }
+    canvas { display: block; width: 100%; height: 100%; }
+    #hud { position: fixed; left: max(10px, env(safe-area-inset-left)); top: max(10px, env(safe-area-inset-top)); color: #fff; background: rgba(0,0,0,0.45); padding: 7px 10px; border-radius: 10px; line-height: 1.45; pointer-events: auto; max-width: 70vw; }
+    #hud a { color: #ffe3a0; }
+    #hud b { color: #ffe3a0; }
+  </style>
+  <script type="importmap">
+  { "imports": { "three": "./vendor/three.module.min.js", "three/addons/": "./vendor/addons/" } }
+  </script>
+</head>
+<body>
+  <div id="hud"><b>Realism sample</b> · <span id="fps">…</span><br><span id="q"></span> · <a id="qa" href="#"></a><br>Drag to orbit · pinch / wheel to zoom</div>
+  <script type="module" src="js/sample/realism-sample.js"></script>
+</body>
+</html>
