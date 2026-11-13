@@ -505,7 +505,9 @@ button:hover, .file-btn:hover { border-color: var(--accent); color: #fff; }
   padding: 4px 12px 4px 8px; border-radius: 999px; background: rgba(10, 8, 6, 0.5); border: 1px solid rgba(255, 211, 106, 0.35);
   font: 13px ui-sans-serif, system-ui, sans-serif; color: #f6e2b0; text-shadow: 0 1px 2px #000; white-space: nowrap; }
 #compass.hidden { display: none; }
-#compass .arr { display: inline-block; width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 14px solid #ffd36a; transform-origin: 50% 60%; filter: drop-shadow(0 0 3px rgba(255, 190, 80, 0.8)); }
+#compass .arr { display: inline-block; width: 20px; height: 22px; vertical-align: middle; transform-origin: 50% 50%; filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.9));
+  /* round 25c: notched arrowhead instead of an equal-sided triangle, so the pointing end is obvious */
+  background: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-12 -13 24 26'%3E%3Cpath d='M0 -11 L8.5 9 L0 4 L-8.5 9 Z' fill='%23ffd36a' stroke='%23000' stroke-width='2.2' stroke-linejoin='round'/%3E%3C/svg%3E"); }
 #compass .d { opacity: 0.75; font-size: 12px; }
 /* desktop: objective sits top-centre; compass goes just under it when both show */
 /* (round 13: the compass sits under the meters, clear of the objective panel) */

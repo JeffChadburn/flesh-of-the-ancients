@@ -3,6 +3,17 @@ import { mapFilters } from "./mapfilters.js";
 
 import { stationMap, stationWorld } from "./cave-data.js";
 
+/** Round 25c: the "you" marker: a notched arrowhead (sharp tip, cut-in back) with a dark outline and
+ *  a light rim so it reads on any ground and clearly shows which way it points. Points up (-y). */
+export function drawPlayerArrow(ctx, size, fill = "#ffe36a") {
+  const L = size;
+  const path = () => { ctx.beginPath(); ctx.moveTo(0, -L); ctx.lineTo(L * 0.72, L * 0.78); ctx.lineTo(0, L * 0.32); ctx.lineTo(-L * 0.72, L * 0.78); ctx.closePath(); };
+  ctx.lineJoin = "round";
+  path(); ctx.lineWidth = Math.max(3, L * 0.38); ctx.strokeStyle = "rgba(0,0,0,0.85)"; ctx.stroke();
+  path(); ctx.fillStyle = fill; ctx.fill();
+  ctx.lineWidth = Math.max(1, L * 0.1); ctx.strokeStyle = "#fffbe8"; ctx.stroke();
+}
+
 export class Minimap {
   constructor(canvas) {
     this.canvas = canvas;
@@ -154,17 +165,7 @@ export class Minimap {
       // screen: up is negative Y. Direction of look in map space: (-sin(yaw), -cos(yaw)) in (x,z),
       // z is down on map, so arrow rotation: yaw 0 -> point up (negative screen y).
       ctx.rotate(yaw);
-      ctx.fillStyle = "#f3efe6";
-      ctx.strokeStyle = "#1a1208";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(0, -7);
-      ctx.lineTo(5, 6);
-      ctx.lineTo(0, 3);
-      ctx.lineTo(-5, 6);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
+      drawPlayerArrow(ctx, Math.max(8, w * 0.06));
       ctx.restore();
     }
 
@@ -263,8 +264,7 @@ export class Minimap {
     // player arrow
     ctx.save();
     ctx.translate(w / 2, h / 2); ctx.rotate(-yaw);
-    ctx.fillStyle = "#9fe3a8";
-    ctx.beginPath(); ctx.moveTo(0, -w * 0.05); ctx.lineTo(w * 0.03, w * 0.035); ctx.lineTo(-w * 0.03, w * 0.035); ctx.closePath(); ctx.fill();
+    drawPlayerArrow(ctx, Math.max(11, w * 0.08));
     ctx.restore();
   }
 }
