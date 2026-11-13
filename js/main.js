@@ -50,6 +50,7 @@ import { Cutscene } from "./cine/cutscene.js"; // round 24
 import { Tutorial, CHAPTERS } from "./tutorial.js";
 import { ControlsSheet, currentDevice } from "./controls.js";
 import { Finder, fmt as findFmt } from "./find.js"; // round 24b
+import { Overlays } from "./overlays.js"; // round 24c
 import { Fighters, markHostile, HORN_CD } from "./act1/fighters.js"; // round 24b
 import { INTRO, MEMORIES, AGE_LINES, fillMemory } from "./cine/scripts.js";
 
@@ -2007,7 +2008,7 @@ wmap.onTap = (q) => {
 };
 storyUI.onHint = () => showObjectiveHint();
 // ---------------- Round 24b: 🔍 Find ----------------
-const findMark = new Beacon(scene, gameEl, { name: "find", id: "find-ind", icon: "🔍", outer: 0x66ff1a, inner: 0xb8ff6a, ring: 0xb6ff5a });
+const findMark = new Beacon(scene, gameEl, { name: "find", bd: () => document.getElementById("find-panel"), id: "find-ind", icon: "🔍", outer: 0x66ff1a, inner: 0xb8ff6a, ring: 0xb6ff5a });
 const finder = new Finder(gameEl, {
   terrain: () => world.terrain, mode: () => world.mode, feet: () => (player && ready ? feetPos() : null),
   seen: (x, z) => wmap.seen(x, z), story, camp: () => world.camp, shrooms: () => world.shrooms, berries: () => world.berries,
@@ -3104,6 +3105,7 @@ window.__CAVE__ = {
       find: (cat) => finder.find(cat), findNext: () => finder.next(), findClear: () => finder.clear(), findCur: () => finder.cur && { ...finder.cur, live: !!finder.cur.live, gone: undefined, cave: undefined, d: +finder.cur.d.toFixed(1) },
       findList: (cat) => finder.search(cat).slice(0, 5).map((c) => ({ label: c.label, x: +c.x.toFixed(1), z: +c.z.toFixed(1), d: +c.d.toFixed(1) })), findNeed: () => finder.needed(), findOpen: () => finder.isOpen, openFind: () => finder.open(), lastFound: () => finder.lastFound || null,
       isShroom: (x, z) => !!world.shrooms?.spots.some((q) => Math.hypot(q.x - x, q.z - z) < 0.5 && world.shrooms.available(q)),
+ overlays: () => overlays.state(), uiSay: (t) => storyUI.say([{ who: "Test", text: t }, { who: "Test", text: t + " 2" }]), uiAsk: (c = true) => storyUI.ask("Test", "Pick one", [{ id: "a", label: "A" }], () => {}, c), closeTop: () => overlays.closeTop("test"), closeAll: () => overlays.closeAll("test"),
       fighters: () => world.fighters?.state(), bags: () => (world.fighters?.bags || []).map((g) => ({ x: +g.x.toFixed(2), z: +g.z.toFixed(2), who: g.who, loot: g.loot })), horn: () => blowHorn(), hornBtn: () => !hornBtn.classList.contains("hidden") && hornBtn.textContent, hornReset: () => { world.fighters.hornCd = 0; },
       hostile: () => (world.terrain?.settlements || []).filter((q) => q.hostile).map((q) => ({ id: q.id, name: q.name, kind: q.kind, age: q.age, x: +q.x.toFixed(1), z: +q.z.toFixed(1), R: q.R, d: +Math.hypot(q.x - feetPos().x, q.z - feetPos().z).toFixed(0) })),
       towns: () => (world.terrain?.settlements || []).map((q) => ({ id: q.id, name: q.name, kind: q.kind, hostile: !!q.hostile, age: q.age, x: +q.x.toFixed(1), z: +q.z.toFixed(1), R: q.R })),
@@ -3832,5 +3834,30 @@ if (shot === "entrance") player.spawnAtEntrance();
 if (shot === "waterfall" || shot === "pool" || shot === "stream" || shot === "formations" || shot === "cavern" || shot === "crawl" || shot === "junction" || shot === "fallclose") {
   lookAtFeature(shot);
 }
+
+// ---------------- Round 24c: one way out of every overlay (✕ top-right, Close all, Esc, back) ----------------
+const hidden = (el) => !el || el.classList.contains("hidden");
+const overlays = new Overlays([
+  { name: "cutscene", label: "the cutscene (skip)", open: () => !!cine?.on, close: () => cine.skip(), ownEsc: () => true },
+  { name: "inspect", bd: () => storyUI.inspector.el, open: () => !!storyUI.inspector.isOpen, close: () => storyUI.inspector.close() },
+  { name: "find", label: "Find", open: () => finder.isOpen, close: () => finder.close() },
+  { name: "mapFilters", label: "map filters", open: () => !!document.querySelector(".mf-pop"), close: () => document.querySelector(".mf-pop .mf-x")?.click() || document.querySelector(".mf-pop")?.remove(), force: () => document.querySelectorAll(".mf-pop").forEach((e) => e.remove()) },
+  { name: "mapMenu", label: "the map menu", open: () => !!document.querySelector(".wm-pop"), close: () => wmap._closePop() },
+  { name: "controls", label: "Controls", open: () => controlsSheet.isOpen, close: () => controlsSheet.close() },
+  { name: "audio", bd: () => audioPanel.el, label: "Audio", open: () => audioPanel.isOpen, close: () => audioPanel.close() },
+  { name: "multiplayer", bd: () => mp._panel, label: "Multiplayer", open: () => !hidden(mp._panel), close: () => mp.close() },
+  { name: "tutorialMenu", label: "the chapter list", open: () => !!tut?.on && !hidden(tut.el?.querySelector(".tu-menu")), close: () => tut.menu(false) },
+  { name: "chat", label: "chat", open: () => !hidden(mp._bar), close: () => mp.chatClose() },
+  { name: "choice", open: () => !hidden(storyUI.choice), close: () => { const c = storyUI.choice.querySelector(".cancel"); if (c) c.click(); else storyUI.closeChoice(); } },
+  { name: "pack", label: "the pack", open: () => !hidden(storyUI.panel), close: () => storyUI.closePanel() },
+  { name: "settlement", bd: () => colonyUI?.panel, label: "the settlement panel", open: () => !!colonyUI?.isOpen(), close: () => colonyUI.close() },
+  { name: "build", label: "build mode", open: () => colonyUI?.mode === "build", close: () => colonyUI.stop() },
+  { name: "map", label: "the map", open: () => wmap.isOpen, close: () => wmap.close() },
+  { name: "dialog", label: "the conversation", open: () => !hidden(storyUI.dialog), close: () => storyUI.skipAll(), force: () => storyUI.dialog.classList.add("hidden") },
+  { name: "tasks", label: "the quest log", open: () => IS_TOUCH && !!storyUI.tasksOpen, close: () => storyUI.toggleTasks(false) },
+  { name: "menu", label: "the menu", open: () => gameEl.classList.contains("menu-open") && !!menuBtn && getComputedStyle(menuBtn).display !== "none", close: () => gameEl.classList.remove("menu-open") },
+]);
+gameEl.classList.toggle("ov-on", false);
+setInterval(() => gameEl.classList.toggle("ov-on", overlays.n > 0), 200);
 
 requestAnimationFrame(tick);

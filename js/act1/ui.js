@@ -147,6 +147,8 @@ export class StoryUI {
     this.dialog.classList.remove("spoken", "nosubs");
     this.dialog.querySelector(".more").textContent = this.touch ? "Tap to continue" : "E / click to continue";
   }
+  /** Round 24c: skip the whole conversation (its onDone still runs). */
+  skipAll() { if (this.dialog.classList.contains("hidden")) return; this.dialogQueue = []; this._lineAt = 0; this.advance(true); }
   advance(first = false) {
     if (this.dialog.classList.contains("hidden")) return false;
     if (!first && performance.now() - (this._lineAt || 0) < 350) return true;
