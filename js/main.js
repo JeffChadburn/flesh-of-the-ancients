@@ -55,6 +55,10 @@ import { Finder, fmt as findFmt } from "./find.js"; // round 24b
 import { Overlays } from "./overlays.js"; // round 24c
 import { Fighters, markHostile, HORN_CD } from "./act1/fighters.js"; // round 24b
 import { INTRO, MEMORIES, AGE_LINES, fillMemory } from "./cine/scripts.js";
+import { CharMenu, itemName } from "./act1/charmenu.js"; // round 28a
+import { Drops } from "./act1/drops.js"; // round 28a
+import { QUESTS } from "./act1/quests.js";
+import { MONEY } from "./act1/survival.js";
 
 const errors = [];
 window.addEventListener("error", (e) => errors.push(String(e.message || e.error || e)));
@@ -394,6 +398,7 @@ function ensurePlayer(c) {
   player.onStance = syncStance;
   player.pace = savedPace; // round 17: desktop walk / jog / run pace
   player.onPace = (pc) => { savedPace = pc; showPace(pc); };
+  player.onFall = (h, o) => onFall(h, o); // round 28a: real free-fall only
   player.onLand = (amp) => (player.mounted ? audio.hoof?.(Math.max(0.7, amp)) : audio.step(Math.max(0.6, amp), "stand"));
   const knob = document.getElementById("joy-knob");
   const joy = document.getElementById("joystick");
@@ -498,7 +503,7 @@ function ensureWorld() {
   markHostile(world.terrain.settlements || [], world.terrain.act1?.camp || { x: 0, z: 0 });
   world.fighters = new Fighters({ scene: world.settleRoot, terrain: () => world.terrain, people: () => world.people, towns: () => world.terrain.settlements || [],
     colonies: () => world.colony?.list || [], feet: () => (world.mode === "overworld" && player && ready ? feetPos() : null), safe: () => fightSafe(),
-    hurt: (n, src) => damagePlayer(n, src), toast: (m, k) => storyUI.toast(m, k), log: (e) => glog(e), sound: (k, pos) => audio.fight?.(k, pos), lite: IS_TOUCH,
+    hurt: (n, src) => damagePlayer(n, src), overflow: (id, n) => dropAtFeet(id, n), toast: (m, k) => storyUI.toast(m, k), log: (e) => glog(e), sound: (k, pos) => audio.fight?.(k, pos), lite: IS_TOUCH,
     key: () => `fota-fallen-v1-${story.tutorial ? "tut" : story.sandbox ? (mpActive ? "mp" : "free") : "story"}-${seed}` });
   world.people.skip = (k) => world.talk.joined(k) || world.fighters.isFallen(k);
   Object.defineProperty(world.wildlife, "noPredators", { get: () => story.tutorial || URLP.has("nopred") });
@@ -1259,7 +1264,9 @@ const story = new Story({
   colonyRestore: (o) => { if (world.colony && !world.colony.list.length && o?.list?.length) { world.colony.load(o, false); } },
   container: (f) => (world.mode === "overworld" && world.settle ? world.settle.containerNear(f.x, f.z) : null),
   lootNear: (f) => (world.mode === "overworld" ? world.fighters?.lootNear(f) : null), // round 24b
-  lootTake: (b) => { world.fighters.lootTake(b, story.surv); renderStatus(); },
+  lootTake: (b) => { world.fighters.lootTake(b, story.surv); renderStatus(); applyStats(); },
+  dropNear: (f) => (player ? drops.near(f) : null), // round 28a
+  dropTake: (d) => { const n = d.n, k = drops.take(d, story.surv); if (k) { story.surv.autoEquip?.([d.id]); applyStats(); storyUI.toast(`Picked up ${k} ${itemName(d.id).toLowerCase()}${k < n ? " (no room for the rest)" : ""}`, "good"); glog({ e: "pickup", id: d.id, n: k }); } else storyUI.toast("No room in your pack.", "bad"); },
   onTheft: (f) => { const s = world.settle?.at(f.x, f.z); if (s?.hostile) world.fighters.aggro(s, "They caught you raiding their stores."); },
   places: () => world.places || null,
   caveEntryId: () => (world.mode !== "overworld" && world.entrance ? world.entrance.id : null),
@@ -1280,7 +1287,7 @@ const story = new Story({
   caveExit: () => { if (!cave) return null; const st = stationMap(cave).get(cave.entranceId); if (!st) return null; const w = stationWorld(st); return { x: w.x, z: w.z }; },
   volume: () => (player && !player.terrain ? player.volume : null),
   paused: () => storyUI.modal || game.dead,
-  hurt: () => damagePlayer(),
+  hurt: (n = 1, src = "starving") => damagePlayer(n, src),
   health: () => game.health,
   setArmed: (v) => { game.armed = !!v; caveman.setWeapon(game.weapon || "spear", !!v); },
   applyStats: () => applyStats(),
@@ -1317,14 +1324,27 @@ const story = new Story({
   },
 });
 game.armed = true;
+let bloodSeen = -1, bloodForce = null; // bloodForce: a test / photo override of the stain level
+function bloodKills() { const st = story.surv?.stats || {}; return tally.kills + (st.small || 0) + (st.deer || 0) + (world.fighters?.c.kills || 0) + (story.surv?.faces || 0) * 2; }
+function bloodTick() {
+  if (bloodForce != null) return;
+  const k = bloodKills();
+  if (bloodSeen >= 0 && k > bloodSeen) caveman.freshKill();
+  if (k !== bloodSeen) { bloodSeen = k; caveman.setBlood(k ? 0.12 + Math.min(0.88, k / 14) : 0); }
+}
+/** Round 28a: what Kra wears, for the model (garments + equipped items). */
+function gearSet(s) { const g = new Set(s.wear); for (const [sl, id] of Object.entries(s.equip || {})) if (id && id !== "torch") g.add(id); if (s.equip?.offhand === "torch" || !s.equip?.offhand) g.add("torch"); return g; }
 function applyStats() {
   const s = story.surv;
   const prev = game.maxHealth;
   const pack = story.active || story.sandbox;
   game.maxHealth = 3 + (story.active ? s.faces + s.hpBonus : 0) + (pack ? s.bonusHearts() : 0);
-  caveman.setGear(pack ? s.wear : new Set()); // round 16: clothing shows on Kra
-  caveman.torchBoost = pack && s.crafted.has("torch") ? 1.3 : 1;
-  if (caveman.light) caveman.light.distance = pack && s.crafted.has("torch") ? 58 : 45;
+  if (pack) s.syncEquip?.();
+  caveman.setGear(pack ? gearSet(s) : new Set()); // round 16: clothing shows on Kra (round 28a: and worn gear)
+  // round 28a: the torch grows with level, skills and the resin torch (Skills shows it)
+  const ts = pack ? s.torchStats() : { reach: 1, bright: 1 };
+  game.torchReach = ts.reach; caveman.torchBoost = ts.bright;
+  if (caveman.light) caveman.light.distance = TORCH_REACH * ts.reach;
   if (game.maxHealth > prev) game.health += game.maxHealth - prev;
   game.health = Math.min(game.health, game.maxHealth);
   renderStatus();
@@ -1420,9 +1440,10 @@ function damagePlayer(n = 1, src = "") {
   if (game.dead || game.invuln > 0 || game.god || storyUI.modal) return false;
   // round 24b: worn armour (shield, jerkin, helm, mail) may turn a blow aside
   const arm = (story.active || story.sandbox) ? story.surv.armor() : 0;
-  if (src && n > 0 && arm > 0 && Math.random() < arm * 0.15) { game.invuln = 0.6; storyUI.toast(`🛡 Your armour turns the ${src || "blow"} aside`); glog({ e: "blocked", src }); return false; }
+  if (src && src !== "fall" && src !== "starving" && n > 0 && arm > 0 && Math.random() < arm * 0.15) { game.invuln = 0.6; storyUI.toast(`🛡 Your armour turns the ${src || "blow"} aside`); glog({ e: "blocked", src }); return false; }
   game.health -= n;
   game.hitsTaken += 1;
+  game.lastSrc = src || game.lastSrc || "";
   game.invuln = 1.0;
   game.vignette = 1;
   game.shake = 0.35;
@@ -1430,48 +1451,114 @@ function damagePlayer(n = 1, src = "") {
   glog({ e: "playerHit", health: game.health });
   audio.step(1, "stand");
   renderStatus();
-  if (game.health <= 0) die();
+  if (game.health <= 0) die(src);
   return true;
 }
 
-function die() {
+// ---------------- Round 28a: death keeps everything; respawn resets every state cleanly ----------------
+// Kra keeps his pack, worn gear, money, skills, quests and his horse / boat. Nothing reloads from the
+// save. deathFlow.beforeRespawn is the hook for a future spirit-world sequence: an async function
+// (ctx) => {} that runs while the death screen is up, before Kra wakes (ctx says where / how he died).
+const deathFlow = { beforeRespawn: null, busy: false, ctx: null, count: 0, log: [] };
+function die(src = "") {
+  if (game.dead) return;
   game.dead = true;
   game.deadT = 0;
   tally.deaths += 1;
   saveTally();
+  const f = player ? feetPos() : null, town = f && world.mode === "overworld" ? world.settle?.at(f.x, f.z) : null;
+  const ctx = deathFlow.ctx = { cause: src || game.lastSrc || "", mode: world.mode, cave: world.mode !== "overworld" ? (cave?.name || "") : "", at: f ? { x: +f.x.toFixed(1), y: +f.y.toFixed(1), z: +f.z.toFixed(1) } : null,
+    town: town ? { id: town.id, name: town.name, hostile: !!town.hostile } : null, horse: game.horse || null, boat: game.boat || null, t: Date.now() };
+  // get off the horse / out of the boat now (they are kept, and wait for Kra after he wakes)
+  if (game.horse) { const h = game.horse; player.mounted = false; game.horse = null; world.wildlife?.dismount(h); deathFlow.horse = h; }
+  if (game.boat) { const b = game.boat; player.boating = false; game.boat = null; b.taken = false; b.v = 0; b.yr = 0; deathFlow.boat = b; updateBeachBtn(false); }
+  const p = deathEl?.querySelector("p"), h2 = deathEl?.querySelector("h2");
+  if (h2) h2.textContent = ctx.cause === "fall" ? "You fell" : ctx.cause === "starving" ? "Hunger took you" : "You were taken";
+  if (p) p.textContent = world.mode === "overworld" ? "You keep everything you carry. Waking at a safe fire…" : "You keep everything you carry. Waking at the entrance…";
   deathEl?.classList.remove("hidden");
-  glog({ e: "death" });
+  glog({ e: "death", cause: ctx.cause, mode: ctx.mode, town: ctx.town?.name || null, horse: !!ctx.horse, boat: !!ctx.boat });
   audio.music?.duckFor?.(2.5, 0.15);
 }
 
-function respawn() {
-  // Story: death returns to the last save (faces / skills / Blood Memory are kept).
-  if (story.active && readSave()) {
-    game.dead = false; game.deadT = 0;
-    deathEl?.classList.add("hidden");
-    const snap = story.load(readSave(), { keep: true });
-    applyStats(); game.health = game.maxHealth; renderStatus();
-    transition(() => restoreFromSave(snap));
-    glog({ e: "respawnFromSave" });
-    return;
-  }
-  if (world.mode === "overworld") {
-    game.dead = false; game.health = game.maxHealth; game.invuln = 2;
-    deathEl?.classList.add("hidden"); renderStatus();
-    transition(() => enterOverworld());
-    return;
-  }
-  game.dead = false;
-  game.health = game.maxHealth;
-  game.invuln = 2;
-  game.vignette = 0;
-  player.setStance("stand");
-  player.spawnAtEntrance();
+/** Where Kra wakes in the hills: his nearest settlement, else the last save (story) / camp, else the world spawn. */
+function respawnSpot(ctx) {
+  const t = world.terrain, f = ctx?.at || feetPos();
+  const own = world.colony?.list.length ? world.colony.homeFor(f) : null;
+  if (own) { const q = world.colony.storePt(own); return { x: q.x, z: q.z + 2.5, yaw: player?.yaw || 0 }; }
+  if (story.active) { const sv = readSave(); if (sv?.pos) return sv.pos; if (world.camp) return campSpawn(); }
+  return { x: t.spawn.x, z: t.spawn.z, yaw: t.spawn.yaw };
+}
+
+async function respawn() {
+  if (deathFlow.busy) return;
+  deathFlow.busy = true;
+  const ctx = deathFlow.ctx || { mode: world.mode };
+  try { if (typeof deathFlow.beforeRespawn === "function") await deathFlow.beforeRespawn(ctx); } catch (err) { errors.push("beforeRespawn: " + err); }
+  try {
+    if (world.mode === "overworld") {
+      const at = respawnSpot(ctx);
+      await transition(() => { enterOverworld(null, { at }); resetAfterDeath(ctx); });
+    } else {
+      player.setStance("stand");
+      player.spawnAtEntrance();
+      // The creature loses you and drifts back into the deep.
+      if (game.monster && game.monster.alive) game.monster.spawnFar(feetPos());
+      resetAfterDeath(ctx);
+    }
+  } finally { deathFlow.busy = false; }
+}
+
+/** Every state back to normal after a death (also used by the tests). */
+function resetAfterDeath(ctx = {}) {
+  game.dead = false; game.deadT = 0;
+  game.health = game.maxHealth; game.invuln = 2.5; game.vignette = 0; game.shake = 0;
+  game.attackCd = 0; game.attackPending = -1; game.noiseBurst = 0; game.lastSrc = "";
   deathEl?.classList.add("hidden");
-  // The creature loses you and drifts back into the deep.
-  if (game.monster && game.monster.alive) game.monster.spawnFar(feetPos());
+  caveman.root.visible = true; caveman.attackT = -1;
+  if (player) {
+    player.mounted = false; player.boating = false; player.vy = 0; player.jumping = false; player.jumpBuf = 0; player._air = null;
+    player.stuckT = 0; player.rescueRun = 0; player.keys?.clear?.(); player.resetJoy?.();
+    if (player.stance !== "stand") player.setStance("stand");
+    player.sprintAllowed = true;
+  }
+  game.horse = null; game.boat = null; game.boatAuto = null; updateBeachBtn(false);
+  try { overlays.closeAll("death"); } catch {}
+  colonyUI?.mode && colonyUI.stop();
+  storyUI.setPrompt?.(null);
+  // needs: wake hungry, not starving (else the next death comes before you can eat)
+  const s = story.surv;
+  if (s && (story.active || story.sandbox)) { s.hunger = Math.max(s.hunger, 35); s.thirst = Math.max(s.thirst, 35); s.stamina = 100; s.exhausted = false; s.starveT = 0; }
+  // a town that was fighting you stands down; spears in the air vanish
+  if (world.fighters) { for (const sp of world.fighters.spears) scene.remove(sp.m); world.fighters.spears = []; for (const t of world.fighters.towns.values()) if (t.aggro) world.fighters.calm(t.s); }
+  world.wildlife?.calmAll?.();
+  // the horse comes back to Kra; the boat waits where it was (yours, on the map)
+  const h = deathFlow.horse; deathFlow.horse = null;
+  if (h && world.mode === "overworld" && h.alive) {
+    const f = feetPos(), x = f.x + Math.cos(player.yaw) * 2.6, z = f.z - Math.sin(player.yaw) * 2.6;
+    h.pos.set(x, world.terrain.height(x, z), z); h.home = { x, z }; h.state = "idle"; h.stateT = 0; h.ridden = false; h.root.visible = true;
+    world.wildlife.rehome?.(h);
+  }
+  deathFlow.boat = null;
+  audio.music?.duckFor?.(0.1, 1);
+  applyStats(); game.health = game.maxHealth;
   renderStatus();
-  glog({ e: "respawn" });
+  deathFlow.count++; deathFlow.log.push({ mode: ctx.mode, cause: ctx.cause || "", at: Date.now() });
+  storyUI.toast(ctx.mode === "overworld" ? "You wake by a fire, aching. Everything you carried is still with you." : "You come to at the mouth of the passage. Everything you carried is still with you.");
+  glog({ e: "respawn", mode: ctx.mode });
+  if (story.active && world.mode === "overworld") story.save("auto"); // the new spot is the save point
+}
+
+/** Round 28a: a real free fall (player.onFall). Water and the saddle soften the landing. */
+function onFall(h, o = {}) {
+  if (!player || game.dead || storyUI.modal) return;
+  if ((o.water || 0) > 0.6) return;
+  const safe = o.mounted ? 6 : 4.5;
+  game.lastFall = { h: +h.toFixed(2), t: +(o.t || 0).toFixed(2), mounted: !!o.mounted };
+  if (h <= safe) return;
+  const n = Math.max(1, Math.ceil((h - safe) / 3));
+  game.invuln = 0;
+  game.lastSrc = "fall";
+  if (damagePlayer(n, "fall")) storyUI.toast(`You land hard (a ${h.toFixed(0)} m fall).`, "bad");
 }
 
 function attack() {
@@ -1573,7 +1660,7 @@ function stepGame(dt) {
   }
   if (game.dead) {
     game.deadT += dt;
-    if (game.deadT > 3.2) respawn();
+    if (game.deadT > 3.2 && !deathFlow.busy) respawn();
   } else if (game.health < game.maxHealth && game.time - game.lastDamage > 25) {
     game.health += 1;
     game.lastDamage = game.time;
@@ -1874,11 +1961,12 @@ window.addEventListener("keydown", (e) => {
   else if (e.code === "Space" && !storyUI.modal && !game.dead) { e.preventDefault(); player?.jump(); }
   if ((story.active || story.tutorial) && e.code === "KeyJ") storyUI.toggleTasks();
   const pk = story.active || story.sandbox;
-  if (pk && e.code === "KeyI") { storyUI.togglePanel("inv", story.surv); }
-  if (pk && e.code === "KeyK") { storyUI.togglePanel("skills", story.surv); }
-  if (pk && e.code === "Tab") { e.preventDefault(); storyUI.togglePanel("craft", story.surv); }
+  // round 28a: I / Tab open the Character menu (K: its Skills tab); crafting is ⚒ Craft inside it, or the Pack
+  if (pk && e.code === "KeyI") { toggleChar(charMenu.isOpen ? undefined : "items"); }
+  if (pk && e.code === "KeyK") { toggleChar("skills"); }
+  if (pk && e.code === "Tab") { e.preventDefault(); toggleChar(); }
   if (e.code === "KeyM" && ready && !storyUI.modal) openMap(true);
-  if (e.code === "Escape") { finder?.close(); storyUI.closePanel(); storyUI.closeChoice(); if (wmap.isOpen) wmap.close(); }
+  if (e.code === "Escape") { finder?.close(); storyUI.closePanel(); if (charMenu.isOpen) charMenu.close(); storyUI.closeChoice(); if (wmap.isOpen) wmap.close(); }
   if (e.code === "KeyT" && world.atmo) { world.atmo.skip(e.shiftKey ? -1 : 1); storyUI.toast(`Time: ${world.atmo.label().clock}`); }
   if (e.code === "KeyY" && world.atmo) { storyUI.toast(`Weather: ${world.atmo.cycleWeather()}`); }
 });
@@ -1936,6 +2024,91 @@ function updateMountUI() {
   mountBtn.innerHTML = want === "out" ? "Get out <kbd>E</kbd>" : want === "boat" ? "Board ⛵ <kbd>E</kbd>" : want === "off" ? "Dismount <kbd>E</kbd>" : "Ride <kbd>E</kbd>";
 }
 storyUI.invBtn.addEventListener("click", () => storyUI.togglePanel("inv", story.surv));
+
+// ---------------- Round 28a: items on the ground, selling, the Character menu ----------------
+const drops = new Drops({
+  scene,
+  key: () => `fota-drops-v1-${story.tutorial ? "tut" : story.sandbox ? (mpActive ? "mp" : "free") : "story"}-${world.terrain?.seed ?? 0}`,
+  where: () => (world.mode === "overworld" ? "ow" : "cave:" + (world.entrance?.id ?? cave?.seed ?? cave?.name ?? "x")),
+  ground: (x, z) => (world.mode === "overworld" && world.terrain ? world.terrain.height(x, z) : null),
+});
+function dropsTick(t) { const k = drops.env.key(); if (k !== drops._k) { drops._k = k; drops.load(); } drops.sync(); drops.update(t); }
+/** Drop n of an item just in front of Kra. */
+function dropAtFeet(id, n) {
+  const f = feetPos(), a = player?.yaw || 0, x = f.x - Math.sin(a) * 0.9, z = f.z - Math.cos(a) * 0.9;
+  return drops.drop(id, n, x, z, world.mode === "overworld" ? null : f.y);
+}
+/** Where Kra can sell: a friendly town or his own settlement (overworld). age: 0 shells, 1 bronze rings, 2 iron coins. */
+function sellCtx() {
+  if (!player || world.mode !== "overworld") return { ok: false, age: 0, why: "Sell at a trader in a friendly town (not in a cave)." };
+  const f = feetPos(), town = world.settle?.at(f.x, f.z);
+  if (town && !town.hostile) return { ok: true, age: Math.max(0, Math.min(2, town.age || 0)), where: town.name };
+  if (town?.hostile) return { ok: false, age: 0, why: `${town.name} won't trade with you.` };
+  const own = world.colony?.at(f.x, f.z, 10);
+  if (own) return { ok: true, age: own.age >= 4 ? 2 : own.age >= 3 ? 1 : 0, where: own.name };
+  return { ok: false, age: 0, why: "Walk into a friendly town (or your own settlement) to sell." };
+}
+function sellItem(id, n = 1) {
+  const s = story.surv, c = sellCtx();
+  if (!c.ok) return { ok: false, msg: c.why };
+  const [m, p] = s.price(id, c.age); n = Math.min(n, s.count(id));
+  if (!p || n < 1) return { ok: false, msg: `Nobody here will buy ${itemName(id).toLowerCase()}.` };
+  s.remove(id, n);
+  const pay = p * n, got = s.add(m, pay);
+  if (got < pay) dropAtFeet(m, pay - got);
+  audio.pickup?.(); renderStatus(); applyStats();
+  glog({ e: "sell", id, n, money: m, pay, at: c.where });
+  storyUI.toast(`Sold ${n} ${itemName(id).toLowerCase()} for ${pay} ${ITEMS[m].icon} at ${c.where}`, "good");
+  return { ok: true, msg: `Sold ${n} ${itemName(id).toLowerCase()} for ${pay} ${ITEMS[m].name.toLowerCase()}.`, pay, money: m };
+}
+function discardItem(id, n = 1) {
+  const s = story.surv; n = Math.min(n, s.count(id));
+  if (!player || n < 1) return { ok: false, msg: "Nothing to drop." };
+  s.remove(id, n); dropAtFeet(id, n); applyStats();
+  glog({ e: "discard", id, n });
+  return { ok: true, msg: `Dropped ${n} ${itemName(id).toLowerCase()}. It lies at your feet (walk up and pick it up).` };
+}
+function charStats() {
+  const s = story.surv, arm = s.armor();
+  return { hp: game.health, hearts: game.maxHealth, armor: Math.round(Math.min(0.6, arm * 0.15) * 100), dmg: 1 + (s.tools.spearDone || s.str > 0 ? 1 : 0) + s.weaponBonus() + (s.str || 0), bow: 1 + s.arrowBonus(), kills: tally.kills, deaths: tally.deaths };
+}
+const charMenu = new CharMenu(gameEl, {
+  surv: () => story.surv, gear: (s) => gearSet(s), blood: () => Math.max(0, caveman._bloodK || 0),
+  changed: () => { applyStats(); story.env?.ui?.renderPanel?.(); },
+  sellCtx, sell: sellItem, discard: discardItem,
+  act: (a, id) => story.panelAction(a, id), inspect: (id) => storyUI.inspect(id),
+  learn: (id) => { story.panelAction("learn", id); }, questDone: (q) => story.quests.done(q),
+  stats: charStats,
+  quests: () => {
+    const Q = story.quests, T = (id) => QUESTS.find((q) => q.id === id);
+    const map = (id) => ({ title: T(id)?.title || id, main: !!T(id)?.main, tracked: Q.tracked === id });
+    return { active: Q.active().map(map), done: Q.completed().map(map) };
+  },
+  openTasks: () => storyUI.toggleTasks(true), openMap: () => openMap(true), openCraft: () => storyUI.openPanel("craft", story.surv),
+  mapImage: () => { // the terrain map under the fog of war, with Kra's arrow
+    if (!world.terrain) return null;
+    wmap.terrain = wmap.terrain || world.terrain;
+    const bg = wmap._bg(); if (!bg) return null;
+    const c = document.createElement("canvas"); c.width = c.height = 320; const g = c.getContext("2d");
+    g.drawImage(bg, 0, 0, 320, 320); g.drawImage(wmap._fogCanvas(), 0, 0, 320, 320);
+    const f = feetPos(), HALFM = 3200, x = ((f.x + HALFM) / (2 * HALFM)) * 320, y = ((f.z + HALFM) / (2 * HALFM)) * 320;
+    g.fillStyle = "#4285f4"; g.strokeStyle = "#fff"; g.lineWidth = 2; g.beginPath(); g.arc(x, y, 5, 0, Math.PI * 2); g.fill(); g.stroke();
+    return c;
+  },
+}, { touch: IS_TOUCH });
+function toggleChar(tab) {
+  if (!(story.active || story.sandbox) || !ready) return false;
+  if (!charMenu.isOpen) { storyUI.closePanel(); if (wmap.isOpen) wmap.close(); gameEl.classList.remove("menu-open"); }
+  charMenu.toggle(tab); return charMenu.isOpen;
+}
+{ // 👤 on the side rail, and ☰ → Character
+  const b = document.createElement("button"); b.type = "button"; b.className = "rail-btn char-btn"; b.title = "Character: equipment, items, skills (I / Tab)"; b.setAttribute("aria-label", "Character");
+  b.innerHTML = `<span class="ic">👤</span><span class="lb">Kra</span>`; storyUI.rail.insertBefore(b, storyUI.invBtn);
+  b.addEventListener("click", (e) => { e.stopPropagation(); armAudio(); toggleChar(); });
+  const m = document.createElement("button"); m.type = "button"; m.id = "char-menu-btn"; m.title = "Equipment, items, skills, stats (I / Tab)"; m.textContent = "👤 Character";
+  document.getElementById("pack-btn")?.before(m);
+  m.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); toggleChar("equip"); });
+}
 document.getElementById("menu-main-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); showMainMenu(); });
 document.getElementById("pack-btn")?.addEventListener("click", (e) => { e.stopPropagation(); gameEl.classList.remove("menu-open"); if (story.active || story.sandbox) storyUI.openPanel("inv", story.surv); });
 
@@ -1959,9 +2132,10 @@ function mapState() {
     const t = world.terrain, site = t.act1;
     out.title = "The Hills";
     out.towns = (t.settlements || []).map((s) => ({ x: s.x, z: s.z, name: s.hostile ? `⚔ ${s.name} (hostile)` : s.name, kind: s.kind, color: s.hostile ? "#ff5a4a" : SETTLE_KIND[s.kind].color, known: false }));
-    if (world.fighters) for (const a of world.fighters.allies) out.marks.push({ x: a.x, z: a.z, color: "#5aa8ff", label: "⚔" }); // round 24b
+    out.roads = (t.settlements || []).flatMap((s) => s.paths || []); // round 28a: town lanes drawn as roads
     out.entrances = t.entrances.filter((e) => world.discovered.has(e.id)).map((e) => ({ x: e.x, z: e.z, name: e.name, cave: e.cave }));
     out.marks = site ? [{ x: site.camp.x, z: site.camp.z, color: "#ffb050", label: story.active ? "River-Tooth camp" : "Camp" }] : [];
+    if (world.fighters) for (const a of world.fighters.allies) out.marks.push({ x: a.x, z: a.z, color: "#5aa8ff", label: "⚔" }); // round 24b (round 28a: after marks exists)
     if (site && story.active) out.stream = site.stream;
     if (world.colony) for (const c of world.colony.list) out.towns.push({ x: c.x, z: c.z, name: `${c.name} · ${COL_AGES[c.age].name} · 👥${c.vill.length}`, kind: "village", color: "#7fe0ff", known: true }); // round 20
     if (world.boats) out.boats = world.boats.list.map((b) => ({ x: b.x, z: b.z, yaw: b.yaw, kind: b.kind, mine: b === game.boat || b === game.myBoat, riding: b === game.boat }));
@@ -2254,9 +2428,11 @@ function tickBody(now) {
     const steps = substepsFor(dt);
     let info;
     const before = camera.position.clone();
-    if (game.boat && world.mode === "overworld") { if (!game.dead && !storyUI.modal && !wmap.isOpen) boatStep(dt); info = player.readout(); } // round 19
-    else if (!game.dead && !storyUI.modal && !wmap.isOpen) for (let k = 0; k < steps; k++) info = player.update(dt / steps);
+    if (game.boat && world.mode === "overworld") { if (!game.dead && !storyUI.modal && !wmap.isOpen && !charMenu.isOpen) boatStep(dt); info = player.readout(); } // round 19
+    else if (!game.dead && !storyUI.modal && !wmap.isOpen && !charMenu.isOpen) for (let k = 0; k < steps; k++) info = player.update(dt / steps);
     else info = player.readout();
+    if (story.active || story.sandbox) try { dropsTick(now / 1000); } catch (err) { errors.push("drops: " + err); } // round 28a
+    bloodTick(); // round 28a: dried blood on Kra grows with his kills; wet only right after one
     stepGame(dt);
     stepWorld(dt);
     updateExitBtn();
@@ -2311,7 +2487,7 @@ function tickBody(now) {
     // Halls: thinner haze and a longer torch throw so their scale reads (still torch-lit only).
     const hall = size > 18 ? 1 : size > 10 ? 0.45 : 0;
     const fogWant = FOG_DENSITY * (1 - 0.5 * hall);
-    caveman.light.distance += (TORCH_REACH + 20 * hall - caveman.light.distance) * Math.min(1, dt * 1.5);
+    caveman.light.distance += (TORCH_REACH * (game.torchReach || 1) + 20 * hall - caveman.light.distance) * Math.min(1, dt * 1.5);
     if (!game.fogLock) {
       // A faint cold fill in halls (drip-wet rock catching the torch far off) so the room's size reads.
       game.hallFill = (game.hallFill || 0) + (hall - (game.hallFill || 0)) * Math.min(1, dt * 0.7);
@@ -3373,6 +3549,93 @@ window.__CAVE__ = {
     toHunter: () => { const h = story.hunter; if (!h) return false; const yawTo = Math.atan2(-(h.x - camera.position.x), -(h.z - camera.position.z)); const q = window.__CAVE__.queryFloor(h.x, h.obj.position.y + 1.6, h.z); player.placeWorld(h.x + Math.sin(yawTo) * 1.2, h.obj.position.y + 1.55, h.z + Math.cos(yawTo) * 1.2); player.yaw = yawTo; player.applyLook(); return q; },
     ratState: () => { const m = game.monster; return m ? { kind: m.kind, alive: m.alive, health: m.health, state: m.state, dist: +(m.distToPlayer ?? -1).toFixed(2) } : null; },
     kill: () => { game.god = false; game.invuln = 0; game.health = 1; damagePlayer(); return game.dead; },
+    // ---- round 28a test hooks ----
+    r28a: {
+      die: (src = "test") => { game.god = false; game.invuln = 0; storyUI.closeChoice(); game.health = 0; renderStatus(); die(src); return game.dead; },
+      dead: () => game.dead, deathCtx: () => deathFlow.ctx && { ...deathFlow.ctx, horse: !!deathFlow.ctx.horse, boat: !!deathFlow.ctx.boat }, deaths: () => deathFlow.count,
+      setBeforeRespawn: (on) => { deathFlow.beforeRespawn = on ? async (ctx) => { window.__spiritHook = (window.__spiritHook || 0) + 1; window.__spiritCtx = { mode: ctx.mode, cause: ctx.cause }; await new Promise((r) => setTimeout(r, 300)); } : null; return true; },
+      respawnNow: () => { game.deadT = 99; return true; },
+      state: () => ({ dead: game.dead, deadT: +(game.deadT || 0).toFixed(1), dfBusy: deathFlow.busy, gtime: +game.time.toFixed(1), hp: game.health, max: game.maxHealth, mode: world.mode, mounted: !!player?.mounted, horse: !!game.horse, boating: !!player?.boating, boat: !!game.boat, busy: !!world.busy, modal: !!storyUI.modal,
+        stance: player?.stance, keys: player ? [...player.keys] : [], joy: player?.joy ? { x: player.joy.x || 0, y: player.joy.y || 0, active: !!player.joy.active } : null, deathShown: !deathEl.classList.contains("hidden"), invuln: +game.invuln.toFixed(1),
+        hunger: Math.round(story.surv.hunger), thirst: Math.round(story.surv.thirst), aggro: world.fighters ? [...world.fighters.towns.values()].filter((t) => t.aggro).length : 0, overlays: overlays.n, fade: fadeEl?.classList.contains("on") || false,
+        quests: story.quests.active().length, tracked: story.quests.tracked, vy: player ? +player.vy.toFixed(2) : 0, grounded: player?.grounded, cm: charMenu.isOpen, map: wmap.isOpen, spearVis: caveman.spear.visible, kraVis: caveman.root.visible }),
+      inv: () => ({ inv: story.surv.inv.map((q) => q.id + ":" + q.n), equip: { ...story.surv.equip }, wear: [...story.surv.wear], slots: story.surv.slots, xp: story.surv.xp, skills: [...story.surv.skills] }),
+      snapshotItems: () => JSON.stringify({ inv: story.surv.inv, equip: story.surv.equip, wear: [...story.surv.wear], xp: story.surv.xp, faces: story.surv.faces, crafted: [...story.surv.crafted], quests: story.quests.toJSON() }),
+      lastFall: () => game.lastFall || null, playerFall: () => player.lastFall || null,
+      /** Find a steep hillside near (x, z): the steepest of a coarse scan, with the downhill direction. */
+      findSteep: (cx = 0, cz = 0, R = 1500, minM = 0.9, maxM = 1.6) => {
+        const T = world.terrain; let best = null;
+        for (let x = cx - R; x <= cx + R; x += 12) for (let z = cz - R; z <= cz + R; z += 12) {
+          const sl = T.slope(x, z), m = sl.m; if (m < minM || m > maxM || T.waterDepth(x, z) > -0.5) continue;
+          // a long run: still steep 15 m and 30 m further down the fall line
+          const g = [T.height(x + 1, z) - T.height(x - 1, z), T.height(x, z + 1) - T.height(x, z - 1)], gl = Math.hypot(g[0], g[1]) || 1, dx = -g[0] / gl, dz = -g[1] / gl;
+          let mx = 0, mn = 9; for (let k = 3; k <= 45; k += 3) { const q = T.slope(x + dx * k, z + dz * k).m; mx = Math.max(mx, q); mn = Math.min(mn, q); }
+          const m2 = mx, drop = T.height(x, z) - T.height(x + dx * 30, z + dz * 30);
+          if (mx > maxM * 1.15 || mn < minM * 0.6 || drop < 15) continue;
+          if (!best || drop > best.drop) best = { x, z, m: +m.toFixed(2), m2: +m2.toFixed(2), drop: +drop.toFixed(1), dx, dz };
+        }
+        return best;
+      },
+      /** Run (sprint) straight down the fall line for secs; returns damage taken, falls seen and the drop covered. */
+      runDownhill: (x, z, secs = 6, keys = ["KeyW", "ShiftLeft"]) => {
+        const T = world.terrain, P = player, c = camera.position, dt = 1 / 60;
+        if (game.dead) resetAfterDeath({});
+        game.god = false; game.invuln = 0; game.health = game.maxHealth; game.lastFall = null; renderStatus();
+        P.setTerrain(T, x, z, 0); const y0 = T.height(x, z), hp0 = game.health; let falls = 0, maxH = 0, airF = 0, maxSpeed = 0;
+        const prevFall = P.onFall; P.onFall = (h, o) => { falls++; maxH = Math.max(maxH, h); onFall(h, o); };
+        for (let i = 0; i < secs * 60 && !game.dead; i++) {
+          const g = [T.height(c.x + 1, c.z) - T.height(c.x - 1, c.z), T.height(c.x, c.z + 1) - T.height(c.x, c.z - 1)], gl = Math.hypot(g[0], g[1]) || 1;
+          P.yaw = Math.atan2(g[0] / gl, g[1] / gl); // face downhill (forward is -z rotated by yaw)
+          P.keys.clear(); for (const k of keys) P.keys.add(k);
+          const ns = substepsFor(dt); for (let j = 0; j < ns; j++) P.update(dt / ns);
+          if (game.horse) world.wildlife.ride(game.horse, feetPos(), P.yaw, P.speedNow, dt, i * dt);
+          if (P.grounded === false) airF++; maxSpeed = Math.max(maxSpeed, P.speedNow || 0);
+          game.invuln = 0; // count every landing
+        }
+        P.keys.clear(); P.onFall = prevFall;
+        return { hp0, hp: game.health, dead: game.dead, falls, maxFallH: +maxH.toFixed(2), airS: +(airF / 60).toFixed(2), descent: +(y0 - T.height(c.x, c.z)).toFixed(1), maxSpeed: +maxSpeed.toFixed(1), lastFall: P.lastFall };
+      },
+      /** Drop Kra from h metres above the ground (a cliff) and let him fall. */
+      drop: (h = 12, secs = 4) => {
+        const P = player, c = camera.position, dt = 1 / 60;
+        if (game.dead) resetAfterDeath({});
+        game.god = false; game.invuln = 0; game.health = game.maxHealth; game.lastFall = null; renderStatus();
+        c.y += h; P.grounded = false; P.vy = 0; P._air = null; P.keys.clear();
+        for (let i = 0; i < secs * 60 && !game.dead; i++) { const ns = substepsFor(dt); for (let j = 0; j < ns; j++) P.update(dt / ns); if (P.grounded) break; }
+        return { hp: game.health, max: game.maxHealth, dead: game.dead, lastFall: game.lastFall, playerFall: P.lastFall };
+      },
+      /** Walk off a real ledge: find the biggest drop within 2.5 m of a spot near (x, z). */
+      findCliff: (cx = 0, cz = 0, R = 2000, minDrop = 9) => {
+        const T = world.terrain; let best = null;
+        for (let x = cx - R; x <= cx + R; x += 10) for (let z = cz - R; z <= cz + R; z += 10) {
+          const h = T.height(x, z); if (T.waterDepth(x, z) > -0.5) continue;
+          for (let k = 0; k < 8; k++) { const a = (k / 8) * 6.283, dx = Math.sin(a), dz = Math.cos(a), h2 = T.height(x + dx * 3, z + dz * 3); if (h - h2 > minDrop && (!best || h - h2 > best.drop)) best = { x, z, dx, dz, drop: +(h - h2).toFixed(1) }; }
+        }
+        return best;
+      },
+      torch: () => ({ ...story.surv.torchStats(), boost: +(caveman.torchBoost || 1).toFixed(3), distance: +caveman.light.distance.toFixed(1), reachK: +(game.torchReach || 1).toFixed(3) }),
+      addXP: (n) => { story.xp(n, "test"); applyStats(); return story.surv.level; },
+      equip: (id, slot) => { const r = story.surv.equipItem(id, slot); applyStats(); if (charMenu.isOpen) charMenu.render(); return r; },
+      unequip: (slot) => { const r = story.surv.unequip(slot); story.surv.syncEquip(); applyStats(); return r; },
+      gear: () => [...gearSet(story.surv)].sort(),
+      armor: () => story.surv.armor(), weapon: () => story.surv.weaponBonus(),
+      char: (tab) => { if (tab === false) { charMenu.close(); return false; } return toggleChar(tab) || charMenu.isOpen; },
+      charState: () => ({ open: charMenu.isOpen, tab: charMenu.tab, frames3d: charMenu.frames3d || 0, gear: charMenu.previewGear(), r3: charMenu.r3?.failed || !!charMenu.r3?.renderer, sel: charMenu.sel, slotSel: charMenu.slotSel }),
+      sellCtx: () => sellCtx(), sell: (id, n = 1) => sellItem(id, n), discard: (id, n = 1) => discardItem(id, n), price: (id, age = 0) => story.surv.price(id, age),
+      drops: () => drops.list.map((d) => ({ id: d.id, n: d.n, where: d.where, x: +d.x.toFixed(1), z: +d.z.toFixed(1), shown: !!d.mesh })),
+      dropNear: () => { const d = drops.near(feetPos()); return d && { id: d.id, n: d.n }; },
+      prompt: () => story.prompt?.label || null,
+      interact: () => { story.interact(); return true; },
+      toTown: (hostile = false) => { const T = world.terrain, f = feetPos(); const s = (T.settlements || []).filter((q) => !!q.hostile === hostile).sort((a, b) => Math.hypot(a.x - f.x, a.z - f.z) - Math.hypot(b.x - f.x, b.z - f.z))[0]; if (!s) return null; const L = landingNear(s.x + s.R * 0.4, s.z, 3) || { x: s.x, z: s.z }; player.setTerrain(T, L.x, L.z, 0); return { name: s.name, hostile: !!s.hostile, age: s.age || 0 }; },
+      atmo: () => ({ ...world.atmo.state, amb: +ambient.intensity.toFixed(3), hemi: +skyFill.intensity.toFixed(3), moon: +moonLight.intensity.toFixed(3) }),
+      kra: () => { const f = feetPos(); return { x: f.x, y: f.y, z: f.z, yaw: player.yaw }; },
+      blood: (k = null) => { if (k === false) { bloodForce = null; bloodSeen = -1; } else if (k != null) { bloodForce = k; caveman.setBlood(k); } return { k: caveman._bloodK, shown: caveman.stains?.filter((m) => m.visible).length || 0, fresh: +(caveman._fresh || 0).toFixed(2), col: caveman.bloodMat?.color.getHexString() }; },
+      freshKill: () => { caveman.freshKill(); return true; },
+      embers: () => ({ wind: caveman.flame.material.uniforms.uWind.value.toArray().map((v) => +v.toFixed(2)) }),
+      reveal: (R = 600) => { const f = feetPos(); wmap.revealAt(f.x, f.z, R); return wmap.revealedCount(); },
+      mapZoom: (f) => { wmap.zoomAt(wmap.cv.clientWidth / 2, wmap.cv.clientHeight / 2, f); wmap.draw(); return +wmap.view.s.toFixed(3); },
+      mapMs: () => ({ detail: wmap.detailMs ?? null, bg: wmap.bgMs ?? null, tile: minimap.tileMs ?? null, tiles: minimap._tiles?.size || 0 }),
+    },
     toCarcass: () => { const f = feetPos(); const c = world.wildlife?.nearestCarcass(f, 9999); if (!c) return null; player.setTerrain(world.terrain, c.pos.x + 1, c.pos.z + 0.6, Math.atan2(1, 0.6)); return c.kind; },
     newGame: () => startNewGame(),
     continueGame: () => continueGame(),
@@ -3987,6 +4250,7 @@ const overlays = new Overlays([
   { name: "chat", label: "chat", open: () => !hidden(mp._bar), close: () => mp.chatClose() },
   { name: "choice", open: () => !hidden(storyUI.choice), close: () => { const c = storyUI.choice.querySelector(".cancel"); if (c) c.click(); else storyUI.closeChoice(); } },
   { name: "pack", label: "the pack", open: () => !hidden(storyUI.panel), close: () => storyUI.closePanel() },
+  { name: "character", bd: () => charMenu.el, label: "the character menu", open: () => charMenu.isOpen, close: () => charMenu.close() },
   { name: "settlement", bd: () => colonyUI?.panel, label: "the settlement panel", open: () => !!colonyUI?.isOpen(), close: () => colonyUI.close() },
   { name: "build", label: "build mode", open: () => colonyUI?.mode === "build", close: () => colonyUI.stop() },
   { name: "map", label: "the map", open: () => wmap.isOpen, close: () => wmap.close() },

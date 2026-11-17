@@ -14,7 +14,7 @@ export const CONTROLS = {
   desktop: [
     ["Move", "W A S D or arrow keys"], ["Look", "Mouse (click the view first)"], ["Walk / jog / run pace", "1 / 2 / 3"], ["Sprint", "Hold Shift (uses stamina)"],
     ["Jump", "Space"], ["Crouch", "C"], ["Crawl", "Z or Ctrl"], ["Torch up / down", "L"], ["Attack", "Left click or R"], ["Spear ⇄ Bow", "Q or B"],
-    ["Use / pick up / talk / ride", "E"], ["Pack / Crafting / Skills", "I / Tab / K"], ["Tasks (quest log)", "J"], ["Map", "M"], ["Find (mushrooms, water, flint, ore…)", "F (or 🔍 by the minimap)"], ["Call to Arms (near a hostile town)", "H (or 📯)"],
+    ["Use / pick up / talk / ride", "E"], ["Character menu: Items / Skills (⚒ Craft inside)", "I / Tab / K"], ["Tasks (quest log)", "J"], ["Map", "M"], ["Find (mushrooms, water, flint, ore…)", "F (or 🔍 by the minimap)"], ["Call to Arms (near a hostile town)", "H (or 📯)"],
     ["1st / 3rd person", "V"], ["Time / weather (testing)", "T / Y"], ["Close panels", "Esc"], ["Multiplayer chat / talk", "Enter / hold V (in a room)"],
   ],
   pad: [

@@ -43,7 +43,27 @@ export const ITEMS = {
   bandage: { name: "Bandage", stack: 6, icon: "🩹", heal: 1 },
   driedmeat: { name: "Dried meat", food: 30, stack: 8, icon: "🥓" },
   pot: { name: "Clay pot", stack: 3, icon: "⚱️" },
+  // round 28a: money, by age (sold goods are paid in the coin of the town's age)
+  shell: { name: "Cowrie shells", stack: 99, icon: "🐚", money: 1 },
+  ring: { name: "Bronze rings", stack: 99, icon: "🟡", money: 4 },
+  coin: { name: "Iron coins", stack: 99, icon: "🪙", money: 12 },
 };
+/** Round 28a: equipment slots (the character menu). Each item may name the slot it fits. */
+export const SLOTS = [
+  { id: "head", name: "Head", icon: "⛑️" }, { id: "face", name: "Face", icon: "🎭" }, { id: "back", name: "Back", icon: "🧥" },
+  { id: "weapon", name: "Weapon", icon: "🗡️" }, { id: "body", name: "Body / face suit", icon: "🦺" }, { id: "offhand", name: "Offhand / torch", icon: "🔥" },
+  { id: "trinket1", name: "Trinket", icon: "🪶" }, { id: "feet", name: "Feet", icon: "🥾" }, { id: "trinket2", name: "Trinket", icon: "🦴" },
+];
+const SLOT_OF = { stoneaxe: "weapon", club: "weapon", bronzeknife: "weapon", ironsword: "weapon", shield: "offhand", jerkin: "body", ironmail: "body", bronzehelm: "head",
+  sling: "trinket", feather: "trinket", bone: "trinket", ochre: "trinket",
+  hat: "head", cloak: "back", boots: "feet", paint: "face", facesuit: "body", torch: "offhand" };
+/** Which slot ids an item or garment fits (trinkets go in either trinket slot). */
+export function slotsFor(id) { const k = SLOT_OF[id]; return !k ? [] : k === "trinket" ? ["trinket1", "trinket2"] : [k]; }
+/** Round 28a: what traders pay (in shells; ring = 4, coin = 12). Money, Tor's skin and creature parts are not for sale. */
+export const VALUE = { berries: 1, roots: 1, meat: 2, cooked: 3, organ: 3, pelt: 3, hide: 5, feather: 1, bone: 1, sinew: 2, flint: 2, ochre: 2, herbs: 2, salve: 6, logs: 2,
+  copper: 5, tin: 6, iron: 8, coal: 3, shroom: 4, stoneaxe: 8, club: 7, sling: 6, shield: 10, jerkin: 12, bronzeknife: 20, bronzehelm: 26, ironsword: 48, ironmail: 60,
+  rope: 2, bandage: 3, driedmeat: 4, pot: 5 };
+export const MONEY = ["shell", "ring", "coin"];
 /** Round 24b: what fallen fighters carry, by their town's age (0 stone, 1 bronze, 2 iron). [id, n, chance] */
 export const LOOT = {
   0: [["driedmeat", 2, 0.6], ["rope", 1, 0.45], ["bandage", 1, 0.35], ["club", 1, 0.3], ["stoneaxe", 1, 0.25], ["sling", 1, 0.2], ["shield", 1, 0.15], ["jerkin", 1, 0.12], ["pot", 1, 0.25], ["flint", 2, 0.3]],
@@ -125,6 +145,62 @@ export class Survival {
     this.stats = { ate: 0, drank: 0, small: 0, deer: 0, cooked: 0, harvested: 0 };
     this.xp = 0; this.sp = 0; this.recipes = new Set(); this.wear = new Set();
     this.inspected = new Set(); // round 17
+    this.equip = { offhand: "torch" }; this._suitOff = false; // round 28a: slot -> item id (weapons / armour / trinkets leave the pack while worn; garments mirror .wear)
+  }
+  // ---- round 28a: equipment ----
+  /** Put an item or garment into a slot. Returns a message, or null if it can't go there. */
+  equipItem(id, slot) {
+    const fits = slotsFor(id); if (!fits.includes(slot)) return null;
+    if (GEAR[id]) { // crafted clothing: worn / removed, never in the pack
+      if (!this.crafted.has(id)) return null;
+      const old = this.equip[slot]; if (old && old !== id && !this.unequip(slot)) return null;
+      this.wear.add(id); this.equip[slot] = id; return `You put on the ${GEAR[id].toLowerCase()}`;
+    }
+    if (id === "facesuit") { if (!this.faces) return null; this._suitOff = false; const old = this.equip[slot]; if (old && old !== id && !this.unequip(slot)) return null; this.equip[slot] = id; return "You pull on the face suit"; }
+    if (id === "torch") { const old = this.equip[slot]; if (old && old !== id && !this.unequip(slot)) return null; this.equip[slot] = "torch"; return "The torch back in your hand"; }
+    if (!this.count(id)) return null;
+    const old = this.equip[slot];
+    if (old === id) return "Already worn";
+    this.remove(id, 1);
+    if (old && !this.unequip(slot)) { this.add(id, 1); return null; }
+    this.equip[slot] = id;
+    return `${ITEMS[id].name} → ${SLOTS.find((q) => q.id === slot).name.toLowerCase()}`;
+  }
+  /** Take off what is in a slot (back into the pack). False when the pack is full. */
+  unequip(slot) {
+    const id = this.equip[slot]; if (!id) return true;
+    if (GEAR[id]) { this.wear.delete(id); delete this.equip[slot]; return true; }
+    if (id === "facesuit" || id === "torch") { delete this.equip[slot]; if (id === "facesuit") this._suitOff = true; return true; }
+    if (!this.add(id, 1)) return false;
+    delete this.equip[slot]; return true;
+  }
+  equipped(id) { return Object.values(this.equip).includes(id); }
+  /** Garments made before round 28a, and worn gear, sit in their slots. */
+  syncEquip() {
+    for (const g of Object.keys(GEAR)) { const sl = slotsFor(g)[0]; if (this.wear.has(g) && !this.equip[sl]) this.equip[sl] = g; else if (this.wear.has(g) && this.equip[sl] !== g) this.wear.delete(g); if (!this.wear.has(g) && this.equip[sl] === g) delete this.equip[sl]; }
+    if (this.faces && !this.equip.body && !this._suitOff) this.equip.body = "facesuit";
+    if (!this.equip.offhand) this.equip.offhand = "torch";
+  }
+  /** Round 28a: carried weapons / armour from older saves move into empty slots (no bonus is lost). */
+  autoEquip(only = null) {
+    for (const id of ["ironsword", "bronzeknife", "club", "stoneaxe", "ironmail", "jerkin", "bronzehelm", "shield", "sling"]) {
+      if (only && !only.includes(id)) continue;
+      const sl = slotsFor(id).find((q) => !this.equip[q] || (q === "offhand" && this.equip[q] === "torch")); if (sl && this.count(id)) this.equipItem(id, sl);
+    }
+  }
+  /** Round 28a: torch reach / brightness grow with level, skills and the resin torch. */
+  torchStats() {
+    const lv = Math.min(15, this.level - 1), sk = TREE_IDS.filter((t) => this.skills.has(t)).length;
+    const resin = this.crafted.has("torch") ? 1 : 0, pitch = this.skills.has("surv2") ? 1 : 0;
+    const reach = 1 + lv * 0.025 + sk * 0.012 + resin * 0.22 + pitch * 0.06;
+    const bright = 1 + lv * 0.02 + sk * 0.01 + resin * 0.3 + pitch * 0.05;
+    return { reach: Math.min(1.75, reach), bright: Math.min(1.8, bright), lv: lv + 1, sk, resin, pitch };
+  }
+  /** Round 28a: what a trader of this age pays for one of an item: [money id, n] (0 = not for sale). */
+  price(id, age = 0) {
+    const v = VALUE[id] || 0, m = MONEY[Math.max(0, Math.min(2, age))], rate = ITEMS[m].money;
+    if (!v) return [m, 0];
+    return [m, Math.max(1, Math.round(v / rate))];
   }
 
   // ---- round 16: XP / skill tree / gear ----
@@ -145,10 +221,11 @@ export class Survival {
   knows(r) { return !r || !TREE_IDS.some((t) => this.tierInfo(t).t.recipe === r.id) || this.recipes.has(r.id) || TREE_IDS.some((t) => this.skills.has(t) && this.tierInfo(t).t.recipe === r.id); }
   bonusHearts() { return (this.wear.has("cloak") ? 1 : 0) + (this.wear.has("hat") ? 1 : 0) + (this.skills.has("spirit3") ? 1 : 0); }
   spearBonus() { return (this.crafted.has("flintspear") ? 1 : 0) + this.weaponBonus(); }
-  arrowBonus() { return (this.crafted.has("arrows") ? 1 : 0) + (this.count("sling") ? 1 : 0); }
+  arrowBonus() { return (this.crafted.has("arrows") ? 1 : 0) + (this.count("sling") || this.equipped("sling") ? 1 : 0); }
   /** Round 24b: your best carried weapon, and the armour you carry (each point blocks ~15% of blows, max 60%). */
-  weaponBonus() { let b = 0; for (const it of this.inv) b = Math.max(b, ITEMS[it.id]?.weapon || 0); return b; }
-  armor() { let a = 0; for (const it of this.inv) a += ITEMS[it.id]?.armor || 0; return Math.min(4, a); }
+  // round 28a: the equipped weapon counts (else your best carried one, as before); armour counts once worn
+  weaponBonus() { const w = ITEMS[this.equip?.weapon]?.weapon; if (w) return w; let b = 0; for (const it of this.inv) b = Math.max(b, ITEMS[it.id]?.weapon || 0); return b; }
+  armor() { let a = 0; for (const id of Object.values(this.equip || {})) a += ITEMS[id]?.armor || 0; if (this.equip?.body === "facesuit") a += 0; return Math.min(4, a); }
 
   count(id) { return this.inv.filter((s) => s.id === id).reduce((a, s) => a + s.n, 0); }
   freeSlots() { return this.slots - this.inv.length; }
@@ -210,7 +287,7 @@ export class Survival {
     }
     if (id === "backpack") { this.slots = 12; return this.craftedFrom === "skin" ? "You sew Tor's skin into a pack. It still smells of him." : "You sew the deer hide into a pack (12 slots)"; }
     if (id === "spear") { this.tools.spearDone = true; return "The bone spear is finished: longer reach, deadlier point"; }
-    if (r.gear) { this.wear.add(id); return `${r.name} made, and you put it on`; }
+    if (r.gear) { this.wear.add(id); this.syncEquip(); return `${r.name} made, and you put it on`; }
     if (id === "salve") { this.crafted.delete("salve"); this.add("salve", 1); return "Mixed a healing salve"; }
     if (id === "flintspear") { this.tools.spearDone = true; return "The flint head is bound on: +1 spear damage"; }
     if (id === "arrows") return "Bone arrows fletched: +1 arrow damage";
@@ -243,7 +320,7 @@ export class Survival {
 
   toJSON() {
     return { hunger: this.hunger, thirst: this.thirst, stamina: this.stamina, slots: this.slots, inv: this.inv, skills: [...this.skills], faces: this.faces, str: this.str, hpBonus: this.hpBonus,
-      tools: this.tools, crafted: [...this.crafted], stats: this.stats, xp: this.xp, sp: this.sp, recipes: [...this.recipes], wear: [...this.wear], inspected: [...this.inspected] };
+      tools: this.tools, crafted: [...this.crafted], stats: this.stats, xp: this.xp, sp: this.sp, recipes: [...this.recipes], wear: [...this.wear], inspected: [...this.inspected], equip: { ...this.equip }, suitOff: !!this._suitOff };
   }
   fromJSON(o) {
     this.reset();
@@ -252,6 +329,8 @@ export class Survival {
     this.skills = new Set(o.skills || []); this.tools = { ...this.tools, ...(o.tools || {}) }; this.crafted = new Set(o.crafted || []); this.stats = { ...this.stats, ...(o.stats || {}) };
     this.xp = o.xp || 0; this.sp = o.sp || 0; this.recipes = new Set(o.recipes || []); this.wear = new Set(o.wear || []);
     this.inspected = new Set(o.inspected || []);
+    this.equip = { ...(o.equip || {}) }; this._suitOff = !!o.suitOff;
+    this.syncEquip(); if (!o.equip) this.autoEquip(); // round 28a: older saves wear what they carry
     return this;
   }
 }

@@ -8,9 +8,16 @@
  * image (160 x 160 cells of 16 m) is built once, the fog is a 160 x 160 alpha image scaled up.
  */
 import { mapFilters as F } from "./mapfilters.js";
+import { sampleGrid, paintGrid, MAPSTYLE as MS } from "./terrainstyle.js";
 const N = 256, CELL = 25, HALF = (N * CELL) / 2; // covers +-3200 m (round 18: the bigger world)
 const TRAIL_STEP = 8, TRAIL_MAX = 4000;
 
+/** Round 28a: label colours tuned for a dark map, made legible on the light terrain map. */
+function darken(col) {
+  const m = /^#([0-9a-f]{6})$/i.exec(col || ""); if (!m) return "#2f2f2f";
+  const n = parseInt(m[1], 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255, l = 0.3 * r + 0.59 * g + 0.11 * b;
+  if (l < 140) return col; const k = 0.42; return `rgb(${Math.round(r * k)},${Math.round(g * k)},${Math.round(b * k)})`;
+}
 export class WorldMap {
   constructor(root, { touch = false } = {}) {
     this.touch = touch;
@@ -161,25 +168,44 @@ export class WorldMap {
   }
 
   _bg() {
+    // round 28a: terrain-map style (elevation tints, hillshade, contours, water); 256 samples a side, painted at 4x
     if (this.bg || !this.terrain) return this.bg;
-    const c = document.createElement("canvas"); c.width = c.height = N;
-    const g = c.getContext("2d"), img = g.createImageData(N, N), H = new Float32Array(N * N), t = this.terrain;
-    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) H[j * N + i] = t.height((i + 0.5) * CELL - HALF, (j + 0.5) * CELL - HALF);
-    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-      const h = H[j * N + i], hx = H[j * N + Math.min(N - 1, i + 1)] - h, hz = H[Math.min(N - 1, j + 1) * N + i] - h;
-      const shade = 1 + Math.max(-0.35, Math.min(0.35, (-hx - hz) * 0.03)), k = (j * N + i) * 4;
-      // round 18: region colours (red rock, salt, marsh, snow, ice) and water
-      const [r, g2, b] = t.bio ? t.bio.mapRGB((i + 0.5) * CELL - HALF, (j + 0.5) * CELL - HALF, h, Math.hypot(hx, hz) / CELL) : [0.3, 0.35, 0.28];
-      img.data[k] = Math.min(255, r * 235 * shade); img.data[k + 1] = Math.min(255, g2 * 235 * shade); img.data[k + 2] = Math.min(255, b * 235 * shade); img.data[k + 3] = 255;
-    }
-    g.putImageData(img, 0, 0);
+    const t0 = performance.now(), PX = this.touch ? 768 : 1024;
+    const G = sampleGrid(this.terrain, -HALF, -HALF, N, N, CELL);
+    const c = document.createElement("canvas"); c.width = c.height = PX;
+    c.getContext("2d").putImageData(paintGrid(G, PX, PX, { interval: 20, index: 100, exag: 2.2 }), 0, 0);
+    this.bgMs = Math.round(performance.now() - t0);
     return (this.bg = c);
+  }
+  /** Round 28a: a sharper terrain layer for the part of the map in view when zoomed in (built a moment after
+   *  the view stops moving, one grid of ~3 screen px per sample, so dragging stays smooth on phones). */
+  _detailFor(v, W, Hh) {
+    const bgRes = (this.touch ? 768 : 1024) / (N * CELL);
+    if (!this.terrain || v.s < bgRes * 1.8) return null;
+    const d = this._det, key = `${v.cx.toFixed(1)},${v.cz.toFixed(1)},${v.s.toFixed(3)},${W},${Hh}`;
+    if (d && d.key === key) return d;
+    if (this._detKey !== key) { this._detKey = key; clearTimeout(this._detT); this._detT = setTimeout(() => {
+      if (!this.isOpen) return;
+      const t0 = performance.now(), step = (this.touch ? 4 : 3) / v.s, mx = 0.15;
+      const ww = (W / v.s) * (1 + 2 * mx), hh = (Hh / v.s) * (1 + 2 * mx);
+      let cell = Math.max(0.75, step); const cap = this.touch ? 30000 : 60000;
+      if ((ww / cell) * (hh / cell) > cap) cell = Math.sqrt((ww * hh) / cap);
+      const gw = Math.ceil(ww / cell) + 1, gh = Math.ceil(hh / cell) + 1, x0 = v.cx - ww / 2, z0 = v.cz - hh / 2;
+      const G = sampleGrid(this.terrain, x0, z0, gw, gh, cell);
+      const iv = v.s > 6 ? 2 : v.s > 3 ? 5 : v.s > 1.2 ? 10 : 20;
+      const pw = Math.min(2048, gw * 2), ph = Math.min(2048, gh * 2);
+      const c = document.createElement("canvas"); c.width = pw; c.height = ph;
+      c.getContext("2d").putImageData(paintGrid(G, pw, ph, { interval: iv, index: iv * 5, exag: 1.1 }), 0, 0);
+      this._det = { key, c, x0, z0, w: gw * cell, h: gh * cell, ms: Math.round(performance.now() - t0) };
+      this.detailMs = this._det.ms; this.draw();
+    }, 140); }
+    return d && Math.abs(d.x0 + d.w / 2 - v.cx) < d.w && Math.abs(d.z0 + d.h / 2 - v.cz) < d.h ? d : null;
   }
   _fogCanvas() {
     if (this._fogImg) return this._fogImg;
     const c = this._fogC || (this._fogC = document.createElement("canvas")); c.width = c.height = N;
     const g = c.getContext("2d"), img = g.createImageData(N, N);
-    for (let i = 0; i < N * N; i++) { const k = i * 4; img.data[k] = 12; img.data[k + 1] = 10; img.data[k + 2] = 8; img.data[k + 3] = this.fog[i] ? 0 : 238; }
+    for (let i = 0; i < N * N; i++) { const k = i * 4; img.data[k] = 226; img.data[k + 1] = 223; img.data[k + 2] = 214; img.data[k + 3] = this.fog[i] ? 0 : 226; } // round 28a: unexplored = blank paper
     g.putImageData(img, 0, 0);
     return (this._fogImg = c);
   }
@@ -190,12 +216,13 @@ export class WorldMap {
     this.resize();
     const ctx = this.ctx, dpr = this.dpr, W = this.cv.clientWidth, Hh = this.cv.clientHeight, v = this.view;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = "#0c0a08"; ctx.fillRect(0, 0, W, Hh);
+    ctx.fillStyle = s.mode === "overworld" ? "#e2dfd6" : "#0c0a08"; ctx.fillRect(0, 0, W, Hh);
     const X = (x) => W / 2 + (x - v.cx) * v.s, Y = (z) => Hh / 2 + (z - v.cz) * v.s;
-    const label = (txt, x, y, col = "#f6e2b0", size = 13) => {
-      ctx.font = `${size}px Georgia, serif`; ctx.textAlign = "left";
+    const ow = s.mode === "overworld";
+    const label = (txt, x, y, col = "#f6e2b0", size = 13) => { // round 28a: dark text on a white halo (terrain map)
+      ctx.font = `${ow ? "600 " : ""}${size}px ${ow ? "system-ui, sans-serif" : "Georgia, serif"}`; ctx.textAlign = "left";
       const w = ctx.measureText(txt).width; let tx = x + 8; if (tx + w > W - 6) tx = x - 8 - w;
-      ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,0.85)"; ctx.strokeText(txt, tx, y + 4); ctx.fillStyle = col; ctx.fillText(txt, tx, y + 4);
+      ctx.lineWidth = ow ? 3.5 : 3; ctx.strokeStyle = ow ? MS.halo : "rgba(0,0,0,0.85)"; ctx.strokeText(txt, tx, y + 4); ctx.fillStyle = ow ? darken(col) : col; ctx.fillText(txt, tx, y + 4);
     };
     const title = this.el.querySelector(".wm-title"), legend = this.el.querySelector(".wm-legend");
     if (s.mode === "overworld") {
@@ -203,9 +230,18 @@ export class WorldMap {
       const bg = this._bg();
       ctx.imageSmoothingEnabled = true;
       if (bg) ctx.drawImage(bg, X(-HALF), Y(-HALF), N * CELL * v.s, N * CELL * v.s);
+      const det = this._detailFor(v, W, Hh);
+      if (det) ctx.drawImage(det.c, X(det.x0), Y(det.z0), det.w * v.s, det.h * v.s);
       ctx.drawImage(this._fogCanvas(), X(-HALF), Y(-HALF), N * CELL * v.s, N * CELL * v.s);
+      if (s.roads && v.s > 0.35) { // round 28a: town lanes as roads (white with a casing)
+        for (const pass of [0, 1]) {
+          ctx.strokeStyle = pass ? MS.road : MS.roadCase; ctx.lineCap = "round"; ctx.lineJoin = "round";
+          ctx.lineWidth = Math.max(pass ? 1.5 : 3, (pass ? 2.6 : 4.2) * v.s);
+          for (const P of s.roads) { if (!this.seen(P[0].x, P[0].z)) continue; ctx.beginPath(); P.forEach((q, i) => (i ? ctx.lineTo(X(q.x), Y(q.z)) : ctx.moveTo(X(q.x), Y(q.z)))); ctx.stroke(); }
+        }
+      }
       if (F.water && this.terrain?.bio) { // round 18: rivers
-        ctx.strokeStyle = "rgba(110,190,230,0.85)"; ctx.lineWidth = Math.max(1.5, 5 * v.s);
+        ctx.strokeStyle = MS.river; ctx.lineWidth = Math.max(1.5, 5 * v.s);
         for (const r of this.terrain.bio.rivers) { ctx.lineWidth = Math.max(r.creek ? 1 : 1.5, (r.creek ? 2.5 : 5) * v.s); ctx.beginPath(); let on = false; for (const p of r.pts) { if (!this.seen(p.x, p.z)) { on = false; continue; } on ? ctx.lineTo(X(p.x), Y(p.z)) : ctx.moveTo(X(p.x), Y(p.z)); on = true; } ctx.stroke(); } // only what you've explored
       }
       if (s.stream && F.water) { ctx.strokeStyle = "rgba(110,190,220,0.8)"; ctx.lineWidth = 2; ctx.beginPath(); s.stream.forEach((p, i) => (i ? ctx.lineTo(X(p.x), Y(p.z)) : ctx.moveTo(X(p.x), Y(p.z)))); ctx.stroke(); }
@@ -219,7 +255,7 @@ export class WorldMap {
       for (const t of F.towns ? s.towns || [] : []) {
         if (!this.seen(t.x, t.z) && !t.known) continue;
         ctx.fillStyle = t.color; ctx.beginPath(); ctx.arc(X(t.x), Y(t.z), t.kind === "city" ? 7 : t.kind === "village" ? 5.5 : 4, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = "#1a1208"; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.stroke();
         if (F.labels) label(t.name, X(t.x), Y(t.z), "#ffe3a8", t.kind === "city" ? 14 : 12);
       }
       for (const e of F.caves ? s.entrances || [] : []) {
@@ -275,12 +311,13 @@ export class WorldMap {
     }
     if (s.player) {
       ctx.save(); ctx.translate(X(s.player.x), Y(s.player.z)); ctx.rotate(-s.player.yaw);
-      ctx.fillStyle = "#9fe3a8"; ctx.strokeStyle = "#0a1a0c"; ctx.lineWidth = 2;
+      if (ow) { ctx.fillStyle = "rgba(66,133,244,0.18)"; ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI * 2); ctx.fill(); }
+      ctx.fillStyle = ow ? MS.player : "#9fe3a8"; ctx.strokeStyle = ow ? "#ffffff" : "#0a1a0c"; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(0, -11); ctx.lineTo(7, 8); ctx.lineTo(0, 4); ctx.lineTo(-7, 8); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.restore();
     }
     // scale bar
     const m = [10, 25, 50, 100, 250, 500, 1000].find((q) => q * v.s > 60) || 1000;
-    ctx.fillStyle = "#f6e2b0"; ctx.fillRect(14, Hh - 58, m * v.s, 3); ctx.font = "11px sans-serif"; ctx.textAlign = "left"; ctx.fillText(m >= 1000 ? "1 km" : m + " m", 14, Hh - 64);
+    ctx.fillStyle = ow ? "#3a3a3a" : "#f6e2b0"; ctx.fillRect(14, Hh - 58, m * v.s, 3); ctx.font = "11px sans-serif"; ctx.textAlign = "left"; ctx.fillText(m >= 1000 ? "1 km" : m + " m", 14, Hh - 64);
   }
 }

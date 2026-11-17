@@ -79,7 +79,7 @@ export const CHAPTERS = [
       how: by({ touch: "Stand by it, tap Harvest.", desktop: "Stand by it, press E.", pad: "Y." }), point: by({ touch: ".act-btn" }),
       setup: (G) => G.toCarcass(), init: (G, s) => { s.n = G.c.harvest || 0; }, check: (G, s) => (G.c.harvest || 0) > s.n },
     { id: "craft", title: "Crafting", say: "Bone and sinew make tools. Open Crafting and make something.",
-      how: by({ touch: "🎒 Pack → Crafting → pick a recipe.", desktop: "Tab → pick a recipe.", pad: "Start → Crafting." }), point: by({ touch: ".inv-btn", desktop: ".inv-btn" }),
+      how: by({ touch: "🎒 Pack → Crafting → pick a recipe.", desktop: "Tab → ⚒ Craft → pick a recipe.", pad: "Start → Crafting." }), point: by({ touch: ".inv-btn", desktop: ".inv-btn" }),
       setup: (G) => { G.give("bone", 2); G.give("sinew", 2); G.give("herbs", 2); G.give("berries", 1); }, init: (G, s) => { s.n = G.c.craft || 0; }, check: (G, s) => (G.c.craft || 0) > s.n },
   ] },
   { id: "world", name: "World", icon: "🗺", steps: [

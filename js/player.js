@@ -532,27 +532,42 @@ export class Player {
     let y;
     const gap = from.y - floorEye; // > 0: above the ground target
     const rising = this.vy > 0; // jumping, on the way up: gravity branch only
+    // Round 28a: fall damage only counts real free fall. Track the airborne phase (peak height and the
+    // biggest clearance over the ground below); running down a slope never gets more than ~1 m clear.
+    const wasAir = this.grounded === false;
+    if (!wasAir) this._air = null; // on the ground (or teleported): no fall in progress
     if (!rising && gap < 0) {
       // Ease up (about 60 ms), never lagging more than 0.3 m below.
       y = Math.max(floorEye - 0.3, from.y + (floorEye - from.y) * Math.min(1, dt * 16));
       this.vy = 0;
       this.grounded = true; this.airT = 0; this.jumping = false;
     }
-    else if (!rising && this.grounded !== false && gap < 0.6 + Math.hypot(delta.x, delta.z) * 3) {
-      // Walking downhill / small dips: stay on the ground; ease any residual step over a few frames.
-      y = gap < 0.06 ? floorEye : Math.max(floorEye, from.y - Math.max(0.06, gap * Math.min(1, dt * 14)));
+    else if (!rising && this.grounded !== false && gap < 0.6 + Math.hypot(delta.x, delta.z) * 3.5) {
+      // Walking downhill / small dips: stay on the ground. Round 28a: follow the slope down at once (the
+      // old per-frame ease lagged behind at a sprint on steep hills until Kra left the ground and "fell");
+      // only small steps (< 0.6 m, e.g. off a rock) are eased. Steeper than ~74° counts as a cliff.
+      const run = Math.hypot(delta.x, delta.z);
+      y = gap < 0.06 || gap <= run * 3.5 ? floorEye : Math.max(floorEye, from.y - Math.max(0.06, gap * Math.min(1, dt * 14)));
       this.vy = 0;
       this.grounded = true; this.airT = 0; this.jumping = false;
     } else {
       this.vy -= GRAVITY * dt;
       y = from.y + this.vy * dt;
       this.grounded = false; this.airT = (this.airT || 0) + dt;
+      const A = this._air || (this._air = { peak: from.y, clear: 0, t: 0 });
+      A.peak = Math.max(A.peak, from.y, y); A.clear = Math.max(A.clear, Math.min(gap, from.y - floorEye)); A.t += dt;
       if (y <= floorEye) {
         if (this.vy < -3 && this.onLand) { try { this.onLand(Math.min(1, -this.vy / 8)); } catch (_) {} }
         y = floorEye;
         this.vy = 0;
         this.grounded = true; this.airT = 0; this.jumping = false;
       }
+    }
+    if (wasAir && this.grounded && this._air) { // landed this frame
+      const A = this._air; this._air = null;
+      const h = Math.max(0, Math.min(A.peak - y, A.clear + 0.4)); // free-fall height, never the slope you ran down
+      this.lastFall = { h: +h.toFixed(2), t: +A.t.toFixed(2), clear: +A.clear.toFixed(2), drop: +(A.peak - y).toFixed(2) };
+      if (h > 0.5 && this.onFall && !this.boating) { try { this.onFall(h, { mounted: this.mounted, water: this.water || 0, t: A.t }); } catch (_) {} }
     }
     const ceiling = resolved._ceil - 0.12;
     if (y > ceiling) {

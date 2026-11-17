@@ -26,20 +26,20 @@ const WEIGHTS = { clear: 40, overcast: 20, fog: 10, rain: 15, snow: 6, storm: 9 
 const KE = [-0.35, -0.12, -0.02, 0.06, 0.2, 0.5];
 const hex = (a) => a.map((h) => new THREE.Color(h));
 const K = {
-  zen: hex([0x03050c, 0x0b1230, 0x2a3466, 0x3d5c9c, 0x3f72bd, 0x3a76c8]),
-  hor: hex([0x0b111e, 0x2a2440, 0x9a6064, 0xf2a064, 0xe6cbaa, 0xb6cfe6]),
+  zen: hex([0x070c1c, 0x0d1536, 0x2a3466, 0x3d5c9c, 0x3f72bd, 0x3a76c8]),
+  hor: hex([0x141c30, 0x2c2744, 0x9a6064, 0xf2a064, 0xe6cbaa, 0xb6cfe6]),
   sun: hex([0x8fa4d0, 0x8fa4d0, 0xff7a40, 0xffa060, 0xffdcb0, 0xfff4e4]),
-  fog: hex([0x0b0f1a, 0x1c1c2e, 0x5a4450, 0xc39a84, 0xb7bab6, 0xa9bccc]),
-  hemiS: hex([0x34446a, 0x434a6c, 0x9a7a8a, 0xc0a090, 0xa0b8d8, 0x9ec4ff]),
-  hemiG: hex([0x0c0a08, 0x1a140f, 0x44322a, 0x5a4630, 0x56492f, 0x5a4c34]), // round 26: warmer, brighter ground bounce
+  fog: hex([0x131b2e, 0x20223a, 0x5a4450, 0xc39a84, 0xb7bab6, 0xa9bccc]),
+  hemiS: hex([0x4c6090, 0x4e5678, 0x9a7a8a, 0xc0a090, 0xa0b8d8, 0x9ec4ff]),
+  hemiG: hex([0x1e2026, 0x221c18, 0x44322a, 0x5a4630, 0x56492f, 0x5a4c34]), // round 26: warmer, brighter ground bounce
   cLit: hex([0x1c2232, 0x3a3048, 0xe08a6a, 0xffc090, 0xfff0e0, 0xffffff]),
   cDark: hex([0x080a10, 0x15131f, 0x5a3a48, 0x8a6a70, 0x9ea6b6, 0xa6aebb]),
 };
 const KN = {
-  light: [1.5, 0.8, 0.8, 2.0, 3.0, 3.5], // round 26: firmer sun, less flat ambient
-  hemi: [1.15, 1.15, 1.5, 1.5, 1.5, 1.55],
-  amb: [0.42, 0.4, 0.42, 0.3, 0.22, 0.18],
-  exp: [1.3, 1.26, 1.2, 1.12, 1.04, 1.0], // round 26: tone-mapping exposure (a little eye adaptation)
+  light: [2.4, 1.15, 0.8, 2.0, 3.0, 3.5], // round 26: firmer sun, less flat ambient
+  hemi: [1.8, 1.5, 1.5, 1.5, 1.5, 1.55],
+  amb: [0.78, 0.58, 0.42, 0.3, 0.22, 0.18],
+  exp: [1.5, 1.38, 1.2, 1.12, 1.04, 1.0], // round 26: tone-mapping exposure (a little eye adaptation)
   fogD: [0.0095, 0.008, 0.006, 0.0045, 0.0034, 0.003],
 };
 function keyIndex(e) {
@@ -390,12 +390,13 @@ export class Atmosphere {
     const body = useSun ? this.sunDir : this.moonDir;
     if (L) {
       L.sun.color.copy(useSun ? sunCol : K.sun[0]);
-      L.sun.intensity = light * (useSun ? smooth(-0.06, 0.03, e) : smooth(-0.04, 0.12, this.moonDir.y) * smooth(-0.02, -0.12, e)) + this.flash * 5;
+      // round 28a: brighter nights (a moonlit sky glow even while the moon is low); still blue and dim
+      L.sun.intensity = light * (useSun ? smooth(-0.06, 0.03, e) : Math.max(0.4, smooth(-0.04, 0.12, this.moonDir.y)) * smooth(-0.02, -0.12, e)) + this.flash * 5;
       if (!useSun) L.sun.intensity = Math.max(L.sun.intensity, 0) ;
       L.sun.position.copy(eye).addScaledVector(body, 100);
       L.sun.target.position.copy(eye);
       L.hemi.color.copy(hs); L.hemi.groundColor.copy(hg); L.hemi.intensity = hemi + this.flash * 2;
-      L.ambient.color.set(0x0d0b10).lerp(new THREE.Color(0x8a96aa), day * 0.6);
+      L.ambient.color.set(0x283350).lerp(new THREE.Color(0x8a96aa), day * 0.6); // round 28a: moonlit blue, was near-black
       L.ambient.intensity = amb;
     }
     if (ctx.fog) { ctx.fog.color.copy(fog); ctx.fog.density = fogD; }

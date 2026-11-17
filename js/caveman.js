@@ -57,7 +57,7 @@ function flameMaterial(count, kind) {
         vLife = life; vSeed = aSeed;
         vec3 p = position;
         ${kind === "ember"
-          ? `p += vec3(sin(uTime * 2.0 + aSeed * 40.0) * 0.12 * life, life * 1.1, cos(uTime * 1.7 + aSeed * 31.0) * 0.12 * life) - uWind * life * 0.6;`
+          ? `p += vec3(sin(uTime * 2.0 + aSeed * 40.0) * 0.12 * life, life * 1.1, cos(uTime * 1.7 + aSeed * 31.0) * 0.12 * life) - vec3(uWind.x, 0.0, uWind.z) * life * 0.12;`
           : `float a = aSeed * 6.2831; float r = 0.045 * (1.0 - life) ;
              p += vec3(cos(a) * r + sin(uTime * 9.0 + aSeed * 20.0) * 0.012, life * 0.30, sin(a) * r) - uWind * life * 0.18;`}
         vec4 mv = modelViewMatrix * vec4(p, 1.0);
@@ -71,7 +71,7 @@ function flameMaterial(count, kind) {
         float d = length(gl_PointCoord - 0.5) * 2.0;
         if (d > 1.0) discard;
         ${kind === "ember"
-          ? `vec3 c = mix(vec3(1.0, 0.75, 0.3), vec3(1.0, 0.25, 0.05), vLife); float a = (1.0 - d) * (1.0 - vLife) * step(0.25, fract(vSeed * 13.0 + vLife * 3.0));`
+          ? `vec3 c = mix(vec3(1.0, 0.85, 0.45), vec3(1.0, 0.55, 0.15), vLife); float a = (1.0 - d) * (1.0 - vLife) * (1.0 - vLife) * step(0.25, fract(vSeed * 13.0 + vLife * 3.0));`
           : `vec3 c = mix(vec3(1.0, 0.92, 0.6), vec3(1.0, 0.38, 0.06), smoothstep(0.05, 0.6, vLife)); c = mix(c, vec3(0.5, 0.08, 0.02), smoothstep(0.6, 1.0, vLife));
              float a = pow(1.0 - d, 1.6) * (1.0 - vLife) * 0.9;`}
         gl_FragColor = vec4(c * a, a);
@@ -279,16 +279,44 @@ export class Caveman {
       const red = mat(0x9a1e12, 0.7, { emissive: 0x2a0402, emissiveIntensity: 0.4 });
       g.paint = [];
       for (const [y, w] of [[0.165, 0.2], [0.115, 0.18]]) { const st = new THREE.Mesh(new THREE.BoxGeometry(w, 0.022, 0.03), red); st.position.set(0, y, -0.115); this.neck.add(st); g.paint.push(st); }
-      for (const m of [...g.cloak, ...g.hat, ...g.paint]) (g.cloak.includes(m) ? this.bodyParts : this.headParts).push(m);
+      // round 28a: equipped items show too (character menu). Helm, jerkin, scale shirt, shield on the back,
+      // the face suit (pale sewn patches), the weapon at the hip and trinkets on the belt.
+      const metal = mat(0xa8763a, 0.45, { metalness: 0.6 }), iron = mat(0x5e6266, 0.5, { metalness: 0.5 }), leather = mat(0x4a2e1a, 0.9), pale = mat(0xc9a88a, 0.8), wood = mat(WOOD, 0.8), stone = mat(STONE, 0.6);
+      const helm = new THREE.Mesh(new THREE.SphereGeometry(0.165, 10, 6, 0, Math.PI * 2, 0, 1.35), metal); helm.position.set(0, 0.2, 0.02); helm.scale.set(1.08, 0.95, 1.1); this.neck.add(helm);
+      const crest = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.06, 0.26), metal); crest.position.set(0, 0.36, 0.02); this.neck.add(crest); g.bronzehelm = [helm, crest];
+      const jk = new THREE.Mesh(new THREE.CylinderGeometry(0.245, 0.215, 0.5, 10, 1, true), leather); jk.material = jk.material.clone(); jk.material.side = THREE.DoubleSide; jk.scale.z = 0.76; jk.position.y = 0.31; this.chest.add(jk); g.jerkin = [jk];
+      const ml = new THREE.Mesh(shaggy(new THREE.CylinderGeometry(0.25, 0.22, 0.54, 12, 4, true), 0.04, 41), iron); ml.material = ml.material.clone(); ml.material.side = THREE.DoubleSide; ml.scale.z = 0.77; ml.position.y = 0.3; this.chest.add(ml); g.ironmail = [ml];
+      const sh = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.04, 14), leather); sh.rotation.x = Math.PI / 2; sh.position.set(0, 0.32, 0.24); this.chest.add(sh);
+      const boss = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 5), wood); boss.position.set(0, 0.32, 0.27); this.chest.add(boss); g.shield = [sh, boss];
+      g.facesuit = [];
+      for (const [x, y, z, r] of [[-0.1, 0.42, -0.178, 0.07], [0.1, 0.36, -0.18, 0.065], [-0.04, 0.24, -0.185, 0.075], [0.11, 0.15, -0.178, 0.06], [-0.12, 0.1, -0.17, 0.06]]) {
+        const pa = new THREE.Mesh(new THREE.CircleGeometry(r, 7), pale); pa.position.set(x, y, z); pa.rotation.y = Math.PI; this.chest.add(pa); g.facesuit.push(pa);
+        for (const ex of [-0.022, 0.022]) { const e = new THREE.Mesh(new THREE.CircleGeometry(0.011, 5), mat(0x140c08, 1)); e.position.set(x + ex, y + 0.012, z - 0.004); e.rotation.y = Math.PI; this.chest.add(e); g.facesuit.push(e); }
+      }
+      const hip = (len, headGeo, headMat) => { const w = new THREE.Group(); const h = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.018, len, 5), wood); w.add(h); if (headGeo) { const hd = new THREE.Mesh(headGeo, headMat); hd.position.y = -len / 2; w.add(hd); } w.position.set(0.22, -0.02, 0.04); w.rotation.z = 0.25; this.chest.add(w); return [w]; };
+      g.stoneaxe = hip(0.45, new THREE.BoxGeometry(0.12, 0.08, 0.03), stone);
+      g.club = hip(0.5, new THREE.SphereGeometry(0.06, 7, 5), wood);
+      g.bronzeknife = hip(0.14, new THREE.BoxGeometry(0.03, 0.18, 0.01), metal);
+      g.ironsword = hip(0.16, new THREE.BoxGeometry(0.04, 0.6, 0.012), iron); g.ironsword[0].children[1].position.y = -0.38;
+      const belt = (geo, m, x) => { const b = new THREE.Mesh(geo, m); b.position.set(x, -0.02, -0.17); this.chest.add(b); return [b]; };
+      g.sling = belt(new THREE.TorusGeometry(0.04, 0.012, 4, 8), leather, -0.12);
+      g.feather = belt(new THREE.ConeGeometry(0.02, 0.16, 4), mat(0xe8e0d0, 0.9), -0.05); g.feather[0].rotation.z = 0.3;
+      g.bone = belt(new THREE.CylinderGeometry(0.015, 0.015, 0.12, 5), mat(0xe6dcc4, 0.8), 0.05);
+      g.ochre = belt(new THREE.SphereGeometry(0.03, 6, 4), mat(0x9a3a1a, 0.9), 0.12);
+      for (const m of [...g.cloak, ...g.hat, ...g.paint, ...g.bronzehelm, ...g.jerkin, ...g.ironmail, ...g.shield, ...g.facesuit, ...g.stoneaxe, ...g.club, ...g.bronzeknife, ...g.ironsword, ...g.sling, ...g.feather, ...g.bone, ...g.ochre])
+        ((g.hat.includes(m) || g.paint.includes(m) || g.bronzehelm.includes(m)) ? this.headParts : this.bodyParts).push(m);
       this.legBoots = g.boots;
     }
     for (const [k, list] of Object.entries(this.gear)) for (const m of list) m.visible = gear.has(k) && !(this.fp && k !== "boots");
+    if (gear.has("ironmail") && gear.has("jerkin")) for (const m of this.gear.jerkin) m.visible = false;
+    if (this.stains) { const k = this._bloodK; this._bloodK = -1; this.setBlood(k); }
   }
 
   setFirstPerson(fp) {
     this.fp = fp;
     for (const m of [...this.headParts, ...this.bodyParts]) m.visible = !fp;
     if (this.gear) { const on = new Set(this._gearKey ? this._gearKey.split(",") : []); this._gearKey = null; this.setGear(on); }
+    if (this.stains) { const k = this._bloodK; this._bloodK = -1; this.setBlood(k); }
     this.legL.th.visible = !fp;
     this.legR.th.visible = !fp;
   }
@@ -397,9 +425,45 @@ export class Caveman {
     this.flame.position.copy(this.torchPos);
     this.embers.position.copy(this.torchPos);
     const wind = this.flame.material.uniforms.uWind.value;
-    if (dt > 0) wind.lerp(this._prevTorch.clone().sub(this.torchPos).multiplyScalar(-1 / Math.max(dt, 1e-3) * 0.25), Math.min(1, dt * 6));
+    if (dt > 0) { const v = this._prevTorch.clone().sub(this.torchPos).multiplyScalar(-1 / Math.max(dt, 1e-3) * 0.25); v.y = 0; if (v.length() > 0.6) v.setLength(0.6); wind.lerp(v, Math.min(1, dt * 6)); } // round 28a: no falling streaks
+    this._bloodTick(dt);
     this._prevTorch.copy(this.torchPos);
     for (const p of [this.flame, this.embers]) p.material.uniforms.uTime.value = t;
+  }
+
+  /** Round 28a: dried, caked blood on Kra's skin, hide and face suit (no dripping). k 0..1 grows with his kills;
+   *  right after a kill the stains run wet and bright for a moment (freshKill), then dry back. */
+  setBlood(k) {
+    k = Math.max(0, Math.min(1, k)); if (this._bloodK === k && this.stains) return; this._bloodK = k;
+    if (!this.stains) {
+      this.bloodMat = new THREE.MeshStandardMaterial({ color: 0x34100a, roughness: 1, metalness: 0 });
+      const geo = shaggy(new THREE.IcosahedronGeometry(1, 1), 0.3, 77); this.stains = [];
+      // [parent, x, y, z, size, needs k]: chest / belly, forearms + hands, shins, thighs, face, cloak, face suit
+      const C = this.chest, aL = this.armL, aR = this.armR, lL = this.legL, lR = this.legR;
+      const S = [[C, 0.06, 0.18, -0.195, 0.07, 0.05], [aR.el, 0, -0.22, -0.035, 0.04, 0.05], [aR.el, 0.02, -0.1, -0.03, 0.035, 0.15], [aL.el, 0, -0.2, -0.035, 0.035, 0.2],
+        [C, -0.1, 0.34, -0.2, 0.055, 0.25], [lR.sh, 0, -0.3, -0.04, 0.035, 0.3], [C, 0.12, 0.05, -0.19, 0.05, 0.35], [this.neck, 0.05, 0.08, -0.11, 0.03, 0.4],
+        [lL.th, 0, -0.25, -0.06, 0.045, 0.45], [aR.sh, 0, -0.2, -0.05, 0.04, 0.5], [C, -0.05, 0.42, 0.25, 0.06, 0.55], [lL.sh, 0, -0.18, -0.04, 0.035, 0.6],
+        [C, 0.16, 0.3, 0.25, 0.05, 0.65], [this.hips, 0.12, -0.12, -0.2, 0.05, 0.7], [aL.sh, 0, -0.22, -0.05, 0.035, 0.75], [C, -0.14, 0.2, 0.28, 0.06, 0.8], [lR.th, 0, -0.15, -0.06, 0.04, 0.9]];
+      for (const [par, x, y, z, r, need] of S) {
+        const m = new THREE.Mesh(geo, this.bloodMat); m.position.set(x, y, z); m.scale.set(r * 0.95, r * 1.25, r * 0.12); m.userData.z = z;
+        m.rotation.z = (x * 31 + y * 17) % 1.2; par.add(m); m.castShadow = false; m.userData.need = need; this.stains.push(m);
+        (par === this.neck ? this.headParts : this.bodyParts).push(m);
+      }
+    }
+    // over a jerkin or scale shirt the chest / back stains sit on the garment instead of the skin under it
+    const over = this.gear && (this.gear.jerkin?.[0]?.visible || this.gear.ironmail?.[0]?.visible) ? 0.03 : 0;
+    for (const m of this.stains) {
+      m.visible = k >= m.userData.need && !this.fp;
+      if (m.parent === this.chest) m.position.z = m.userData.z + Math.sign(m.userData.z) * over;
+    }
+  }
+  freshKill() { this._fresh = 2.2; if (!this.stains || this._bloodK < 0.05) this.setBlood(Math.max(this._bloodK || 0, 0.05)); }
+  _bloodTick(dt) {
+    if (!this.bloodMat) return;
+    const f = Math.max(0, (this._fresh || 0) - (dt || 0)); this._fresh = f;
+    const w = Math.min(1, f / 1.2); // wet for ~1 s, drying for another
+    this.bloodMat.color.setHex(0x34100a).lerp(new THREE.Color(0x6a0604), w);
+    this.bloodMat.roughness = 1 - 0.3 * w;
   }
 
   get baseIntensity() { return this._base ?? 13; }

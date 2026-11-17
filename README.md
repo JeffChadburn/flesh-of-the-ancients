@@ -37,7 +37,7 @@ The story foundation is in `docs/STORY.md`. Act I takes about 20–40 minutes:
 2. Old Lume is still breathing by the fire. Kneel by him (**E** or the **Interact** button) to hear his last words ("the caves opened their throats… wear the faces so the mouths stay closed"). He gives you a stone knife and a half-finished bone spear, then dies.
 3. **Survive.** Hunger, thirst and stamina meters sit top-left; running drains stamina. Pick berries and dig up roots at the bushes, drink at the stream, and eat from the **Pack** (Inventory). Inventory slots are limited: 6, or 12 with a backpack.
 4. **Hunt.** Rabbits and birds bolt; deer notice you sooner and flee as a herd. Crouch to stalk. The spear kills, and the knife harvests meat, pelt or hide, and an organ. Eating an organ gives a 90-second stamina boost. Relight the fire to learn Fire-starting, then cook meat there.
-5. **Craft** (Tab, or Pack → Crafting). Make a backpack from the deer hide, or from Tor's skin, a grim choice you make at his body. You can also finish the bone spear with a rabbit pelt for +1 damage.
+5. **Craft** (Tab → ⚒ Craft, or Pack → Crafting). Make a backpack from the deer hide, or from Tor's skin, a grim choice you make at his body. You can also finish the bone spear with a rabbit pelt for +1 damage.
 6. **The first throat.** Waterfall Hollow is a short, dark, dripping cave beside the falls up the stream. Inside, a pale, too-toothed rat-thing hunts you.
    - Kill it, then collect its blood and organ.
    - Paint a blood glyph (spiral, hand or mouth) on a wall. It persists.
@@ -48,7 +48,7 @@ The story foundation is in `docs/STORY.md`. Act I takes about 20–40 minutes:
 **Skills** (K): Stone Tools, Basic Tracking (animals appear on the map), Fire-starting, Blood Memory.
 
 **Controls added:**
-- **Desktop:** **E** interact (Space also advances dialogue), **I** inventory, **Tab** crafting, **K** skills, **Esc** closes panels, **T** skips an hour (Shift+T goes back), **Y** cycles the weather.
+- **Desktop:** **E** interact (Space also advances dialogue), **I** / **Tab** the Character menu (items, equipment; ⚒ Craft inside), **K** skills, **Esc** closes panels, **T** skips an hour (Shift+T goes back), **Y** cycles the weather.
 - **Phone:** a contextual action button appears above Stab when something can be used. **Pack** opens inventory, crafting and skills. **Main menu** is in the ☰ panel.
 
 ## Day, night and weather
@@ -351,6 +351,21 @@ When you go in, the cave says which real cave it is "Inspired by" (under the cav
     - Big Mammoth halls cost more GPU fill on software rendering.
   - New test hooks: `loadReal`, `walkCave`, `meshProbe`, `lookAt`, `realFor`, `caveReport`, `caveData`, `revealN`, `callsBy`, `hideByName`.
 - **Hotfix (after Round 26): phone steering.** With one-finger steering, the stick now walks Kra where the camera looks after a look-drag (his heading turns to the camera as soon as you push forward), and the stick always lets go: release, touchcancel, pointercancel, lost pointer capture, a touchend with no finger left on the stick, the app going to the background or losing focus all zero it, so he never keeps running on his own (also when the stick and a look drag overlap).
+- **Round 28a: death keeps everything, real fall damage, brighter nights, the character menu, trading and a terrain map.**
+  - *Death no longer costs you anything.* Kra keeps his whole pack, worn gear, equipped items, money, skills, XP, quests and his horse or boat. The old story death reloaded the last save, so anything gained since was lost. That reload is gone: he wakes at your own settlement, the last camp/save spot or the world spawn (in a cave: at its entrance), and the game autosaves there.
+    - Every state resets on waking: health, timers, held keys and the joystick, stance, jump/fall state, open overlays and menus, build mode, the death screen, a town that was fighting you (it stands down, spears in the air vanish), angry wildlife, hunger/thirst topped up to 35 so you can eat. The horse waits beside him; a boat is left at the shore.
+    - `deathFlow.beforeRespawn` (in `main.js`) is the hook for a future spirit-world sequence: an async `(ctx) => {}` that runs while the death screen is up. `ctx` says how and where he died (cause, overworld/cave, cave name, town, riding, boating).
+  - *Fall damage counts only a real fall.* Only time actually off the ground counts (the height from the top of the airborne arc to landing). Running or galloping down a steep hill no longer launches Kra off the slope (the ground-follow used to lag at a sprint), and slope descent never counts. Safe height is 4.5 m (6 m riding), then 1 heart per 3 m; landing in water deeper than 0.6 m is free. Falls ignore armour.
+  - *Nights are lighter*: more moonlight, a blue moonlit sky fill and ambient, and slightly higher night exposure. Still clearly night; caves stay torch-dark.
+  - *The torch grows with you*: reach and brightness rise with level, skills (Pitch Torch, Resin) and XP, up to +75% reach and +80% brightness. Shown in Skills and in the level-up toast.
+  - *Character menu* (👤 Kra on the rail, ☰ → 👤 Character, **I** = Items, **K** = Skills, **Tab** toggles, Esc closes). Full screen, phone-first:
+    - **Equip**: a live 3D Kra (drag to turn him) wearing exactly what you equip, with slots for head, face, back, weapon, body / face suit, offhand / torch, feet and two trinkets. Tap an item then a slot (or a slot then an item), or drag on desktop. Armour now counts only for what is equipped; the weapon bonus uses the equipped weapon (else the best one carried).
+    - **Items**: Eat/Use, Equip, Inspect, **Sell** 1 / all, and **Discard** (with a confirm). A discarded item lies on the ground as a bundle and can be picked back up (E / Use), even after reloading.
+    - **Skills** (with the torch panel), **Stats**, **Quests**, **Map**, plus ⚒ Craft.
+  - *Trading*: sell in a friendly town or your own settlement, paid in the money of its age: 🐚 shells (stone age), 🟡 copper rings (bronze), 🪙 iron coins (iron).
+  - *Terrain map*: the map and minimap are restyled like a terrain map: elevation tints mixed with the biome colours, NW hillshade, contour lines (20 m with 100 m index lines on the map, 5/25 m on the minimap), blue water with a soft shore, town lanes as white roads, white-outlined towns, dark labels on a white halo and a blue player arrow. Zoomed in, a sharper layer is built for the view a moment after it stops moving (about 0.1–0.3 s). The minimap is built from small cached tiles (one per frame at most), so it stays fast on phones.
+  - *Blood*: Kra no longer seems to drip while running (the torch embers that streamed behind him now rise and fade). Kills leave dried, caked stains on his skin, hide clothes and face suit, more as the kills add up; right after a kill they look wet for about a second, then dry.
+  - Tests: `death28a.mjs` (dying in the world, with the spirit hook, in a hostile town, riding, in a boat, in a cave and in the story; steep-slope runs on foot and on horseback; 3 m and 12 m drops; walking off a ledge) and `feat28a.mjs` (menu, equip by tap, preview, discard and pick up, selling, torch growth, blood, night). Screens: `screens/28a-*.png`.
 - **Round 26: light realism pass (sky, light and fog only).**
   - *Physical daylight sky:* the dome uses the same Rayleigh + Mie (Preetham) scattering model as three's Sky addon and the approved `realism-sample.html`. Turbidity rises with haze and cloud. The bright noon sky is scaled down more than the low-sun sky, like a camera's auto-exposure. Night and deep twilight keep the hand-tuned gradient, moon, stars and clouds.
   - *One sky drives everything:* by day the fog colour is the sky's horizon, the hemisphere light's sky colour is the sky's zenith colour, and the sun is tinted by the air it shines through. Distant land, haze and sky now agree at every hour, and the bottom of the sky melts into the fog without a seam.

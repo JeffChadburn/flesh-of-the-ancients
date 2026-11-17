@@ -250,7 +250,8 @@ export class Fighters {
   lootNear(f, r = 2.2) { let b = null, bd = r; for (const q of this.bags) { const d = Math.hypot(q.x - f.x, q.z - f.z); if (d < bd) { bd = d; b = q; } } return b; }
   lootTake(b, surv) {
     const got = [];
-    for (const [id, n] of b.loot) { surv?.add(id, n); got.push(`${n} ${(ITEMS[id]?.name || id).toLowerCase()}`); }
+    for (const [id, n] of b.loot) { const k = surv ? surv.add(id, n) : n; if (k < n) this.env.overflow?.(id, n - k); got.push(`${n} ${(ITEMS[id]?.name || id).toLowerCase()}`); } // round 28a: what doesn't fit drops at your feet
+    surv?.autoEquip?.(b.loot.map((q) => q[0]));
     this.env.scene.remove(b.mesh); this.bags = this.bags.filter((q) => q !== b); this.c.loot++;
     this.env.toast(`Looted (${AGE_NAME[b.age]} Age): ${got.join(", ")}`, "good");
     this.env.log?.({ e: "loot", loot: b.loot });

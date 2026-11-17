@@ -5,7 +5,7 @@
  * cave, and death -> last save (faces / skills kept).
  */
 import * as THREE from "three";
-import { Survival, ITEMS, SKILLS, RECIPES, TREE, GEAR, readSave, writeSave } from "./survival.js";
+import { Survival, ITEMS, SKILLS, RECIPES, TREE, GEAR, slotsFor, readSave, writeSave } from "./survival.js";
 import { QuestLog, QUESTS, QUEST, NPCS, fill } from "./quests.js";
 import { makeBody, markFaceTaken, bake } from "./camp.js";
 import { queryVolume } from "../volume.js";
@@ -146,7 +146,7 @@ export class Story {
   /** Add XP (toast on level up). */
   xp(n, why = "") {
     const g = this.surv.addXP(n);
-    if (g) { this.env.ui.toast(`Level ${this.surv.level}! +${g} skill point${g > 1 ? "s" : ""} (Pack → Skills)`, "skill"); this.env.audio.music?.duckFor?.(2, 0.5); }
+    if (g) { this.env.ui.toast(`Level ${this.surv.level}! +${g} skill point${g > 1 ? "s" : ""} · your torch burns brighter (Character → Skills)`, "skill"); this.env.audio.music?.duckFor?.(2, 0.5); this.env.applyStats?.(); }
     this._log({ e: "xp", n, why });
   }
   giveReward(r = {}) {
@@ -232,7 +232,7 @@ export class Story {
       { title: "Survive", lines: [["Gather berries or roots and eat", st.ate > 0], ["Drink from the stream", st.drank > 0]], done: st.ate > 0 && st.drank > 0 },
       { title: "Hunt", lines: [["Kill a rabbit or bird (crouch to stalk)", st.small > 0], ["Bring down a deer", st.deer > 0], ["Harvest a carcass with your knife", st.harvested > 0]], done: st.small > 0 && st.deer > 0 && st.harvested > 0 },
       { title: "Fire", lines: [["Relight the camp fire", f.fireLit], ["Cook meat at the fire", st.cooked > 0]], done: f.fireLit && st.cooked > 0 },
-      { title: "A pack for the journey", lines: [["Craft a backpack (Tab / Pack → Crafting) from a hide, or from Tor...", s.crafted.has("backpack")]], done: s.crafted.has("backpack") },
+      { title: "A pack for the journey", lines: [["Craft a backpack (Tab → ⚒ Craft, or Pack → Crafting) from a hide, or from Tor...", s.crafted.has("backpack")]], done: s.crafted.has("backpack") },
       { title: "The first throat", lines: [["Find the cave beside the waterfall", f.enteredHollow]], done: f.enteredHollow },
       { title: "Waterfall Hollow", lines: [["Kill what lives in the dark", f.ratKilled], ["Collect its blood", f.ratHarvested], ["Paint a blood glyph on the wall", this.glyphs.length > 0], ["Find the dead hunter deep in the cave and remove his face", f.faceTaken], ["Eat the creature's organ", f.memory]], done: f.ratKilled && f.ratHarvested && this.glyphs.length > 0 && f.faceTaken && f.memory },
       { title: "Home", lines: [["Return to camp and rest at the fire (save)", f.actDone]], done: f.actDone },
@@ -282,6 +282,8 @@ export class Story {
     const env = this.env, f = env.feet(), s = this.surv, fl = this.flags;
     if (!f) return null;
     const d2 = (o) => Math.hypot(o.x - f.x, o.z - f.z);
+    const dr = env.dropNear?.(f); // round 28a: something lying on the ground (discarded, or loot that didn't fit)
+    if (dr) return { label: `Pick up ${ITEMS[dr.id]?.name.toLowerCase() || dr.id}${dr.n > 1 ? " ×" + dr.n : ""}`, act: () => env.dropTake(dr) };
     if (env.mode() === "overworld") {
       const camp = env.camp(), t = env.terrain();
       // round 15: storage baskets inside a settlement's longhouse / lodges
@@ -547,7 +549,7 @@ export class Story {
     if (a === "learn") {
       if (s.learn(id, (q) => this.quests.done(q))) { const k = s.tierInfo(id); ui.toast(`Skill learned: ${k.t.name}`, "skill"); this.env.applyStats(); this._log({ e: "learn", id }); }
     }
-    if (a === "wear") { if (s.wear.has(id)) s.wear.delete(id); else if (s.crafted.has(id)) s.wear.add(id); this.env.applyStats(); }
+    if (a === "wear") { const sl = slotsFor(id)[0]; if (s.wear.has(id)) s.unequip(sl); else if (s.crafted.has(id)) s.equipItem(id, sl); s.syncEquip(); this.env.applyStats(); } // round 28a: through the slots
     if (a === "use" && ITEMS[id]?.heal) { if (this.env.heal?.(ITEMS[id].heal)) { s.remove(id, 1); ui.toast(id === "salve" ? "The salve stings, then soothes. +1 heart" : `You bind the wound with a ${ITEMS[id].name.toLowerCase()}. +1 heart`, "good"); } else ui.toast("You are not hurt"); } // round 24b: bandages too
     if (a === "craft") {
       if (id === "backpack" && s.count("hide") && s.count("skin")) {

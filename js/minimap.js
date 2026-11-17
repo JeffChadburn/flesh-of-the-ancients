@@ -2,6 +2,8 @@ import { mapFilters } from "./mapfilters.js";
 /** Plan-view minimap of the survey centerline, north up. */
 
 import { stationMap, stationWorld } from "./cave-data.js";
+import { sampleGrid, paintGrid, MAPSTYLE as MS } from "./terrainstyle.js";
+const TILE = 256, TG = 33, TPX = 128; // round 28a: minimap terrain tiles (256 m, 33 samples, 128 px)
 
 /** Round 25c: the "you" marker: a notched arrowhead (sharp tip, cut-in back) with a dark outline and
  *  a light rim so it reads on any ground and clearly shows which way it points. Points up (-y). */
@@ -180,6 +182,7 @@ export class Minimap {
 
   /** Round 16: a label that stays inside the round map (flips left near the right rim, outlined). */
   _label(txt, x, y, col) {
+    if (this._light) return this._labelLight(txt, x, y, col);
     const c = this.canvas, ctx = this.ctx, w = c.width;
     ctx.font = `${Math.round(Math.max(w * 0.055, 10.5 * (w / (c.clientWidth || w))))}px sans-serif`; /* round 13: readable on a 100 px phone map */
     const tw = ctx.measureText(txt).width, r = w / 2 - 4, yy = Math.max(-r + 10, Math.min(r - 3, y - w / 2)) + w / 2;
@@ -189,9 +192,23 @@ export class Minimap {
     ctx.fillStyle = col || "#f6e2b0"; ctx.fillText(txt, tx, yy);
   }
 
+  /** Round 28a: dark text on a white halo, for the light terrain minimap. */
+  _labelLight(txt, x, y, col) {
+    const c = this.canvas, ctx = this.ctx, w = c.width;
+    ctx.font = `600 ${Math.round(Math.max(w * 0.055, 10.5 * (w / (c.clientWidth || w))))}px system-ui, sans-serif`;
+    const tw = ctx.measureText(txt).width, r = w / 2 - 4, yy = Math.max(-r + 10, Math.min(r - 3, y - w / 2)) + w / 2;
+    const half = Math.sqrt(Math.max(0, r * r - (yy - w / 2) ** 2));
+    let tx = x + 6; if (tx + tw > w / 2 + half) tx = x - 6 - tw; tx = Math.max(w / 2 - half + 2, Math.min(w / 2 + half - tw - 2, tx));
+    ctx.textAlign = "left"; ctx.lineWidth = Math.max(2.5, w * 0.02); ctx.strokeStyle = MS.halo; ctx.strokeText(txt, tx, yy);
+    const m = /^#([0-9a-f]{6})$/i.exec(col || ""); let fc = MS.text;
+    if (m) { const n = parseInt(m[1], 16), r2 = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255; fc = 0.3 * r2 + 0.59 * g + 0.11 * b < 140 ? col : `rgb(${Math.round(r2 * 0.42)},${Math.round(g * 0.42)},${Math.round(b * 0.42)})`; }
+    ctx.fillStyle = fc; ctx.fillText(txt, tx, yy);
+  }
+
   /** Overworld: player-centred 150 m map, contour-ish shading, cave mouths once discovered. */
   drawOverworld(terrain, playerPos, yaw, discovered, extra = null) {
     const c = this.canvas, ctx = this.ctx, w = c.width, h = c.height;
+    this._light = true;
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = "rgba(8, 10, 12, 0.8)";
     ctx.beginPath(); ctx.arc(w / 2, h / 2, w / 2 - 1, 0, Math.PI * 2); ctx.fill();
@@ -199,29 +216,30 @@ export class Minimap {
     const R = 150, scale = (w / 2 - 8) / R;
     ctx.save();
     ctx.beginPath(); ctx.arc(w / 2, h / 2, w / 2 - 3, 0, Math.PI * 2); ctx.clip();
-    // Cheap height shading (cached per player cell, so ~0 cost per frame).
-    const key = Math.round(playerPos.x / 10) + "," + Math.round(playerPos.z / 10) + "," + w;
-    if (this._owKey !== key) {
-      this._owKey = key;
-      const N = 24, cell = w / N;
-      this._owImg = [];
-      for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
-        const x = playerPos.x + ((i + 0.5) * cell - w / 2) / scale, z = playerPos.z + ((j + 0.5) * cell - h / 2) / scale;
-        const y = terrain.height(x, z);
-        const band = Math.floor(y / 8) % 2 ? 1.06 : 1;
-        if (terrain.bio) { // round 18: region colours + water
-          const [r, g, b] = terrain.bio.mapRGB(x, z, y);
-          this._owImg.push([i * cell, j * cell, cell + 0.5, `rgba(${Math.round(r * 200 * band)}, ${Math.round(g * 200 * band)}, ${Math.round(b * 200 * band)}, 0.62)`]);
-          continue;
-        }
-        const v = Math.max(0, Math.min(1, (y + 20) / 160));
-        this._owImg.push([i * cell, j * cell, cell + 0.5, `rgba(${40 + v * 70 + band * 8}, ${55 + v * 60 + band * 8}, ${45 + v * 70 + band * 8}, 0.5)`]);
+    // Round 28a: terrain-map tiles (tints, hillshade, contours, water), built lazily one per frame and cached.
+    ctx.fillStyle = "#e4e2d4"; ctx.fillRect(0, 0, w, h);
+    if (!this._tiles || this._tilesT !== terrain) { this._tiles = new Map(); this._tilesT = terrain; }
+    const ti0 = Math.floor((playerPos.x - R * 1.5) / TILE), ti1 = Math.floor((playerPos.x + R * 1.5) / TILE), tj0 = Math.floor((playerPos.z - R * 1.5) / TILE), tj1 = Math.floor((playerPos.z + R * 1.5) / TILE);
+    let built = 0;
+    ctx.imageSmoothingEnabled = true;
+    for (let tj = tj0; tj <= tj1; tj++) for (let ti = ti0; ti <= ti1; ti++) {
+      const key = ti + "," + tj; let tl = this._tiles.get(key);
+      if (!tl && built < 1) {
+        built++; const t0 = performance.now();
+        const step = TILE / (TG - 1), G = sampleGrid(terrain, ti * TILE - step / 2, tj * TILE - step / 2, TG, TG, step);
+        const cv = document.createElement("canvas"); cv.width = cv.height = TPX;
+        cv.getContext("2d").putImageData(paintGrid(G, TPX, TPX, { interval: 5, index: 25, exag: 1.4 }), 0, 0);
+        tl = { cv, ms: performance.now() - t0 }; this._tiles.set(key, tl); this.tileMs = Math.round(tl.ms * 10) / 10;
+        if (this._tiles.size > 24) this._tiles.delete(this._tiles.keys().next().value);
       }
+      if (!tl) continue;
+      const x = w / 2 + (ti * TILE - playerPos.x) * scale, y = h / 2 + (tj * TILE - playerPos.z) * scale, sz = TILE * scale;
+      // the grid centres sit half a step outside the tile, so the 33 samples span the tile exactly
+      ctx.drawImage(tl.cv, x - (TILE / (TG - 1)) * 0.5 * scale, y - (TILE / (TG - 1)) * 0.5 * scale, sz + (TILE / (TG - 1)) * scale + 0.5, sz + (TILE / (TG - 1)) * scale + 0.5);
     }
-    for (const [x, y, s, col] of this._owImg) { ctx.fillStyle = col; ctx.fillRect(x, y, s, s); }
     if (terrain.bio && mapFilters.water) { // round 18: rivers
       const Pm = (x, z) => [w / 2 + (x - playerPos.x) * scale, h / 2 + (z - playerPos.z) * scale];
-      ctx.strokeStyle = "rgba(110, 190, 230, 0.85)"; ctx.lineWidth = Math.max(2, w * 0.016);
+      ctx.strokeStyle = MS.river; ctx.lineWidth = Math.max(2, w * 0.016);
       for (const r of terrain.bio.rivers) {
         ctx.lineWidth = Math.max(r.creek ? 1.2 : 2, w * (r.creek ? 0.008 : 0.016));
         ctx.beginPath(); let on = false;
@@ -264,7 +282,8 @@ export class Minimap {
     // player arrow
     ctx.save();
     ctx.translate(w / 2, h / 2); ctx.rotate(-yaw);
-    drawPlayerArrow(ctx, Math.max(11, w * 0.08));
+    drawPlayerArrow(ctx, Math.max(11, w * 0.08), MS.player);
     ctx.restore();
+    this._light = false;
   }
 }

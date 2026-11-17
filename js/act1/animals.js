@@ -620,6 +620,8 @@ export class Wildlife {
     return best ? { a: best, d: bd } : null;
   }
 
+  /** Round 28a: after Kra dies, hunters lose his scent for a while. */
+  calmAll() { for (const a of this.list) if (a.alive && (a.state === "charge" || a.state === "stalk" || a.state === "attack")) { a.state = "idle"; a.stateT = 0; a.scared = 20; } }
   /** Round 24b (tests / debug): put a predator group at x, z. */
   spawnAt(kind, x, z, n = 1, yaw = null) {
     const herd = n > 1 ? { id: "dbg" + (this.nextId || 0), alert: 0, pack: kind === "wolf" } : null, out = [];
