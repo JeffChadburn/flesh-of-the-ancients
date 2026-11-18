@@ -5,7 +5,7 @@
 export const CONTROLS = {
   touch: [
     ["Move", "Left joystick (push further = faster)"], ["Look", "Drag anywhere on the right side"], ["Sprint", "Push the stick all the way out (uses stamina)"],
-    ["Jump", "Jump"], ["Crouch / Crawl", "Crouch, Crawl (tap again to stand)"], ["Torch up / down", "🔥 Torch"], ["Attack", "Stab (or Shoot with the bow)"],
+    ["Jump", "Jump"], ["Crouch / Crawl", "The stance button: tap = crouch, crawl, crouch, stand (caves do it for you; running stands you up)"], ["Torch up / down", "🔥 Torch"], ["Attack", "Stab (or Shoot with the bow)"],
     ["Spear ⇄ Bow", "Bow / Spear"], ["Use / pick up / talk / ride", "The action button (it names the action)"], ["Pack, crafting, skills", "🎒 Pack"],
     ["Tasks (quest log)", "📜 Tasks"], ["Map", "Tap the minimap, or 🗺"], ["Find (mushrooms, water, flint, ore…)", "🔍 by the minimap, or 🔍 Find in the map"], ["Call to Arms (near a hostile town)", "📯 by the minimap"], ["Map filters / hint / beacon / travel", "In the map: Filters, Hint, tap a place"],
     ["1st / 3rd person", "1st person"], ["Mount / dismount, boat", "Ride / Get out"], ["Leave a cave", "🏔 Exit cave"],
@@ -13,7 +13,7 @@ export const CONTROLS = {
   ],
   desktop: [
     ["Move", "W A S D or arrow keys"], ["Look", "Mouse (click the view first)"], ["Walk / jog / run pace", "1 / 2 / 3"], ["Sprint", "Hold Shift (uses stamina)"],
-    ["Jump", "Space"], ["Crouch", "C"], ["Crawl", "Z or Ctrl"], ["Torch up / down", "L"], ["Attack", "Left click or R"], ["Spear ⇄ Bow", "Q or B"],
+    ["Jump", "Space"], ["Crouch", "C (caves crouch / crawl for you; Shift-run stands you up)"], ["Crawl", "Z or Ctrl"], ["Torch up / down", "L"], ["Attack", "Left click or R"], ["Spear ⇄ Bow", "Q or B"],
     ["Use / pick up / talk / ride", "E"], ["Character menu: Items / Skills (⚒ Craft inside)", "I / Tab / K"], ["Tasks (quest log)", "J"], ["Map", "M"], ["Find (mushrooms, water, flint, ore…)", "F (or 🔍 by the minimap)"], ["Call to Arms (near a hostile town)", "H (or 📯)"],
     ["1st / 3rd person", "V"], ["Time / weather (testing)", "T / Y"], ["Close panels", "Esc"], ["Multiplayer chat / talk", "Enter / hold V (in a room)"],
   ],
@@ -28,7 +28,7 @@ const NAMES = { touch: "📱 Phone / tablet", desktop: "⌨️ Keyboard & mouse"
 function beastTable() {
   const row = ([k, v]) => `<tr><th>${v.name}</th><td>${"♥".repeat(Math.min(8, v.hp))}${v.hp > 8 ? "+" : ""}</td><td>${v.dmg ? "⚔".repeat(v.dmg) : "–"}</td><td>${v.speed}</td><td title="${v.abilities.map((a) => ABILITY[a]).join(" · ")}">${v.abilities.join(", ")}</td></tr>`;
   return `<table class="cs-beasts"><tr><th></th><td><b>HP</b></td><td><b>Hit</b></td><td><b>m/s</b></td><td><b>Abilities</b></td></tr>${Object.entries(STATS).map(row).join("")}</table>
-    <p class="cs-tip">HP = spear hits to bring it down (a flint spear or Strength hits harder). Hit = hearts it takes. Predators stalk, then attack in range; wolves hunt in packs; prey flees. Hostile towns: villagers flee, warriors close in, spear-throwers keep their distance, anyone badly hurt runs. Shields and armour can turn a blow aside.</p>`;
+    <p class="cs-tip">HP = spear hits to bring it down (a flint spear or Strength hits harder). Hit = how much health it takes (20 per point). Predators stalk, then attack in range; wolves hunt in packs; prey flees. Hostile towns: villagers flee, warriors close in, spear-throwers keep their distance, anyone badly hurt runs. Shields and armour can turn a blow aside.</p>`;
 }
 export function currentDevice(touch) {
   try { if ([...(navigator.getGamepads?.() || [])].some((g) => g && g.connected)) return "pad"; } catch {}

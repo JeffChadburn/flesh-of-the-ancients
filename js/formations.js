@@ -20,7 +20,12 @@ function frameAt(ax, ay, az, bx, by, bz) {
   return { rx, ry, rz, ux: f.y * rz - f.z * ry, uy: f.z * rx - f.x * rz, uz: f.x * ry - f.y * rx, len };
 }
 
+// Round 28b (playtest r5): nothing hangs in the daylight at the mouth. Formations within ~2.5 m of the
+// entrance plane (or outside it) are skipped, so no stalactite "shards" float against the sky.
+let mouthCut = null;
+function nearMouth(x, z) { const m = mouthCut; return !!m && Math.hypot(x - m.x, z - m.z) < m.R && (x - m.x) * m.nx + (z - m.z) * m.nz > -6; } // round 28b: 6 m deep (a 4 m stalagmite stood on the Timpanogos spawn)
 function addInstance(list, dummy, x, y, z, sx, sy, sz, rotX, rotY, rotZ, color) {
+  if (nearMouth(x, z)) return;
   dummy.position.set(x, y, z);
   dummy.rotation.set(rotX || 0, rotY || 0, rotZ || 0);
   dummy.scale.set(sx, sy, sz);
@@ -43,6 +48,9 @@ export function addFormations(group, cave, material, lookup = null, opts = {}) {
   const smap = stationMap(cave);
   const nbrs = neighborsOf(cave);
   const dummy = new THREE.Object3D();
+  mouthCut = null;
+  { const s = smap.get(cave.entranceId), l = s && cave.legs.find((l) => l.from === s.id || l.to === s.id), o = l && smap.get(l.from === s.id ? l.to : l.from);
+    if (s && o) { const p = stationWorld(s), q = stationWorld(o); const nx = p.x - q.x, nz = p.z - q.z, nl = Math.hypot(nx, nz) || 1; mouthCut = { x: p.x, z: p.z, nx: nx / nl, nz: nz / nl, R: Math.max(s.left, s.right, s.up) * 2.5 + 4 }; } }
   const obstacles = [];
 
   const stalactites = [];
@@ -54,6 +62,7 @@ export function addFormations(group, cave, material, lookup = null, opts = {}) {
   const wet = material;
 
   function placeOnFloor(x, z, yBase, radius, height) {
+    if (nearMouth(x, z)) return;
     obstacles.push({ x, z, y: yBase, radius, height, kind: "formation" });
   }
 

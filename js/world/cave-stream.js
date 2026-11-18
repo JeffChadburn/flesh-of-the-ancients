@@ -82,7 +82,7 @@ export class CaveStreamLayer {
     for (const o of portalObjects(cave, { night })) this.resident.add(o.obj);
     if (night) this.resident.traverse((o) => {
       if (o.isPointLight && o.color.getHex() === 0xb9d4ff) { o.color.set(0x7088b8); o.intensity = 4; }
-      if (o.isMesh && o.material.map) { o.material.color.set(0x2a3450); }
+      if (o.isMesh && (o.material.map || o.name === "daylight")) { o.material.color.set(0x2a3450); }
     });
     // Graph for passage distances.
     this.adj = new Map();

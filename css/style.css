@@ -344,8 +344,13 @@ button:hover, .file-btn:hover { border-color: var(--accent); color: #fff; }
 
 /* ---- Survival HUD ---- */
 #status { margin-top: 6px; display: flex; gap: 12px; align-items: center; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 13px; color: #f0dfc0; text-shadow: 0 1px 2px #000; }
-#hp { letter-spacing: 2px; color: #e04a3a; font-size: 16px; }
-#hp .lost { color: rgba(224, 74, 58, 0.25); }
+/* round 28b: a health bar instead of hearts; faint ticks mark each old heart */
+#hp { position: relative; display: block; width: 96px; height: 8px; border-radius: 5px; overflow: hidden; background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(255, 140, 120, 0.35); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); }
+#hp > b { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #a3241c, #e04a3a 70%, #f07a5a); transition: width 0.35s ease; }
+#hp::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 calc(100% / var(--seg, 3) - 1px), rgba(0, 0, 0, 0.45) calc(100% / var(--seg, 3) - 1px) calc(100% / var(--seg, 3))); pointer-events: none; }
+#hp.low { border-color: #ff6a50; animation: lowpulse 1s infinite; }
+/* round 28b: the place / time / tally lines live in the character menu (Stats tab) now */
+#place, #cave-real, #hud .clock-line, #kills, #deaths { display: none !important; }
 #menu-btn { display: none; }
 #attack-btn { display: none; }
 #vignette { position: absolute; inset: 0; pointer-events: none; z-index: 4; opacity: 0;
@@ -401,7 +406,6 @@ button:hover, .file-btn:hover { border-color: var(--accent); color: #fff; }
 .meters i { display: block; height: 6px; background: rgba(0,0,0,0.55); border: 1px solid rgba(224,181,106,0.3); border-radius: 4px; overflow: hidden; }
 .meters b { display: block; height: 100%; width: 50%; transition: width 0.3s; }
 .meter[data-k=hunger] b { background: linear-gradient(90deg, #a8642c, #d8a050); }
-.meter[data-k=thirst] b { background: linear-gradient(90deg, #2c6aa8, #66b6e0); }
 .meter[data-k=stamina] b { background: linear-gradient(90deg, #4a8a3a, #9ad06a); }
 .meter.low span { color: #ff8a70; }
 .meter.low i { border-color: #ff6a50; animation: lowpulse 1s infinite; }
@@ -523,7 +527,6 @@ button:hover, .file-btn:hover { border-color: var(--accent); color: #fff; }
   .meters .meter span { font-size: 0; }
   .meters .meter span::before { font-size: 9px; }
   .meters .meter[data-k=hunger] span::before { content: "H"; }
-  .meters .meter[data-k=thirst] span::before { content: "T"; }
   .meters .meter[data-k=stamina] span::before { content: "S"; }
   .meters i { height: 5px; }
   #place { font-size: 12px; }

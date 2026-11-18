@@ -208,7 +208,7 @@ export function pointInside(volume, x, y, z, radius = PLAYER_RADIUS, eps = 0) {
   return q.inside;
 }
 
-export function queryVolume(volume, x, y, z, radius = PLAYER_RADIUS, eps = 0) {
+export function queryVolume(volume, x, y, z, radius = PLAYER_RADIUS, eps = 0, dir = null) {
   let best = null;
   let bestD = Infinity;
   const containing = [];
@@ -268,6 +268,21 @@ export function queryVolume(volume, x, y, z, radius = PLAYER_RADIUS, eps = 0) {
     for (const c of containing) {
       const sc = Math.abs(y - (c.floor + eyeHeight(c.up, c.down)));
       if (sc < score) { score = sc; pick = c; }
+    }
+    // Round 28b (playtest r5): where two tubes overlap at your level (a ramp leaving a room above
+    // another passage), follow the one you are walking along, so you climb the ramp instead of staying
+    // on the lower floor and then meeting the ramp's side as a 5 m wall.
+    if (dir && containing.length > 1) {
+      const dl = Math.hypot(dir.x, dir.z);
+      if (dl > 1e-5) {
+        let bestA = -1;
+        for (const c of containing) {
+          if (Math.abs(y - (c.floor + eyeHeight(c.up, c.down)) - score) > 0.3) continue;
+          const g = c.type === "seg" ? volume.segments[c.segIndex] : null;
+          const al = g && g.len2h > 0.01 ? Math.abs(dir.x * g.abx + dir.z * g.abz) / (dl * Math.sqrt(g.len2h)) : 0.5;
+          if (al > bestA + 0.15) { bestA = al; pick = c; }
+        }
+      }
     }
     floor = pick.floor;
     ceil = pick.ceil;
@@ -336,7 +351,7 @@ function pushObstacles(volume, x, y, z, floor, radius) {
 
 /** Clamp a proposed eye-level position into the walkable volume. */
 export function constrainToVolume(volume, proposed, previous, radius = PLAYER_RADIUS, stance = STANCES.stand) {
-  const q = queryVolume(volume, proposed.x, proposed.y, proposed.z, radius, 0);
+  const q = queryVolume(volume, proposed.x, proposed.y, proposed.z, radius, 0, previous ? { x: proposed.x - previous.x, z: proposed.z - previous.z } : null);
   let x, z, floor, ceil, eye, up, down, inside;
   if (q.inside) {
     x = proposed.x;

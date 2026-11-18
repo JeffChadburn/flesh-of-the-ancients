@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { generateCave, randomSeed, caveName, addWaterSystem } from "./generator.js";
 import { parseJSONSurvey, parseCSVSurvey, longestPathIds, totalLength, depthRange, stationMap, stationWorld, neighborsOf } from "./cave-data.js";
-import { buildCaveGroup, disposeGroup, rockMaterial, formationMaterial } from "./mesh.js";
+import { buildCaveGroup, disposeGroup, rockMaterial, formationMaterial, setMeshDetail } from "./mesh.js";
 import { WallCollider, ensureBVH } from "./wallcollide.js";
 import { Player, isTouchDevice } from "./player.js";
 import { Minimap } from "./minimap.js";
@@ -300,7 +300,7 @@ function loadCave(nextCave, { fromEntrance = null } = {}) {
     waterHandle = addWater(caveGroup, cave);
   }
   trailHandle = null;
-  if (!show) caveFauna = new CaveFauna(scene, { lite: IS_TOUCH, seed: (cave.seed || 7) ^ 0xbad });
+  if (!show) caveFauna = new CaveFauna(scene, { lite: IS_TOUCH, seed: (cave.seed || 7) ^ 0xbad, mouths: cave.stations.filter((q) => q.kind === "entrance" || q.kind === "exit").map((q) => stationWorld(q)) }); // round 28b: no bat swirl at the mouths (read as floating shards)
   // Torch-lit darkness everywhere: black, dense fog (useful light ~8-12 m).
   scene.fog.color.set(0x000000);
   scene.background.set(CAVE_BG);
@@ -978,7 +978,7 @@ function syncMute() {
 syncMute();
 // Round 13: spoken story voices + subtitles toggles (saved in localStorage).
 const gfxBtn = document.getElementById("gfx-btn");
-function syncGfx() { if (gfxBtn) gfxBtn.textContent = "Graphics: " + (gfxQuality() === "high" ? "High" : "Low"); document.getElementById("game")?.classList.toggle("gfx-high", gfxQuality() === "high"); }
+function syncGfx() { setMeshDetail(IS_TOUCH && gfxQuality() !== "high" ? 0.6 : 1); /* round 28b: hall LOD (next cave built) */ if (gfxBtn) gfxBtn.textContent = "Graphics: " + (gfxQuality() === "high" ? "High" : "Low"); document.getElementById("game")?.classList.toggle("gfx-high", gfxQuality() === "high"); }
 syncGfx();
 if (gfxBtn) {
   gfxBtn.addEventListener("click", (e) => {
@@ -1015,14 +1015,29 @@ if (musicBtn) {
   musicBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
 }
 
-const btnCrouch = document.getElementById("btn-crouch");
-const btnCrawl = document.getElementById("btn-crawl");
+// Round 28b: one stance button. Each tap goes one step: stand → crouch → crawl → crouch → stand.
+// (C / Z stay on the keyboard.) In caves the stance also follows the ceiling by itself.
+const btnStance = document.getElementById("btn-stance");
 const lowHint = document.getElementById("low-hint");
-
+let stanceDir = "down";
 function syncStance(name) {
   const st = name || player?.stance || "stand";
-  if (btnCrouch) btnCrouch.classList.toggle("active", st === "crouch");
-  if (btnCrawl) btnCrawl.classList.toggle("active", st === "crawl");
+  if (st === "stand") stanceDir = "down"; else if (st === "crawl") stanceDir = "up";
+  if (btnStance) {
+    btnStance.classList.toggle("active", st !== "stand");
+    btnStance.dataset.stance = st;
+    btnStance.innerHTML = (st === "crawl" ? "Crawl" : st === "crouch" ? "Crouch" : "Stand") + " <kbd>C / Z</kbd>";
+  }
+}
+function stanceStep() {
+  if (!player) return null;
+  const st = player.stance;
+  const to = st === "stand" ? "crouch" : st === "crawl" ? "crouch" : stanceDir === "up" ? "stand" : "crawl";
+  if (st === "crouch" && to === "stand" && !player.canUseStance("stand")) { storyUI.toast?.("Not enough headroom to stand here."); return st; }
+  player.setStance(to); player._autoLow = false;
+  if (player.stance === "crouch") stanceDir = st === "crawl" ? "up" : "down";
+  syncStance(player.stance);
+  return player.stance;
 }
 
 function updateLowHint(info) {
@@ -1043,19 +1058,9 @@ function updateLowHint(info) {
   }
 }
 
-if (btnCrouch) {
-  btnCrouch.addEventListener("click", (e) => {
-    e.stopPropagation();
-    player?.setStance("crouch", { toggle: true });
-    syncStance(player?.stance);
-  });
-}
-if (btnCrawl) {
-  btnCrawl.addEventListener("click", (e) => {
-    e.stopPropagation();
-    player?.setStance("crawl", { toggle: true });
-    syncStance(player?.stance);
-  });
+if (btnStance) {
+  btnStance.addEventListener("click", (e) => { e.stopPropagation(); stanceStep(); });
+  btnStance.addEventListener("pointerdown", (e) => e.stopPropagation());
 }
 
 document.getElementById("new-cave").addEventListener("click", () => newCave());
@@ -1276,11 +1281,14 @@ const story = new Story({
   // round 19: a crafted raft goes into the nearest water (check = true: only test there is some)
   launchRaft: (check = false) => {
     if (world.mode !== "overworld" || !world.boats || !player) return false;
-    const f = feetPos(), sp = world.boats.spot(f.x, f.z, 24, 0.45);
+    const f = feetPos(), sp = world.boats.spot(f.x, f.z, 12, 0.45) || world.boats.spot(f.x, f.z, 24, 0.45);
     if (!sp || check) return !!sp;
     const b = world.boats.add("raft", sp.x, sp.z, Math.atan2(-(sp.x - f.x), -(sp.z - f.z)), { home: "yours" });
-    b.dock = { x: sp.shore.x, z: sp.shore.z };
+    // round 28b: the jetty foot is where Kra stands (dry, he built it here), so Board shows at once
+    const dry = (world.terrain.waterDepth?.(f.x, f.z) ?? -1) < 0.05, near = Math.hypot(sp.x - f.x, sp.z - f.z) < 15;
+    b.dock = dry && near ? { x: f.x, z: f.z } : { x: sp.shore.x, z: sp.shore.z };
     game.myBoat = b;
+    mountShown = null; updateMountUI();
     return true;
   },
   floorAt: (x, y, z) => { if (!player?.volume) return null; const q = queryVolume(player.volume, x, y, z, 0.05, 0); return q.inside ? q.floor : null; },
@@ -1409,7 +1417,16 @@ function showMainMenu() {
 }
 
 function renderStatus() {
-  if (hpEl) hpEl.innerHTML = Array.from({ length: game.maxHealth }, (_, i) => `<span class="${i < game.health ? "" : "lost"}">&#9829;</span>`).join("");
+  // round 28b: a health bar instead of hearts. Damage is unchanged inside; shown as 20 health per old heart (one bar segment)
+  if (hpEl) {
+    const f = Math.max(0, Math.min(1, game.health / Math.max(1, game.maxHealth))), pct = Math.round(f * 100);
+    if (!hpEl.firstElementChild) hpEl.innerHTML = "<b></b>";
+    hpEl.firstElementChild.style.width = pct + "%";
+    hpEl.style.setProperty("--seg", game.maxHealth);
+    hpEl.style.width = Math.min(150, 66 + game.maxHealth * 10) + "px";
+    hpEl.setAttribute("aria-valuenow", pct); hpEl.title = `Health ${Math.max(0, game.health) * 20} / ${game.maxHealth * 20}`;
+    hpEl.classList.toggle("low", f <= 0.34);
+  }
   if (killsEl) killsEl.textContent = `Kills ${tally.kills}`;
   if (deathsEl) deathsEl.textContent = `Deaths ${tally.deaths}`;
 }
@@ -1474,7 +1491,7 @@ function die(src = "") {
   if (game.boat) { const b = game.boat; player.boating = false; game.boat = null; b.taken = false; b.v = 0; b.yr = 0; deathFlow.boat = b; updateBeachBtn(false); }
   const p = deathEl?.querySelector("p"), h2 = deathEl?.querySelector("h2");
   if (h2) h2.textContent = ctx.cause === "fall" ? "You fell" : ctx.cause === "starving" ? "Hunger took you" : "You were taken";
-  if (p) p.textContent = world.mode === "overworld" ? "You keep everything you carry. Waking at a safe fire…" : "You keep everything you carry. Waking at the entrance…";
+  if (p) p.textContent = world.mode === "overworld" ? "You keep everything you carry. Waking where you fell…" : "You keep everything you carry. Waking where you fell…";
   deathEl?.classList.remove("hidden");
   glog({ e: "death", cause: ctx.cause, mode: ctx.mode, town: ctx.town?.name || null, horse: !!ctx.horse, boat: !!ctx.boat });
   audio.music?.duckFor?.(2.5, 0.15);
@@ -1483,6 +1500,8 @@ function die(src = "") {
 /** Where Kra wakes in the hills: his nearest settlement, else the last save (story) / camp, else the world spawn. */
 function respawnSpot(ctx) {
   const t = world.terrain, f = ctx?.at || feetPos();
+  // Round 28b: wake where you fell (not at an old save). Only if that spot is dry land.
+  if (f && t && !((t.waterDepth?.(f.x, f.z) ?? -1) > 0.3) && !world.settle?.at(f.x, f.z)?.hostile) return { x: f.x, z: f.z, yaw: player?.yaw || 0, here: true };
   const own = world.colony?.list.length ? world.colony.homeFor(f) : null;
   if (own) { const q = world.colony.storePt(own); return { x: q.x, z: q.z + 2.5, yaw: player?.yaw || 0 }; }
   if (story.active) { const sv = readSave(); if (sv?.pos) return sv.pos; if (world.camp) return campSpawn(); }
@@ -1496,11 +1515,12 @@ async function respawn() {
   try { if (typeof deathFlow.beforeRespawn === "function") await deathFlow.beforeRespawn(ctx); } catch (err) { errors.push("beforeRespawn: " + err); }
   try {
     if (world.mode === "overworld") {
-      const at = respawnSpot(ctx);
+      const at = respawnSpot(ctx); if (at.here) ctx.here = true;
       await transition(() => { enterOverworld(null, { at }); resetAfterDeath(ctx); });
     } else {
       player.setStance("stand");
-      player.spawnAtEntrance();
+      // Round 28b: wake where you fell in the cave too (the entrance only if that spot is unknown)
+      if (ctx.at && ctx.mode === world.mode) { player.placeWorld(ctx.at.x, ctx.at.y + STANCES.stand.eye, ctx.at.z); ctx.here = true; } else player.spawnAtEntrance();
       // The creature loses you and drifts back into the deep.
       if (game.monster && game.monster.alive) game.monster.spawnFar(feetPos());
       resetAfterDeath(ctx);
@@ -1543,10 +1563,35 @@ function resetAfterDeath(ctx = {}) {
   applyStats(); game.health = game.maxHealth;
   renderStatus();
   deathFlow.count++; deathFlow.log.push({ mode: ctx.mode, cause: ctx.cause || "", at: Date.now() });
-  storyUI.toast(ctx.mode === "overworld" ? "You wake by a fire, aching. Everything you carried is still with you." : "You come to at the mouth of the passage. Everything you carried is still with you.");
+  storyUI.toast(ctx.here ? "You come to where you fell, aching. Everything you carried is still with you." : ctx.mode === "overworld" ? "You wake by a fire, aching. Everything you carried is still with you." : "You come to at the mouth of the passage. Everything you carried is still with you.");
   glog({ e: "respawn", mode: ctx.mode });
-  if (story.active && world.mode === "overworld") story.save("auto"); // the new spot is the save point
+  if (story.active) autosaveNow("respawn"); // round 28b: save right after waking (never load one on death)
 }
+
+/** Round 28b: continuous autosave (story). Every ~15 s, a couple of seconds after the pack or a
+ *  settlement changes, and when the page is hidden or closed, so dying or closing loses nothing. Death
+ *  never loads a save: Kra keeps what he has and wakes where he fell (respawnSpot). */
+const autosave = { t: 0, sig: "", dirtyT: -1, n: 0, last: 0, why: "" };
+function autosaveSig() {
+  const s = story.surv; if (!s) return "";
+  let h = s.inv.map((q) => q.id + q.n).join(",") + "|" + [...(s.wear || [])].join(",") + "|" + (s.faces || 0) + "|" + (s.xp || 0);
+  const c = world.colony?.list; if (c) h += "|" + c.map((k) => k.blds.length + ":" + k.blds.filter((b) => b.built).length).join(",");
+  return h;
+}
+function autosaveNow(why = "auto") {
+  if (!story.active || story.tutorial || !ready || !world.mode) return false;
+  try { story.save("auto"); world.colony?.save?.(); autosave.n++; autosave.last = Date.now(); autosave.why = why; autosave.t = 0; autosave.dirtyT = -1; return true; } catch (err) { errors.push("autosave: " + err); return false; }
+}
+setInterval(() => {
+  if (!story.active || story.tutorial || storyUI.modal) return;
+  autosave.t += 1;
+  const sig = autosaveSig();
+  if (sig !== autosave.sig) { if (autosave.sig) autosave.dirtyT = 0; autosave.sig = sig; }
+  if (autosave.dirtyT >= 0 && ++autosave.dirtyT >= 2) autosaveNow("change");
+  else if (autosave.t >= 15) autosaveNow("timer");
+}, 1000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") autosaveNow("hidden"); });
+addEventListener("pagehide", () => autosaveNow("pagehide"));
 
 /** Round 28a: a real free fall (player.onFall). Water and the saddle soften the landing. */
 function onFall(h, o = {}) {
@@ -1706,13 +1751,22 @@ const _camOut = new THREE.Vector3();
 /** Round 11: the entrance's daylight disc is only drawn near the mouth (full < 7 m, gone by 15 m). */
 function updateDaylight() {
   const p = viewCam.position;
+  let near = Infinity;
   for (const r of [world.caveLayer?.resident, caveGroup]) if (r) for (const o of r.children) {
     if (o.name !== "daylight" || !o.userData.mouth) continue;
     const m = o.userData.mouth, d = Math.hypot(p.x - m.x, p.y - m.y, p.z - m.z);
+    near = Math.min(near, d);
     const a = Math.min(1, Math.max(0, (15 - d) / 8));
     o.material.opacity = a;
     o.visible = a > 0.01;
   }
+  // Round 28b (playtest r5): cheap LOD for the big halls. The cave fog is black exp2, so past
+  // ~1.9 / density (under 3% left: ~60 m in passages, ~120 m in halls) drawing only costs time. Away from
+  // the mouth, cut the far plane there and let frustum culling drop the far chunks / formation cells;
+  // formation cells also drop out past FORM_LOD (small detail, mostly fogged by then). Near a mouth keep the long view.
+  const far = near < 30 || game.fogLock || game.noLod ? 160 : Math.min(160, Math.max(60, Math.round(0.19 / Math.max(0.005, scene.fog.density)) * 10));
+  if (viewCam.far !== far) { viewCam.far = far; viewCam.updateProjectionMatrix(); }
+  game.camFar = far;
 }
 function caveMouthPlane(c) {
   const sm = stationMap(c), s = sm.get(c.entranceId);
@@ -2070,7 +2124,9 @@ function discardItem(id, n = 1) {
 }
 function charStats() {
   const s = story.surv, arm = s.armor();
-  return { hp: game.health, hearts: game.maxHealth, armor: Math.round(Math.min(0.6, arm * 0.15) * 100), dmg: 1 + (s.tools.spearDone || s.str > 0 ? 1 : 0) + s.weaponBonus() + (s.str || 0), bow: 1 + s.arrowBonus(), kills: tally.kills, deaths: tally.deaths };
+  const tx = (id) => (document.getElementById(id)?.textContent || "").trim();
+  const where = { area: tx("cave-name"), place: tx("place"), real: document.getElementById("cave-real")?.classList.contains("hidden") ? "" : tx("cave-real"), clock: (document.querySelector("#hud .clock-line")?.textContent || "").trim(), seed: tx("seed-value") };
+  return { where, hp: game.health, hearts: game.maxHealth, armor: Math.round(Math.min(0.6, arm * 0.15) * 100), dmg: 1 + (s.tools.spearDone || s.str > 0 ? 1 : 0) + s.weaponBonus() + (s.str || 0), bow: 1 + s.arrowBonus(), kills: tally.kills, deaths: tally.deaths };
 }
 const charMenu = new CharMenu(gameEl, {
   surv: () => story.surv, gear: (s) => gearSet(s), blood: () => Math.max(0, caveman._bloodK || 0),
@@ -2810,6 +2866,7 @@ function tickOverworld(dt, info, now) {
     : A.update(dt, { eye: viewCam.position, elevation: elev, lights: { sun: moonLight, hemi: skyFill, ambient }, fog: scene.fog, renderer });
   scene.background.copy(A.fogColor);
   renderer.toneMappingExposure = st.exposure || EXPOSURE; // round 26: daylight exposure (caves reset to EXPOSURE)
+  world.settle?.tintSmoke(st.day, A.fogColor);
   regionTick(dt, p, t);
   world.over.tick(now / 1000, p, A);
   caveman.baseIntensity = TORCH_BASE * st.torch;
@@ -3656,6 +3713,12 @@ window.__CAVE__ = {
     scene.traverseVisible((o) => { if (!o.isMesh && !o.isPoints && !o.isSprite) return; if (o.frustumCulled && o.geometry && !(o.geometry.boundingSphere || o.geometry.computeBoundingSphere(), fr.intersectsObject(o))) return; const k = o.name || o.parent?.name?.split(" ")[0] || o.type; out[k] = (out[k] || 0) + 1; });
     return Object.fromEntries(Object.entries(out).sort((a, b) => b[1] - a[1]).slice(0, 25));
   },
+  instNear: (re, r = 10) => { const R = new RegExp(re), out = [], m4 = new THREE.Matrix4(), v = new THREE.Vector3(), pp = player.camera.position; scene.traverse((o) => { if (o.isInstancedMesh && R.test(o.name)) for (let i = 0; i < o.count; i++) { o.getMatrixAt(i, m4); v.setFromMatrixPosition(m4); const sc = new THREE.Vector3().setFromMatrixScale(m4); if (v.distanceTo(pp) < r) out.push([o.name, +v.x.toFixed(1), +v.y.toFixed(1), +v.z.toFixed(1), +sc.y.toFixed(2)]); } }); return { p: pp.toArray().map((q) => +q.toFixed(1)), out }; },
+  autosaveInfo: () => ({ n: autosave.n, why: autosave.why, last: autosave.last }),
+  autosaveNow: (w) => autosaveNow(w || "test"),
+  renderInfo: () => ({ calls: renderer.info.render.calls, tris: renderer.info.render.triangles, far: viewCam.far, fog: +scene.fog.density.toFixed(4) }),
+  setLod: (on) => { game.noLod = !on; return !game.noLod; },
+  unnamedMeshes: () => { const out = {}; scene.traverseVisible((o) => { if (o.isMesh && !o.name) { const k = (o.parent?.name || o.parent?.type || "?") + "/" + o.geometry.type + "/" + o.material.type + "/" + (o.material.color?.getHexString() || "") + (o.isInstancedMesh ? "/inst" : "") + "@" + o.getWorldPosition(new THREE.Vector3()).toArray().map((v) => v.toFixed(0)).join(","); out[k] = (out[k] || 0) + 1; } }); return out; },
   chunkStats: () => ({ ...chunks.summary(), phaseMax: world.caveLayer?.phaseMax }),
   resetChunkStats: () => chunks.resetStats(),
   setDebug: (on) => setDebug(on),
@@ -3901,7 +3964,7 @@ window.__CAVE__ = {
       }
     }
     P.joy.active = false; P.joy.mag = 0;
-    return { steps, crossings, subCross, jumps: P.jumps || 0, where, rescues: (P.rescues || 0) - rescues0, wallHits: walls.hits, pushes: walls.pushes };
+    return { steps, crossings, subCross, jumps: P.jumps || 0, where, causes, rescues: (P.rescues || 0) - rescues0, wallHits: walls.hits, pushes: walls.pushes };
   },
   /** Main path + a path from the entrance to every dead end (for walking tests). */
   paths: () => {
@@ -3945,6 +4008,22 @@ window.__CAVE__ = {
   water: () => waterHandle && { path: waterHandle.path?.length || 0, snapped: waterHandle.path?.filter((q) => q.snapped).length || 0, pool: waterHandle.features.pool, first: waterHandle.path?.[Math.floor((waterHandle.path?.length || 0) / 2)], ids: cave?.water?.stationIds },
   faunaObj: () => caveFauna,
   setWalls: (on) => { player.walls = on ? walls : null; },
+  /** Round 28b: station ids along the shortest leg path through the given waypoints (tour routes). */
+  volAt: (x, y, z) => { const q = queryVolume(player.volume, x, y, z, 0.05, 0); return (q.containing || []).map((c) => c.type === "seg" ? { seg: player.volume.segments[c.segIndex].from + ">" + player.volume.segments[c.segIndex].to, floor: +c.floor.toFixed(2), ceil: +c.ceil.toFixed(2) } : { hub: c.id || c.h?.id, floor: +(c.floor ?? 0).toFixed(2) }); },
+  stationPos: (ids) => { const m = stationMap(cave); return ids.map((id) => { const s = m.get(id); if (!s) return null; const p = stationWorld(s); return { id, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), down: s.down, up: s.up, l: s.left, r: s.right, kind: s.kind }; }); },
+  tourRoute: (wps) => {
+    const adj = new Map(); const add = (a, b) => { if (!adj.has(a)) adj.set(a, []); adj.get(a).push(b); };
+    for (const l of cave.legs) { add(l.from, l.to); add(l.to, l.from); }
+    const out = [wps[0]];
+    for (let w = 1; w < wps.length; w++) {
+      const prev = new Map([[wps[w - 1], null]]), q = [wps[w - 1]];
+      while (q.length) { const c = q.shift(); if (c === wps[w]) break; for (const n of adj.get(c) || []) if (!prev.has(n)) { prev.set(n, c); q.push(n); } }
+      if (!prev.has(wps[w])) return { error: `no path ${wps[w - 1]} → ${wps[w]}`, ids: out };
+      const seg = []; for (let c = wps[w]; c !== wps[w - 1]; c = prev.get(c)) seg.unshift(c);
+      out.push(...seg);
+    }
+    return { ids: out };
+  },
   walkRoute: (ids, opts = {}) => {
     const dt = opts.dt || 1 / 60, mag = opts.mag ?? 0.8, lateral = opts.lateral || 0;
     const smap = stationMap(cave);
@@ -3994,7 +4073,7 @@ window.__CAVE__ = {
         const g = P.groundEye ?? y1;
         maxAbove = Math.max(maxAbove, y1 - g); maxBelow = Math.min(maxBelow, y1 - g);
         if (P.grounded === false) airFrames++;
-        if (frames > 20 && moved < P.speedNow * dt * 0.25) { stuck++; run++; causes[P.lastBlock || "other"] = (causes[P.lastBlock || "other"] || 0) + 1; if (run === 10) stuckAt.push({ near: b.id, x: +px.toFixed(1), z: +pz.toFixed(1) }); } else run = 0;
+        if (frames > 20 && moved < P.speedNow * dt * 0.25) { stuck++; run++; causes[P.lastBlock || "other"] = (causes[P.lastBlock || "other"] || 0) + 1; if (run === 10) stuckAt.push({ rise: +(P.lastRise || 0).toFixed(2), near: b.id, x: +px.toFixed(1), z: +pz.toFixed(1) }); } else run = 0;
         maxStuckRun = Math.max(maxStuckRun, run);
       }
       reached.push(b.id + (ok ? "" : "(FAIL)"));
@@ -4190,7 +4269,7 @@ const directCave = params.has("seed") || params.has("cave") || params.has("shot"
 if (directCave) {
   showHint(9000, 800);
   const cq = (params.get("cave") || "").toLowerCase();
-  if (cq === "carlsbad") loadCarlsbad();
+  if (cq === "carlsbad") loadCarlsbad().then(() => announceReal()); // round 28b: the "Inspired by" line was blank
   else if (REAL_CAVES[cq]) loadRealCave(cq, startSeed).then(() => announceReal());
   else preloadLayouts().then(() => newCave(params.has("seed") ? params.get("seed") : startSeed));
 } else {

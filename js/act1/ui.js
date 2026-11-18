@@ -26,6 +26,7 @@ function actLabel(text) {
   return ["👁", "Look"];
 }
 
+const esc28 = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 export class StoryUI {
   constructor(root, { touch = false } = {}) {
     this.voice = new StoryVoice(); // round 13: spoken dialogue (Web Speech), subtitles optional
@@ -34,11 +35,10 @@ export class StoryUI {
     this.clock = el("div", "clock-line"); hud.appendChild(this.clock);
     this.meters = el("div", "meters hidden", `
       <div class="meter" data-k="hunger"><span>Hunger</span><i><b></b></i></div>
-      <div class="meter" data-k="thirst"><span>Thirst</span><i><b></b></i></div>
       <div class="meter" data-k="stamina"><span>Stamina</span><i><b></b></i></div>
       <div class="faces-line"></div>`);
     hud.appendChild(this.meters);
-    this.bars = {}; for (const k of ["hunger", "thirst", "stamina"]) this.bars[k] = this.meters.querySelector(`[data-k=${k}] b`);
+    this.bars = {}; for (const k of ["hunger", "stamina"]) this.bars[k] = this.meters.querySelector(`[data-k=${k}] b`);
     this.facesEl = this.meters.querySelector(".faces-line");
     this.obj = el("div", "objective hidden"); root.appendChild(this.obj);
     this.prompt = el("div", "act-prompt hidden"); root.appendChild(this.prompt);
@@ -91,7 +91,7 @@ export class StoryUI {
   setClock(text) { this.clock.textContent = text; }
 
   meterUpdate(s) {
-    for (const k of ["hunger", "thirst", "stamina"]) {
+    for (const k of ["hunger", "stamina"]) {
       const v = Math.max(0, Math.min(100, s[k]));
       const b = this.bars[k];
       b.style.width = v.toFixed(0) + "%";
@@ -241,7 +241,7 @@ export class StoryUI {
       body.innerHTML = known.map((r) => {
         const done = r.once && s.crafted.has(r.id), can = s.canCraft(r);
         const need = r.needs.map(([id, n]) => `<span class="${s.count(id) >= n ? "have" : "miss"}">${n} ${ITEMS[id].name} (${s.count(id)})</span>`).join(r.anyOf ? " <em>or</em> " : " + ");
-        return `<div class="recipe${done ? " done" : ""}"><strong>${r.name}</strong><small>${r.desc}</small><small>Needs: ${need}${s.tools.knife ? "" : " · a knife"}</small>${done ? "<b>Made</b>" : `<button data-a="craft" data-id="${r.id}" ${can ? "" : "disabled"}>Craft</button>`}</div>`;
+        return `<div class="recipe${done ? " done" : ""}"><strong>${r.name}</strong><small>${r.desc}</small><small>Needs: ${need}${s.tools.knife ? "" : ' · <span class="miss">a knife</span>'}${r.skill && !s.skills.has(r.skill) ? ` · <span class="miss">skill: ${esc28(s.tierInfo?.(r.skill)?.t?.name || r.skill)}</span>` : ""}${r.id === "raft" ? " · at the water's edge" : ""}</small>${done ? "<b>Made</b>" : `<button data-a="craft" data-id="${r.id}" ${can ? "" : "disabled"}>Craft</button>`}</div>`;
       }).join("") + (locked.length ? `<div class="inv-head">Not learned yet (skills or quests teach these)</div>` + locked.map((r) => `<div class="recipe locked"><strong>${r.name}</strong><small>${r.desc}</small><b>🔒</b></div>`).join("") : "")
         + `<div class="inv-head">Materials: animals (bone, sinew, hide, pelt), storage baskets in towns, flint / ochre in caves.</div>`;
     } else if (this.tab === "visions") { // round 23: the spirit-vision journal

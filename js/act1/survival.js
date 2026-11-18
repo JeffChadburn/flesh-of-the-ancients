@@ -86,8 +86,8 @@ export const TREE = {
   ] },
   craft: { name: "Crafting", icon: "🧵", tiers: [
     { id: "craft1", name: "Hide-Working", desc: "Recipe: hide boots (sprinting tires you 25% less).", recipe: "boots" },
-    { id: "craft2", name: "Sinew Sewing", desc: "Recipe: hide cloak (+1 heart).", recipe: "cloak" },
-    { id: "craft3", name: "Furrier", desc: "Recipe: fur hat (+1 heart).", recipe: "hat", quest: "m4" },
+    { id: "craft2", name: "Sinew Sewing", desc: "Recipe: hide cloak (+20 max health).", recipe: "cloak" },
+    { id: "craft3", name: "Furrier", desc: "Recipe: fur hat (+20 max health).", recipe: "hat", quest: "m4" },
   ] },
   surv: { name: "Survival", icon: "🔥", tiers: [
     { id: "surv1", name: "Herb Lore", desc: "Find healing herbs when you gather. Recipe: healing salve.", recipe: "salve" },
@@ -103,7 +103,7 @@ export const TREE = {
   spirit: { name: "Spirit", icon: "✋", tiers: [
     { id: "spirit1", name: "Ochre Rites", desc: "Recipe: red face paint (stamina comes back 30% faster).", recipe: "paint" },
     { id: "spirit2", name: "Far Sight", desc: "The map reveals twice as far around you.", quest: "m4" },
-    { id: "spirit3", name: "Ancestors' Voice", desc: "The dead stand with you: +1 heart.", quest: "m6" },
+    { id: "spirit3", name: "Ancestors' Voice", desc: "The dead stand with you: +20 max health.", quest: "m6" },
   ] },
 };
 export const TREE_IDS = Object.values(TREE).flatMap((b) => b.tiers.map((t) => t.id));
@@ -115,15 +115,15 @@ export const RECIPES = [
   { id: "arrows", name: "Bone arrows", desc: "Bone points and fletching: +1 arrow damage.", needs: [["bone", 2], ["feather", 2]], once: true },
   { id: "flintspear", name: "Flint-tipped spear", desc: "A knapped flint head bound with sinew: +1 spear damage.", needs: [["flint", 2], ["sinew", 1]], once: true, spear: true },
   { id: "boots", name: "Hide boots", desc: "Wrapped and laced. Sprinting tires you 25% less. (worn)", needs: [["hide", 1], ["sinew", 1]], once: true, gear: true },
-  { id: "cloak", name: "Hide cloak", desc: "A deer hide over the shoulders: +1 heart. (worn)", needs: [["hide", 2], ["sinew", 1]], once: true, gear: true },
-  { id: "hat", name: "Fur hat", desc: "Rabbit pelts sewn in a cap: +1 heart. (worn)", needs: [["pelt", 3], ["sinew", 1]], once: true, gear: true },
+  { id: "cloak", name: "Hide cloak", desc: "A deer hide over the shoulders: +20 max health. (worn)", needs: [["hide", 2], ["sinew", 1]], once: true, gear: true },
+  { id: "hat", name: "Fur hat", desc: "Rabbit pelts sewn in a cap: +20 max health. (worn)", needs: [["pelt", 3], ["sinew", 1]], once: true, gear: true },
   { id: "paint", name: "Red face paint", desc: "Ochre and berry juice in the hunters' stripes: stamina back 30% faster. (worn)", needs: [["ochre", 2], ["berries", 1]], once: true, gear: true },
-  { id: "salve", name: "Healing salve", desc: "Crushed herbs in fat. Use it to heal a heart.", needs: [["herbs", 2], ["berries", 1]] },
-  { id: "raft", name: "Log raft", desc: "Deadwood logs lashed with sinew. Build it at the water's edge, then board it (E / Board).", needs: [["logs", 4], ["sinew", 2]], skill: "surv1" },
+  { id: "salve", name: "Healing salve", desc: "Crushed herbs in fat. Use it to heal 20 health.", needs: [["herbs", 2], ["berries", 1]] },
+  { id: "raft", name: "Log raft", desc: "Deadwood logs lashed with sinew. Build it at the water's edge, then board it (E / Board).", needs: [["logs", 4], ["sinew", 2]] }, // round 28b: no hidden Herb Lore gate (the raft "didn't work")
   { id: "pick", name: "Stone pick", desc: "A flint head on a bone haft, bound tight. Mine ore veins in the caves.", needs: [["flint", 2], ["bone", 1], ["sinew", 1]], once: true },
   // round 24b: simple supplies and weapons (you get several of the stackable ones)
   { id: "rope", name: "Rope", desc: "Sinew twisted into cord: 2 rope. Binds axes, clubs and slings.", needs: [["sinew", 2]], makes: ["rope", 2] },
-  { id: "bandage", name: "Bandages", desc: "Soft pelt strips with crushed herbs: 2 bandages (each heals a heart).", needs: [["pelt", 1], ["herbs", 1]], makes: ["bandage", 2] },
+  { id: "bandage", name: "Bandages", desc: "Soft pelt strips with crushed herbs: 2 bandages (each heals 20 health).", needs: [["pelt", 1], ["herbs", 1]], makes: ["bandage", 2] },
   { id: "driedmeat", name: "Dried meat", desc: "Thin strips smoked dry: 2 dried meat that feed you well.", needs: [["meat", 2]], makes: ["driedmeat", 2] },
   { id: "stoneaxe", name: "Stone axe", desc: "A flint head lashed to a haft: +1 spear damage while you carry it.", needs: [["flint", 1], ["logs", 1], ["rope", 1]], makes: ["stoneaxe", 1] },
   { id: "club", name: "War club", desc: "A heavy knotted club: +1 damage while you carry it.", needs: [["logs", 2], ["rope", 1]], makes: ["club", 1] },
@@ -301,20 +301,20 @@ export class Survival {
   tick(dt, running) {
     const gut = this.skills.has("surv3") ? 0.7 : 1;
     this.hunger = Math.max(0, this.hunger - dt * 0.063 * gut); // round 23: needs drop ~40% slower
-    this.thirst = Math.max(0, this.thirst - dt * 0.096 * gut);
+    this.thirst = 100; // round 28b: no thirst requirement (drinking is optional and harmless)
     this.organBoost = Math.max(0, this.organBoost - dt);
     if (running > 0.2) { this.stamina = Math.max(0, this.stamina - dt * 8.25 * running * (this.wear.has("boots") ? 0.75 : 1)); this.restT = 0; }
     else {
       this.restT += dt;
       if (this.restT > 0.6) {
-        let r = 27 * (this.wear.has("paint") ? 1.3 : 1) * (this.organBoost > 0 ? 1.8 : 1) * (this.hunger < 15 || this.thirst < 15 ? 0.5 : 1);
+        let r = 27 * (this.wear.has("paint") ? 1.3 : 1) * (this.organBoost > 0 ? 1.8 : 1) * (this.hunger < 15 ? 0.5 : 1);
         this.stamina = Math.min(100, this.stamina + dt * r);
       }
     }
     if (this.stamina <= 0.5) this.exhausted = true;
     if (this.exhausted && this.stamina >= 30) this.exhausted = false;
     let damage = 0;
-    if (this.hunger <= 0 || this.thirst <= 0) { this.starveT += dt; if (this.starveT > 45) { this.starveT = 0; damage = 1; } } else this.starveT = 0;
+    if (this.hunger <= 0) { this.starveT += dt; if (this.starveT > 45) { this.starveT = 0; damage = 1; } } else this.starveT = 0;
     return { damage };
   }
 

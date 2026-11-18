@@ -52,12 +52,12 @@ function mergeSimple(list) {
 }
 
 export class CaveFauna {
-  constructor(scene, { lite = false, seed = 1 } = {}) {
-    this.scene = scene; this.lite = lite; this.seed = seed;
+  constructor(scene, { lite = false, seed = 1, mouths = [] } = {}) {
+    this.scene = scene; this.lite = lite; this.seed = seed; this.mouths = mouths;
     this.group = new THREE.Group(); this.group.name = "cave-fauna"; scene.add(this.group);
     const bg = geoBat();
     this.maxBats = lite ? 200 : 480; this.maxSpiders = lite ? 54 : 120; this.maxFish = lite ? 48 : 108; // round 9: 3x
-    const batM = new THREE.MeshLambertMaterial({ color: 0x4e3e34 }), wingM = new THREE.MeshLambertMaterial({ color: 0x6a5044, side: THREE.DoubleSide });
+    const batM = new THREE.MeshLambertMaterial({ color: 0x2e2620 }), wingM = new THREE.MeshLambertMaterial({ color: 0x2a201b, side: THREE.DoubleSide });
     const spM = new THREE.MeshLambertMaterial({ color: 0x3a2e26 }), fishM = new THREE.MeshLambertMaterial({ color: 0xd8d0c6, emissive: 0x141414 });
     const mk = (geo, mat, n) => { const m = new THREE.InstancedMesh(geo, mat, n); m.count = 0; m.frustumCulled = false; this.group.add(m); return m; };
     this.batBody = mk(bg.body, batM, this.maxBats);
@@ -92,6 +92,7 @@ export class CaveFauna {
     let batBudget = this.maxBats - [...this.flocks.values()].reduce((n, f) => n + f.bats.length, 0);
     let spBudget = this.maxSpiders - [...this.spiders.values()].reduce((n, l) => n + l.length, 0);
     for (const h of near) {
+      if (this.mouths.some((m) => Math.hypot(m.x - h.x, m.z - h.z) < 16 && Math.abs(m.y - h.y) < 10)) continue; // round 28b: keep the mouths clear
       const rng = mulberry32(hashStr(h.id) ^ this.seed);
       const room = h.up + h.down, big = h.kind === "cavern";
       if (!this.flocks.has(h.id) && room > 3.2 && rng() < (big ? 1 : 0.85) && batBudget > 6) {

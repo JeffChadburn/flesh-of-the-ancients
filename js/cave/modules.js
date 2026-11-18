@@ -59,10 +59,10 @@ export function makeAssembly(layout, seed) {
     add(s) { this.stations.push(s); this.smap.set(s.id, s); return s; },
     has(s, tag) { return (s.tags || []).includes(tag); },
     /** Room around a point: distance to every leg not touching `excl`, within a height band. */
-    room(p, excl = [], band = 6) {
+    room(p, excl = [], band = 6, skip = null) {
       let best = Infinity;
       for (const l of this.legs) {
-        if (excl.includes(l.from) || excl.includes(l.to)) continue;
+        if (l === skip || excl.includes(l.from) || excl.includes(l.to)) continue;
         const a = this.smap.get(l.from), b = this.smap.get(l.to);
         if (!a || !b) continue;
         if (Math.min(a.z, b.z) - band > p.z || Math.max(a.z, b.z) + band < p.z) continue;
@@ -176,7 +176,20 @@ export function sectionModule(A, { squeezes = true } = {}) {
     if (slope > PIT_SLOPE) {
       const ax = (b.x - a.x) / (run || 1), ay = (b.y - a.y) / (run || 1);
       const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
-      const roomAt = (sgn) => A.room({ x: mid.x - ay * 8 * sgn, y: mid.y + ax * 8 * sgn, z: mid.z }, [a.id, b.id], 10);
+      // round 28b (playtest r5): count the other passages leaving the same rooms too (only this leg is
+      // skipped), so a switchback doesn't zig-zag over a neighbour (Wind Cave: Assembly Room → GOE2 ramp
+      // stacked on the Elevator passage, a 5 m wall when the floors parted).
+      const roomAt = (sgn) => {
+        const done = A.legs; A.legs = done.concat(legs0.slice(legs0.indexOf(leg) + 1)); // built so far + still to build
+        try {
+          let m = Infinity;
+          for (const t of [0.2, 0.5, 0.8]) { // near both ends too, at that point's height
+            const q = { x: a.x + (b.x - a.x) * t - ay * 6 * sgn, y: a.y + (b.y - a.y) * t + ax * 6 * sgn, z: a.z + (b.z - a.z) * t };
+            m = Math.min(m, A.room(q, [], 7, leg));
+          }
+          return m;
+        } finally { A.legs = done; }
+      };
       inner = pitPath(a, b, r, roomAt);
       mod = "pit";
       A.count("pit");
@@ -376,7 +389,10 @@ export function junctionModule(A) {
       for (let i = 0; i < br.length; i++) for (let j = i + 1; j < br.length; j++) {
         let d = Math.abs(br[i].ang - br[j].ang); if (d > Math.PI) d = 2 * Math.PI - d;
         // only branches on about the same level interfere
-        if (Math.abs(br[i].o.z - br[j].o.z) > 3) continue;
+        // round 28b: "same level" means the tubes overlap in height (a ramp 3-5 m above a passage still
+        // shares its space; the old fixed 3 m test let Wind Cave's GOE2 ramp sit on the Elevator passage)
+        const P = br[i].o, Q = br[j].o, gap = Math.abs((P.z - P.down) - (Q.z - Q.down));
+        if (gap > Math.max(P.up + P.down, Q.up + Q.down) + 0.5) continue;
         if (d < (JUNCTION_MIN_DEG * Math.PI) / 180 && (!worst || d < worst.d)) worst = { i, j, d };
       }
       if (!worst) break;
@@ -404,7 +420,10 @@ export function relaxSlopes(A, limit = PIT_SLOPE - 0.03) {
     left = 0;
     for (const l of A.legs) {
       const a = A.smap.get(l.from), b = A.smap.get(l.to);
-      const run = Math.max(0.1, H(a, b)), dz = b.z - a.z;
+      // round 28b (playtest r5): measure the run from a room's wall, not its centre. A ramp that rose
+      // 5 m within ~2 m of Wind Cave's Assembly Room wall used to pass as a gentle 0.5 slope.
+      const rad = (s) => (s.kind === "cavern" || s.kind === "chamber" ? Math.min(s.left, s.right) * 0.85 : 0);
+      const run = Math.max(0.1, H(a, b) - rad(a) - rad(b), H(a, b) * 0.35), dz = (b.z - b.down) - (a.z - a.down);
       if (Math.abs(dz) / run <= limit) continue;
       left++;
       const want = Math.sign(dz) * limit * run, fix = dz - want;

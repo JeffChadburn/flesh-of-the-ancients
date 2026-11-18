@@ -88,7 +88,7 @@ export class Finder {
     const add = (cat, why) => { if (!cat || seen.has(cat)) return; seen.add(cat); out.push({ cat, why }); };
     if (env.story.active && env.questHint?.()) add("quest", env.questHint().label);
     if (s && (env.story.active || env.story.sandbox)) {
-      if (s.thirst < 40) add("water", "you're thirsty");
+
       if (s.hunger < 35) add("berries", "you're hungry");
       for (const r of RECIPES) {
         if ((r.once && s.crafted.has(r.id)) || !s.knows(r) || (r.skill && !s.skills.has(r.skill))) continue;

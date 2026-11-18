@@ -177,6 +177,12 @@ function layout(s) {
     let run = [];
     for (const q of ring) { if (lakeD(q.x, q.z) < s.lake.shore + 6 || inLonghouse(s.longhouse, q.x, q.z, 1.6)) { if (run.length > 1) s.paths.push(run); run = []; } else run.push(q); }
     if (run.length > 1) s.paths.push(run);
+    { // round 28b (playtest r5): lanes from the plaza to the hall's two doors, so no road ends at its long
+      // wall (the shore road used to point straight at it from the plaza)
+      const L = s.longhouse, ux = Math.sin(L.rot), uz = Math.cos(L.rot), at = (a, b) => ({ x: L.x + ux * a - uz * b, z: L.z + uz * a + ux * b });
+      const dx = s.x - L.x, dz = s.z - L.z, bc = -dx * uz + dz * ux;
+      for (const e of [-1, 1]) s.paths.push([rel(0, 0), at(e * 13, bc * 0.7), at(e * 13, 0), at(e * 11.6, 0)]);
+    }
     { // to the shore: from the plaza edge to dry ground just short of the water
       const dx = s.lake.x - s.x, dz = s.lake.z - s.z, L = Math.hypot(dx, dz) || 1, end = L - s.lake.shore - 1.2;
       if (end > 4) s.paths.push([rel((dx / L) * 2.5, (dz / L) * 2.5), rel((dx / L) * end, (dz / L) * end)]);
@@ -527,7 +533,7 @@ export class SettlementLayer {
     this.groups = new Map();
     this.near = lite ? 380 : 480; this.far = this.near + 120;
     this.onBuild = null; this.onDrop = null;
-    this.time = 0;
+    this.time = 0; this._sk = new THREE.Color();
     this._beacons(scene);
   }
 
@@ -543,6 +549,13 @@ export class SettlementLayer {
     }
     geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 4));
     const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false });
+    // round 28b (playtest r5): the columns were unlit, so at night they stood as full-bright white shafts
+    // in town. They now take the sky's light (tint), and fade out within ~70 m of the camera (they are
+    // a far-off landmark; up close the fire's own flames and haze do the job).
+    mat.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying float vCamD;").replace("#include <project_vertex>", "#include <project_vertex>\nvCamD = length(mvPosition.xyz);");
+      sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying float vCamD;").replace("#include <dithering_fragment>", "#include <dithering_fragment>\ngl_FragColor.a *= smoothstep(30.0, 90.0, vCamD);");
+    };
     const fires = [];
     for (const st of this.list) for (const f of st.fires) fires.push({ ...f, k: st.kind === "camp" ? 0.55 : st.kind === "village" ? 0.85 : 1.15 });
     const m = new THREE.InstancedMesh(geo, mat, Math.max(1, fires.length));
@@ -550,6 +563,12 @@ export class SettlementLayer {
     fires.forEach((f, i) => { q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.7 + i * 0.13); v.set(f.x, this.t.height(f.x, f.z) + 0.8, f.z); sc.set(f.k, f.k, f.k); m.setMatrixAt(i, m4.compose(v, q, sc)); });
     m.count = fires.length; m.computeBoundingSphere(); m.frustumCulled = false; m.renderOrder = 2; m.name = "smoke-beacons";
     scene.add(m); this.smoke = m;
+  }
+  /** Round 28b: light the smoke columns like the sky (day: pale; night: a faint blue-grey). */
+  tintSmoke(day, sky) {
+    if (!this.smoke) return;
+    const m = this.smoke.material; m.color.setRGB(1, 1, 1).lerp(sky ? this._sk.copy(sky).multiplyScalar(2.2) : this._sk.setRGB(0.12, 0.14, 0.2), 1 - Math.min(1, day * 1.4));
+    m.opacity = 0.35 + 0.65 * Math.min(1, day * 1.4);
   }
   update(dt, p) {
     this.time += dt;

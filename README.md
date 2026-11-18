@@ -366,6 +366,34 @@ When you go in, the cave says which real cave it is "Inspired by" (under the cav
   - *Terrain map*: the map and minimap are restyled like a terrain map: elevation tints mixed with the biome colours, NW hillshade, contour lines (20 m with 100 m index lines on the map, 5/25 m on the minimap), blue water with a soft shore, town lanes as white roads, white-outlined towns, dark labels on a white halo and a blue player arrow. Zoomed in, a sharper layer is built for the view a moment after it stops moving (about 0.1–0.3 s). The minimap is built from small cached tiles (one per frame at most), so it stays fast on phones.
   - *Blood*: Kra no longer seems to drip while running (the torch embers that streamed behind him now rise and fade). Kills leave dried, caked stains on his skin, hide clothes and face suit, more as the kills add up; right after a kill they look wet for about a second, then dry.
   - Tests: `death28a.mjs` (dying in the world, with the spirit hook, in a hostile town, riding, in a boat, in a cave and in the story; steep-slope runs on foot and on horseback; 3 m and 12 m drops; walking off a ledge) and `feat28a.mjs` (menu, equip by tap, preview, discard and pick up, selling, torch growth, blood, night). Screens: `screens/28a-*.png`.
+- **Round 28b: Playtest Council round 5 fixes, a cleaner phone HUD, continuous autosave and the raft.**
+  - *Caves (Council items 1, 3, 4, 7 and the seed-11 snags)*:
+    - In caves a ledge is now a scramble, not a wall. Pushing into a lip up to 1.45 m for a quarter second climbs it, and a lip up to 2.3 m takes about a second. This fixes Mammoth's Narrows → Rotunda join.
+    - Junctions no longer stack a ramp over a passage it ignores. This fixes Wind Cave's Assembly Room → Garden of Eden.
+    - Where two tubes overlap at your level, the walk follows the one you are walking along.
+    - Room-aware slope relaxing and pit sampling.
+    - The Council's coordinates are now checked in the cave-walk test (`walk28b.mjs`, seeds 20261117 and 11, phone auto-stance and stand).
+  - *Cave mouths (items 2 and 8)*:
+    - The flat sky disc and the black "mouth cap" are replaced by one unlit half-dome of sky and ground beyond the mouth. It only lies past the mouth plane, so cracks beside the entrance read as dark rock instead of sky. This fixes Mammoth's "shattered" ceiling.
+    - The "floating shards" were bat flocks circling in the torchlight. Bats no longer roost within 16 m of a mouth, and they are darker.
+    - Formations are kept 6 m clear of the mouth; a 4 m stalagmite stood on the Timpanogos spawn.
+    - Carlsbad's "Inspired by" line is filled in.
+  - *Tako (items 5, 6 and 9)*: door lanes lead to the longhouse doors instead of into its wall. The shore stop matches the waterline. The smoke beacons no longer glow white at night and fade near the camera.
+  - *Big halls*: cheap LOD on phones (Low graphics). Hall tubes and domes are built with about 60% of the rings and sides; collision is unchanged. The camera's far plane follows the fog when you are away from a mouth.
+  - *Blood stains* sit on Kra's torso (on the oval of the chest and back) instead of floating off his sides and back.
+  - *Phone HUD*:
+    - No thirst: drinking is optional and harmless.
+    - A health bar replaces the hearts. Every old heart is 20 health; the bar shows a faint tick per heart and damage is unchanged.
+    - The place, "Inspired by", time/weather and tally lines left the screen. They are in the character menu's **Stats** tab under "Where you are". The top left shows just the area name and the health bar (plus hunger/stamina in the story).
+  - *Autosave*:
+    - The story saves every ~15 s, about 2 s after the pack, worn gear, XP or a settlement changes, and when the page is hidden or closed.
+    - Death never loads a save. Kra wakes where he fell, in the world or in a cave; the old spot is used only for deep water or a hostile town. The game then saves at once.
+  - *Raft*: building the raft no longer needs the unrelated Herb Lore skill, and anyone can gather deadwood logs. The craft list names any missing skill or knife. The raft is placed in the nearest deep water and the Board button shows where you built it. Test: `raft28b.mjs` (390x844 and 1280x720: Tab / 👤 → ⚒ Craft → Log raft → Board).
+  - *Stance*:
+    - In caves Kra crouches and crawls by himself when the roof comes down, and rises again once it lifts. A crouch you chose yourself stays.
+    - Running (Shift, the stick at its rim, the pad's run) stands him up when there is headroom.
+    - The Crouch and Crawl touch buttons are one stance button that steps stand → crouch → crawl → crouch → stand. C and Z still work on the keyboard.
+  - Tests: `walk28b.mjs`, `tako28b.mjs`, `mouth28b.mjs`, `hud28b.mjs`, `blood28b.mjs`, `lod28b.mjs`, `save28b.mjs`, `raft28b.mjs`, `stance28b.mjs` (390x844 and 1280x720).
 - **Round 26: light realism pass (sky, light and fog only).**
   - *Physical daylight sky:* the dome uses the same Rayleigh + Mie (Preetham) scattering model as three's Sky addon and the approved `realism-sample.html`. Turbidity rises with haze and cloud. The bright noon sky is scaled down more than the low-sun sky, like a camera's auto-exposure. Night and deep twilight keep the hand-tuned gradient, moon, stars and clouds.
   - *One sky drives everything:* by day the fog colour is the sky's horizon, the hemisphere light's sky colour is the sky's zenith colour, and the sun is tinted by the air it shines through. Distant land, haze and sky now agree at every hour, and the bottom of the sky melts into the fog without a seam.

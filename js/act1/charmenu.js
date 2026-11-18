@@ -178,8 +178,11 @@ export class CharMenu {
   _stats(s) {
     const st = this.env.stats?.() || {}, money = MONEY.map((m) => [ITEMS[m], s.count(m)]).filter(([, n]) => n);
     const row = (ic, k, v) => `<div class="cm-stat"><span class="ic">${ic}</span><span class="k">${k}</span><b>${v}</b></div>`;
-    return `<div class="cm-stats">` + row("❤", "Hearts", `${st.hp ?? "?"} / ${st.hearts ?? "?"}`) + row("🛡", "Armour (blocks)", `${st.armor ?? 0}%`) + row("🗡", "Spear damage", st.dmg ?? 1) + row("🏹", "Bow damage", st.bow ?? 1)
-      + row("🍖", "Hunger", Math.round(s.hunger)) + row("💧", "Thirst", Math.round(s.thirst)) + row("⚡", "Stamina", Math.round(s.stamina))
+    // round 28b: the place / time lines moved off the phone HUD into here
+    const W = st.where || {}, wrow = (k, v) => v ? `<div class="cm-stat"><span class="k">${k}</span><b>${esc(v)}</b></div>` : "";
+    const where = (W.area || W.place || W.clock) ? `<div class="cm-h">Where you are</div><div class="cm-stats cm-where">` + wrow("Area", W.area) + wrow("Place", W.place) + wrow("Inspired by", (W.real || "").replace(/^Inspired by\s*/i, "")) + wrow("Time", W.clock) + `</div><div class="cm-h">Kra</div>` : "";
+    return where + `<div class="cm-stats">` + row("❤", "Health", `${Math.max(0, st.hp ?? 0) * 20} / ${(st.hearts ?? 0) * 20}`) + row("🛡", "Armour (blocks)", `${st.armor ?? 0}%`) + row("🗡", "Spear damage", st.dmg ?? 1) + row("🏹", "Bow damage", st.bow ?? 1)
+      + row("🍖", "Hunger", Math.round(s.hunger)) + row("⚡", "Stamina", Math.round(s.stamina))
       + row("💪", "Strength", "+" + s.str) + row("🎭", "Faces sewn", s.faces) + row("⭐", "Level", `${s.level} (${s.xp} XP)`) + row("🔥", "Torch reach", `${Math.round(45 * s.torchStats().reach)} m`)
       + row("⚔", "Kills", st.kills ?? 0) + row("💀", "Deaths", st.deaths ?? 0) + row("🎒", "Pack", `${s.inv.length} / ${s.slots}`)
       + row("🪙", "Money", money.length ? money.map(([m, n]) => `${n} ${m.icon}`).join(" ") : "none") + `</div>`;

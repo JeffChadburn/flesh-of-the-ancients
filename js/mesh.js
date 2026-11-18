@@ -6,6 +6,10 @@ import { fbm3, mulberry32, randRange, clamp } from "./rng.js";
 
 const RADIAL = 16;
 const RADIAL_HALL = 30;
+// Round 28b (playtest r5): cheap LOD for the big halls on phones (Low graphics): fewer rings and sides in
+// hall tubes and hub domes. Collision is the analytic volume, so this only changes the look (a little coarser).
+let HALL_DETAIL = 1;
+export function setMeshDetail(k) { HALL_DETAIL = Math.max(0.4, Math.min(1, k || 1)); }
 
 /**
  * Round 27: halls are irregular, not domes. A hall station may carry `irr` (0..1) and `roofPhase`:
@@ -447,10 +451,11 @@ export function prepareCavePieces(cave) {
       *emit(buf) {
         // Ring spacing and noise frequency scale with passage size, so a 70 m hall is
         // as smooth-but-lumpy as a 2 m crawl and doesn't explode the vertex count.
-        const segs = Math.max(4, Math.ceil(len / Math.min(5, Math.max(0.6, dimMax * 0.1))));
+        const hallLeg = a.kind === "cavern" || b.kind === "cavern", hd = hallLeg ? HALL_DETAIL : 1;
+        const segs = Math.max(4, Math.ceil(hd * len / Math.min(5, Math.max(0.6, dimMax * 0.1))));
         const fs = 1 / Math.max(1, dimMax / 3);
-        const radial = (a.kind === "cavern" || b.kind === "cavern")
-          ? Math.max(RADIAL_HALL, Math.min(64, Math.round(dimMax * 1.3)))
+        const radial = hallLeg
+          ? Math.max(Math.round(RADIAL_HALL * hd), Math.round(hd * Math.min(64, Math.round(dimMax * 1.3))))
           : Math.max(RADIAL, Math.min(40, Math.round(dimMax * 1.6)));
         const rings = [], inOther = [];
         const legBase = buf.count();
@@ -564,7 +569,7 @@ export function prepareCavePieces(cave) {
         if (Ls.length === 1) R = Math.min(R, Ls[0].len * 0.85);
         const hfs = 1 / Math.max(1, Math.max(st.left, st.right, st.up) / 3);
         const hh = Math.min(1, hfs * 3);
-        const sph = new THREE.SphereGeometry(1, cavern ? (R > 9 ? 60 : 40) : 26, cavern ? (R > 9 ? 34 : 24) : 16) // round 27: was 76x42 for every hall (phone tris);
+        const hk = cavern ? HALL_DETAIL : 1, sph = new THREE.SphereGeometry(1, Math.round(hk * (cavern ? (R > 9 ? 60 : 40) : 26)), Math.round(hk * (cavern ? (R > 9 ? 34 : 24) : 16))) // round 27: was 76x42 for every hall (phone tris);
         const sp = sph.attributes.position;
         const base = buf.count();
         const outside = [];
@@ -743,33 +748,33 @@ export function portalObjects(cave, { daylight = true } = {}) {
     const light = new THREE.PointLight(0xb9d4ff, 18, 16, 1.6);
     light.position.set(p.x + out.x * 2.5, p.y + s.up * 0.4 + 1.2, p.z + out.z * 2.5);
     group.add(light);
-    // A pale disc of "daylight" just outside the mouth.
-    const disc = new THREE.Mesh(
-      new THREE.CircleGeometry(Math.max(s.left, s.right) * 1.4, 20),
-      // Round 10: fogged, so from deep inside it fades to black instead of showing as pale sky through seams.
-      new THREE.MeshBasicMaterial({ map: skyTexture(), side: THREE.DoubleSide, fog: true }),
-    );
+    // Round 28b (playtest r5): the outside, seen from the mouth. One half-dome of sky and ground just
+    // beyond the entrance (was a flat sky disc with a black rock cap behind it, which read as a hard
+    // black band and a white void when you looked up). Unlit; fades out with distance (updateDaylight)
+    // so from deep inside it never shows through a gap.
+    const Rs = Math.max(s.left, s.right, s.up) * 2.4 + 4;
+    const oh = new THREE.Vector3(out.x, 0, out.z); if (oh.lengthSq() < 1e-6) oh.set(0, 0, 1); oh.normalize();
+    const src = new THREE.SphereGeometry(Rs, 28, 18).toNonIndexed(), sp = src.attributes.position;
+    const pos = [], col = [], c = new THREE.Color(), sky0 = new THREE.Color(0xdfe7ee), sky1 = new THREE.Color(0x86a6cc), gr0 = new THREE.Color(0x6b7148), gr1 = new THREE.Color(0x3c3a2a);
+    for (let t = 0; t < sp.count; t += 3) {
+      let keep = true;
+      for (let k = 0; k < 3; k++) { const x = sp.getX(t + k), z = sp.getZ(t + k), dt = (x * oh.x + z * oh.z) / Rs; if (dt < 0.12 && !(sp.getY(t + k) / Rs > 0.45 && dt > -0.15)) keep = false; } // beyond the mouth plane, plus the sky straight above it (side cracks stay dark)
+      if (!keep) continue;
+      for (let k = 0; k < 3; k++) {
+        const x = sp.getX(t + k), y = sp.getY(t + k), z = sp.getZ(t + k), e = y / Rs;
+        pos.push(x, y, z);
+        if (e >= 0) c.copy(sky0).lerp(sky1, Math.min(1, e * 1.3)); else c.copy(gr0).lerp(gr1, Math.min(1, -e * 2));
+        col.push(c.r, c.g, c.b);
+      }
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+    const disc = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, transparent: true, depthWrite: false }));
     disc.name = "daylight";
-    disc.position.set(p.x + out.x * 2.2, p.y + 0.4, p.z + out.z * 2.2);
-    disc.lookAt(p.x, p.y, p.z);
-    // Round 11: the disc fades out with distance (main.js updateDaylight) so it can never show
-    // through a gap deep inside, e.g. Carlsbad's Natural Entrance span seen from 16 m down.
-    disc.material.transparent = true;
-    disc.material.depthWrite = false;
+    disc.position.set(p.x + oh.x * 1.0, p.y - s.down + 1.2, p.z + oh.z * 1.0);
+    disc.renderOrder = -1;
     disc.userData.mouth = { x: p.x, y: p.y, z: p.z };
+    disc.userData.ownMaterial = true;
     group.add(disc);
-    // ...and behind it a rock cap closes the mouth, so past the disc there is rock, never sky / void.
-    const capR = Math.max(s.left, s.right, s.up) * 2.4 + 2;
-    const cap = new THREE.Mesh(
-      new THREE.CircleGeometry(capR, 24),
-      // Round 12 (playtest r3): unlit and the same colour as CAVE_BG (0x0d0907), so the mouth light
-      // can't turn it into a faint grey "moon" when you look up the entrance from 15-16 m.
-      new THREE.MeshBasicMaterial({ color: 0x0d0907, side: THREE.DoubleSide, fog: true }),
-    );
-    cap.position.set(p.x + out.x * 3.4, p.y + 0.4, p.z + out.z * 3.4);
-    cap.lookAt(p.x, p.y + 0.4, p.z);
-    cap.name = "mouth-cap";
-    group.add(cap);
   }
   if (cave.exitId && smap.has(cave.exitId)) {
     const s = smap.get(cave.exitId);

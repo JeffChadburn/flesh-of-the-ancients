@@ -292,7 +292,7 @@ export class Story {
       const box = env.container?.(f);
       if (box) return { label: box.searched ? "The basket is empty" : "Search the storage basket", act: () => { this.searchBasket(box); env.onTheft?.(f); } };
       // round 19: deadwood for a raft (Survival: Herb Lore)
-      if ((s.skills.has("surv1") || s.skills.has("wood1")) && t?.scatter) {
+      if (t?.scatter) { // round 28b: anyone can gather deadwood (Woodcraft gives more)
         const k = this.deadwoodNear(f, t);
         if (k) return { label: "Gather deadwood logs", act: () => this.gatherWood(k) };
       }
@@ -550,7 +550,7 @@ export class Story {
       if (s.learn(id, (q) => this.quests.done(q))) { const k = s.tierInfo(id); ui.toast(`Skill learned: ${k.t.name}`, "skill"); this.env.applyStats(); this._log({ e: "learn", id }); }
     }
     if (a === "wear") { const sl = slotsFor(id)[0]; if (s.wear.has(id)) s.unequip(sl); else if (s.crafted.has(id)) s.equipItem(id, sl); s.syncEquip(); this.env.applyStats(); } // round 28a: through the slots
-    if (a === "use" && ITEMS[id]?.heal) { if (this.env.heal?.(ITEMS[id].heal)) { s.remove(id, 1); ui.toast(id === "salve" ? "The salve stings, then soothes. +1 heart" : `You bind the wound with a ${ITEMS[id].name.toLowerCase()}. +1 heart`, "good"); } else ui.toast("You are not hurt"); } // round 24b: bandages too
+    if (a === "use" && ITEMS[id]?.heal) { if (this.env.heal?.(ITEMS[id].heal)) { s.remove(id, 1); ui.toast(id === "salve" ? "The salve stings, then soothes. +20 health" : `You bind the wound with a ${ITEMS[id].name.toLowerCase()}. +20 health`, "good"); } else ui.toast("You are not hurt"); } // round 24b: bandages too
     if (a === "craft") {
       if (id === "backpack" && s.count("hide") && s.count("skin")) {
         ui.ask("Backpack", "Which skin will you sew?", [{ id: "hide", label: "Deer hide" }, { id: "skin", label: "Tor's skin" }], (use) => { const m = s.craft("backpack", use); if (m) ui.toast(m, "good"); ui.renderPanel(); });
@@ -558,7 +558,7 @@ export class Story {
       }
       if (id === "raft" && !this.env.launchRaft?.(true)) { ui.toast("Stand at the water's edge (a lake, river, marsh or the sea) to build a raft.", "bad"); return; }
       const m = s.craft(id);
-      if (m && id === "raft") this.env.launchRaft?.();
+      if (m && id === "raft") { this.env.launchRaft?.(); ui.closePanel?.(); setTimeout(() => ui.toast(ui.touch ? "Tap ⛵ Board to climb aboard." : "Press E (⛵ Board) to climb aboard."), 1600); } // round 28b
       if (m) { ui.toast(m, "good"); this._log({ e: "craft", id }); if (this.active) this.xp(15, "craft"); this.env.applyStats(); }
     }
   }
@@ -569,7 +569,7 @@ export class Story {
     ui.closePanel();
     ui.ask("Blood Memory", "The organ is cold and bitter. Something old moves behind your eyes. What does your blood remember?", [
       { id: "str", label: "Strength", desc: "+1 spear damage, permanently." },
-      { id: "hp", label: "Health", desc: "+1 heart, permanently." },
+      { id: "hp", label: "Health", desc: "+20 max health, permanently." },
     ], (id) => {
       s.remove("morgan", 1);
       if (id === "str") s.str += 1; else s.hpBonus += 1;

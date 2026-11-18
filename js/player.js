@@ -339,6 +339,10 @@ export class Player {
       if (this.keys.has("KeyA") || this.keys.has("ArrowLeft")) wish.x -= 1;
       if (this.keys.has("KeyD") || this.keys.has("ArrowRight")) wish.x += 1;
     }
+    // Round 28b: running (Shift, the stick at the rim, the pad's run) stands Kra up when there is headroom.
+    if (!wishOverride && !this.mounted && !this.boating && this.stance !== "stand"
+      && ((wish.lengthSq() > 1e-4 && (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight"))) || (this.joy.active && this.joy.mag >= 0.97) || (this.pad && this.pad.run && this.pad.mag > 0.5))
+      && this.canUseStance("stand")) { if (this.setStance("stand")) { this._autoLow = false; this.autoStands = (this.autoStands || 0) + 1; } }
     const st = this.mounted ? MOUNTED : STANCES[this.stance] || STANCES.stand;
     const keyMove = wish.lengthSq() > 1e-4;
     const sprint = !wishOverride && (this.stance === "stand" || this.mounted) && (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight"));
@@ -502,7 +506,16 @@ export class Player {
     const lastGround = this.groundEye != null ? this.groundEye : from.y;
     // Round 12: airborne (jumping) you can land on anything up to STEP_UP below your current height.
     const stepRef = this.grounded === false ? Math.max(lastGround, from.y) : lastGround;
-    if (floorEye - stepRef > STEP_UP && delta.lengthSq() > 0) {
+    // Round 28b (playtest r5): in caves a ledge up to ~1.4 m is a scramble (a mantle), not a wall. Pushing into it
+    // for a quarter second climbs it (eased by the rise below), so module joins with a lip (Mammoth's
+    // Narrows → Rotunda, Wind Cave's Assembly Room) can't pin you. Not outdoors (no cliff climbing).
+    const rise = floorEye - stepRef; this.lastRise = rise;
+    if (rise > STEP_UP && rise <= 2.3 && !this.terrain && this.grounded !== false && delta.lengthSq() > 0 && !this.mounted) {
+      this._ledgeT = (this._ledgeT || 0) + dt;
+    } else if (!(rise > STEP_UP)) this._ledgeT = 0;
+    const scramble = rise > STEP_UP && !this.terrain && ((rise <= 1.45 && (this._ledgeT || 0) > 0.25) || (rise <= 2.3 && (this._ledgeT || 0) > 0.9)); // a chest-high ledge (switchback lips) after a longer push
+    if (scramble) { this.scrambles = (this.scrambles || 0) + 1; this.lastBlock = "scramble"; this._ledgeT = 0; }
+    if (rise > STEP_UP && !scramble && delta.lengthSq() > 0) {
       this.lastBlock = "step";
       resolved.x = from.x;
       resolved.z = from.z;
@@ -608,6 +621,24 @@ export class Player {
     this.camera.position.y += this.bobY;
     this.blockedLow = !!resolved._blockedLow || (lowBlock && moved < delta.length() * 0.5);
     this.ahead = this.terrain ? "stand" : clearanceAhead(this.volume, this.camera.position.x, this.camera.position.y, this.camera.position.z, this.yaw);
+    // Round 28b: in caves the stance follows the ceiling. Moving into a low passage drops Kra to a crouch
+    // or a crawl by itself; once the roof lifts again he rises (only out of a stance he was put in, so a
+    // crouch you chose yourself stays until you change it or run).
+    if (!this.terrain && this.volume && !this.mounted && !this.boating && this.autoStanceOn !== false) {
+      const rk = { stand: 0, crouch: 1, crawl: 2 }, need = this.ahead || "stand", go = speed > 0.05;
+      if (go && (rk[need] > rk[this.stance] || this.blockedLow)) {
+        const to = rk[need] > rk[this.stance] ? need : this.stance === "stand" ? "crouch" : "crawl";
+        if (to !== this.stance && this.setStance(to)) { this._autoLow = true; this.autoDucks = (this.autoDucks || 0) + 1; }
+        this._riseT = 0;
+      } else if (this._autoLow && rk[need] < rk[this.stance]) {
+        this._riseT = (this._riseT || 0) + dt;
+        if (this._riseT > 0.35) {
+          this._riseT = 0;
+          const up = this.stance === "crawl" ? "crouch" : "stand";
+          if (this.canUseStance(up) && this.setStance(up) && up === "stand") this._autoLow = false;
+        }
+      } else this._riseT = 0;
+    }
     this.applyLook();
 
     if (!this.foundExit && this.cave && this.cave.exitId) {
@@ -660,10 +691,10 @@ export class Player {
       if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3") { this.setPace(+e.code.slice(5)); return; }
       if (e.code === "KeyC") {
         e.preventDefault();
-        this.setStance("crouch", { toggle: true });
+        this.setStance("crouch", { toggle: true }); this._autoLow = false;
       } else if (e.code === "KeyZ" || e.code === "ControlLeft" || e.code === "ControlRight") {
         e.preventDefault();
-        this.setStance("crawl", { toggle: true });
+        this.setStance("crawl", { toggle: true }); this._autoLow = false;
       }
     };
     this._onKeyUp = (e) => this.keys.delete(e.code);

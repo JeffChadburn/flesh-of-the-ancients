@@ -446,6 +446,14 @@ export class Caveman {
         [C, 0.16, 0.3, 0.25, 0.05, 0.65], [this.hips, 0.12, -0.12, -0.2, 0.05, 0.7], [aL.sh, 0, -0.22, -0.05, 0.035, 0.75], [C, -0.14, 0.2, 0.28, 0.06, 0.8], [lR.th, 0, -0.15, -0.06, 0.04, 0.9]];
       for (const [par, x, y, z, r, need] of S) {
         const m = new THREE.Mesh(geo, this.bloodMat); m.position.set(x, y, z); m.scale.set(r * 0.95, r * 1.25, r * 0.12); m.userData.z = z;
+        if (par === C) {
+          // round 28b: sit chest / back stains on the torso's oval surface (they floated off the sides and back)
+          const a = 0.2 + 0.03 * Math.min(1, Math.max(0, y / 0.58)), bz = a * 0.72, cx = Math.max(-0.62 * a, Math.min(0.62 * a, x)), u = cx / a;
+          const zs = Math.sign(z) * (bz * Math.sqrt(1 - u * u) + 0.006);
+          m.position.set(cx, y, zs); m.userData.z = zs;
+          m.rotation.y = Math.atan2(cx / (a * a), zs / (bz * bz)) - (zs < 0 ? Math.PI : 0); // face along the surface normal
+          m.scale.multiplyScalar(0.85);
+        }
         m.rotation.z = (x * 31 + y * 17) % 1.2; par.add(m); m.castShadow = false; m.userData.need = need; this.stains.push(m);
         (par === this.neck ? this.headParts : this.bodyParts).push(m);
       }
@@ -454,7 +462,7 @@ export class Caveman {
     const over = this.gear && (this.gear.jerkin?.[0]?.visible || this.gear.ironmail?.[0]?.visible) ? 0.03 : 0;
     for (const m of this.stains) {
       m.visible = k >= m.userData.need && !this.fp;
-      if (m.parent === this.chest) m.position.z = m.userData.z + Math.sign(m.userData.z) * over;
+      if (m.parent === this.chest) m.position.z = m.userData.z + Math.sign(m.userData.z) * over * 0.6;
     }
   }
   freshKill() { this._fresh = 2.2; if (!this.stains || this._bloodK < 0.05) this.setBlood(Math.max(this._bloodK || 0, 0.05)); }

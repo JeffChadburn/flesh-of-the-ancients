@@ -29,7 +29,7 @@ setTimeout(function(){if(!document.getElementById("boot-err"))shown=true;},20000
       </div>
       <div id="seed-line">Seed <span id="seed-value">—</span></div>
       <div id="place" aria-live="polite"></div>
-      <div id="status"><span id="hp" aria-label="Health"></span><span id="kills">Kills 0</span><span id="deaths">Deaths 0</span></div>
+      <div id="status"><span id="hp" role="progressbar" aria-label="Health" aria-valuemin="0" aria-valuemax="100"><b></b></span><span id="kills">Kills 0</span><span id="deaths">Deaths 0</span></div>
     </div>
     <div id="compass" class="hidden" aria-live="off"><span class="arr"></span><span class="n"></span><span class="d"></span></div>
     <button id="menu-btn" type="button" aria-label="Menu">&#9776;</button>
@@ -63,8 +63,7 @@ setTimeout(function(){if(!document.getElementById("boot-err"))shown=true;},20000
       <div id="joystick" aria-label="Move"><div id="joy-knob"></div></div>
     </div>
     <div id="stance-bar">
-      <button id="btn-crouch" type="button">Crouch <kbd>C</kbd></button>
-      <button id="btn-crawl" type="button">Crawl <kbd>Z</kbd></button>
+      <button id="btn-stance" type="button" aria-label="Stance: tap to crouch, crawl, crouch, stand">Stand <kbd>C / Z</kbd></button>
       <button id="btn-view" type="button">1st person <kbd>V</kbd></button>
       <button id="btn-torch" type="button" title="Raise / lower the torch">🔥 Torch <kbd>L</kbd></button>
       <button id="btn-weapon" type="button">Bow <kbd>Q</kbd></button>
